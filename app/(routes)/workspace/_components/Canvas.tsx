@@ -3,7 +3,7 @@ import { Excalidraw, MainMenu, WelcomeScreen } from "@excalidraw/excalidraw";
 import { FILE } from '../../dashboard/_components/FileList';
 import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
-import { Sparkles, Cloud, Search, Loader2 } from 'lucide-react';
+import { Sparkles, Cloud, Search, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { AWS_ICONS } from './aws_icons_list';
 
@@ -11,9 +11,23 @@ const fetchSVGAsBase64 = async (url: string): Promise<string> => {
     const response = await fetch(url);
     if (!response.ok) throw new Error("Failed to fetch SVG");
     const svgText = await response.text();
-    const base64 = btoa(unescape(encodeURIComponent(svgText)));
+    
+    // Ensure standard attributes like xmlns are on the root svg tag if missing
+    let modifiedSvg = svgText;
+    if (!modifiedSvg.includes('xmlns=')) {
+        modifiedSvg = modifiedSvg.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"');
+    }
+    
+    // Robust base64 encoding supporting unicode
+    const utf8Bytes = new TextEncoder().encode(modifiedSvg);
+    let binary = '';
+    for (let i = 0; i < utf8Bytes.length; i++) {
+        binary += String.fromCharCode(utf8Bytes[i]);
+    }
+    const base64 = btoa(binary);
     return `data:image/svg+xml;base64,${base64}`;
 };
+
 
 
 interface CanvasProps {
@@ -58,6 +72,7 @@ function Canvas({
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedCategory, setSelectedCategory] = useState<string>('all');
     const [loadingIcon, setLoadingIcon] = useState<string | null>(null);
+    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
     // Self-Healing Session Restorer for AWS Icons
     useEffect(() => {
@@ -109,6 +124,44 @@ function Canvas({
 
         restoreAWSIcons();
     }, [excalidrawAPI, fileData?.whiteboard]);
+
+    const handleDragStart = (e: React.DragEvent, icon: any, type: 'standard' | 'aws') => {
+        e.dataTransfer.setData('text/plain', JSON.stringify({ icon, type }));
+        e.dataTransfer.effectAllowed = 'move';
+    };
+
+    const handleDrop = async (e: React.DragEvent) => {
+        e.preventDefault();
+        if (!excalidrawAPI) return;
+
+        try {
+            const dataStr = e.dataTransfer.getData('text/plain');
+            if (!dataStr) return;
+
+            const { icon, type } = JSON.parse(dataStr);
+            
+            const container = e.currentTarget as HTMLDivElement;
+            const rect = container.getBoundingClientRect();
+            const clientX = e.clientX;
+            const clientY = e.clientY;
+
+            const appState = excalidrawAPI.getAppState() || {};
+            const scrollX = appState.scrollX || 0;
+            const scrollY = appState.scrollY || 0;
+            const zoomValue = appState.zoom?.value || 1;
+
+            const x = (clientX - rect.left) / zoomValue - scrollX;
+            const y = (clientY - rect.top) / zoomValue - scrollY;
+
+            if (type === 'standard') {
+                handleInsertNode(icon, x, y);
+            } else if (type === 'aws') {
+                handleInsertAWSNode(icon, x, y);
+            }
+        } catch (err) {
+            console.error("Error handling dropped node:", err);
+        }
+    };
 
     // Keep track of trigger changes to avoid firing on initial mount
     const lastUndoTriggerRef = useRef(0);
@@ -212,7 +265,7 @@ function Canvas({
         }, 1500);
     };
 
-    const handleInsertNode = (node: any) => {
+    const handleInsertNode = (node: any, customX?: number, customY?: number) => {
         if (!excalidrawAPI) {
             toast.error("Excalidraw API not loaded yet.");
             return;
@@ -220,13 +273,20 @@ function Canvas({
 
         const currentElements = excalidrawAPI.getSceneElements() || [];
         
-        // Compute good viewport position based on panning and zoom
-        const scrollX = excalidrawAPI.getAppState()?.scrollX || 0;
-        const scrollY = excalidrawAPI.getAppState()?.scrollY || 0;
-        const zoomValue = excalidrawAPI.getAppState()?.zoom?.value || 1;
-        
-        const x = -scrollX + 150 / zoomValue;
-        const y = -scrollY + 120 / zoomValue;
+        let x = 0;
+        let y = 0;
+        if (customX !== undefined && customY !== undefined) {
+            x = customX;
+            y = customY;
+        } else {
+            // Compute good viewport position based on panning and zoom
+            const scrollX = excalidrawAPI.getAppState()?.scrollX || 0;
+            const scrollY = excalidrawAPI.getAppState()?.scrollY || 0;
+            const zoomValue = excalidrawAPI.getAppState()?.zoom?.value || 1;
+            
+            x = -scrollX + 150 / zoomValue;
+            y = -scrollY + 120 / zoomValue;
+        }
 
         const boxId = `box_${Math.random().toString(36).substr(2, 9)}`;
         const textId = `text_${Math.random().toString(36).substr(2, 9)}`;
@@ -310,7 +370,7 @@ function Canvas({
         toast.success(`Inserted ${node.label} node!`);
     };
 
-    const handleInsertAWSNode = async (icon: any) => {
+    const handleInsertAWSNode = async (icon: any, customX?: number, customY?: number) => {
         if (!excalidrawAPI) {
             toast.error("Excalidraw API not loaded yet.");
             return;
@@ -318,26 +378,23 @@ function Canvas({
 
         setLoadingIcon(icon.id);
         try {
-            // Register file with Excalidraw if not registered already
-            const currentFiles = excalidrawAPI.getFiles() || {};
-            if (!currentFiles[icon.id]) {
-                const base64 = await fetchSVGAsBase64(icon.url);
-                await excalidrawAPI.addFiles([{
-                    id: icon.id,
-                    dataURL: base64,
-                    mimeType: "image/svg+xml"
-                }]);
-            }
-
+            const base64 = await fetchSVGAsBase64(icon.url);
             const currentElements = excalidrawAPI.getSceneElements() || [];
             
-            // Compute viewport coordinates based on panning and zoom
-            const scrollX = excalidrawAPI.getAppState()?.scrollX || 0;
-            const scrollY = excalidrawAPI.getAppState()?.scrollY || 0;
-            const zoomValue = excalidrawAPI.getAppState()?.zoom?.value || 1;
-            
-            const x = -scrollX + 150 / zoomValue;
-            const y = -scrollY + 120 / zoomValue;
+            let x = 0;
+            let y = 0;
+            if (customX !== undefined && customY !== undefined) {
+                x = customX;
+                y = customY;
+            } else {
+                // Compute viewport coordinates based on panning and zoom
+                const scrollX = excalidrawAPI.getAppState()?.scrollX || 0;
+                const scrollY = excalidrawAPI.getAppState()?.scrollY || 0;
+                const zoomValue = excalidrawAPI.getAppState()?.zoom?.value || 1;
+                
+                x = -scrollX + 150 / zoomValue;
+                y = -scrollY + 120 / zoomValue;
+            }
 
             const imageId = `img_${Math.random().toString(36).substr(2, 9)}`;
             const textId = `text_${Math.random().toString(36).substr(2, 9)}`;
@@ -411,8 +468,18 @@ function Canvas({
 
             const newElements = [...currentElements, imageElement, textElement];
             
+            const filesObj = {
+                [icon.id]: {
+                    id: icon.id,
+                    dataURL: base64,
+                    mimeType: "image/svg+xml",
+                    created: Date.now()
+                }
+            };
+
             excalidrawAPI.updateScene({
-                elements: newElements
+                elements: newElements,
+                files: filesObj
             });
             
             handleCanvasChange(newElements);
@@ -435,132 +502,159 @@ function Canvas({
     const displayedIcons = filteredAWSIcons.slice(0, 100);
 
     return (
-    <div style={{ height: "calc(100vh - 80px)", position: "relative" }}>
+    <div 
+      style={{ height: "calc(100vh - 80px)", position: "relative" }}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={handleDrop}
+    >
       {/* Floating System Design Toolset */}
-      <div className="absolute top-4 left-4 z-[99] flex flex-col bg-white/95 backdrop-blur-md dark:bg-slate-900/95 rounded-2xl border border-slate-200/60 dark:border-slate-800/80 shadow-2xl w-[280px] h-[460px] pointer-events-auto overflow-hidden transition-all">
-        {/* Header */}
-        <div className="p-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-1.5">
-            <Cloud className="h-4 w-4 text-blue-500 animate-pulse shrink-0" />
-            <span className="text-[11px] font-black text-slate-800 dark:text-white uppercase tracking-wider">Canvas Elements</span>
-          </div>
-          {/* Quick Tab Switcher */}
-          <div className="flex p-0.5 bg-slate-100 dark:bg-slate-950 rounded-lg text-[10px] font-bold">
-            <button
-              onClick={() => setActiveTab('standard')}
-              className={`px-2 py-1 rounded-md transition-all ${activeTab === 'standard' ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:hover:text-zinc-200'}`}
-            >
-              Standard
-            </button>
-            <button
-              onClick={() => setActiveTab('aws')}
-              className={`px-2 py-1 rounded-md transition-all ${activeTab === 'aws' ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:hover:text-zinc-200'}`}
-            >
-              AWS
-            </button>
-          </div>
-        </div>
-
-        {/* Tab Contents */}
-        <div className="flex-1 overflow-y-auto p-3 flex flex-col min-h-0">
-          {activeTab === 'standard' ? (
-            <div className="grid grid-cols-2 gap-2">
-              {SYSTEM_NODES.map((node) => (
-                <button
-                  key={node.type}
-                  onClick={() => handleInsertNode(node)}
-                  className="flex flex-col items-center justify-center p-2 rounded-xl bg-slate-50 hover:bg-blue-50/60 border border-slate-100 hover:border-blue-200 dark:bg-slate-950 dark:hover:bg-blue-950/20 dark:border-zinc-900 dark:hover:border-blue-900/30 transition-all active:scale-95 group"
-                  title={`Insert ${node.label}`}
-                >
-                  <span className="text-xl group-hover:scale-110 transition-transform">{node.emoji}</span>
-                  <span className="text-[10px] font-bold text-slate-500 dark:text-zinc-400 mt-1 truncate max-w-full text-center group-hover:text-blue-600 dark:group-hover:text-blue-400">
-                    {node.label.replace('AWS ', '')}
-                  </span>
-                </button>
-              ))}
+      {isSidebarCollapsed ? (
+        <button
+          onClick={() => setIsSidebarCollapsed(false)}
+          className="absolute top-4 left-4 z-[99] flex items-center gap-2 bg-white/95 backdrop-blur-md hover:bg-slate-50 px-3 py-2 rounded-xl border border-slate-200/60 shadow-xl pointer-events-auto transition-all active:scale-95 text-slate-800"
+          title="Expand Panel"
+        >
+          <Cloud className="h-4 w-4 text-blue-500 animate-pulse shrink-0" />
+          <span className="text-[10px] font-bold uppercase tracking-wider">Canvas Elements</span>
+          <ChevronRight className="h-4 w-4 text-slate-400 ml-1" />
+        </button>
+      ) : (
+        <div className="absolute top-4 left-4 z-[99] flex flex-col bg-white/95 backdrop-blur-md rounded-2xl border border-slate-200/60 shadow-2xl w-[280px] h-[460px] pointer-events-auto overflow-hidden transition-all">
+          {/* Header */}
+          <div className="p-3 border-b border-slate-100 flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setIsSidebarCollapsed(true)}
+                className="p-1 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition-all mr-0.5"
+                title="Collapse Panel"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <Cloud className="h-4 w-4 text-blue-500 animate-pulse shrink-0" />
+              <span className="text-[10px] font-black text-slate-800 uppercase tracking-wider">Canvas Elements</span>
             </div>
-          ) : (
-            <div className="flex-1 flex flex-col min-h-0 gap-2">
-              {/* AWS Search Bar */}
-              <div className="relative shrink-0">
-                <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Search 800+ AWS Icons..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-8 pr-7 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-blue-500/50 focus:border-blue-500/80 dark:bg-slate-950 dark:border-zinc-800 dark:text-white"
-                />
-                {searchQuery && (
-                  <button 
-                    onClick={() => setSearchQuery('')}
-                    className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-300 text-[10px]"
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
+            {/* Quick Tab Switcher */}
+            <div className="flex p-0.5 bg-slate-100 rounded-lg text-[10px] font-bold">
+              <button
+                onClick={() => setActiveTab('standard')}
+                className={`px-2 py-1 rounded-md transition-all ${activeTab === 'standard' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+              >
+                Standard
+              </button>
+              <button
+                onClick={() => setActiveTab('aws')}
+                className={`px-2 py-1 rounded-md transition-all ${activeTab === 'aws' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+              >
+                AWS
+              </button>
+            </div>
+          </div>
 
-              {/* AWS Category Tabs */}
-              <div className="flex gap-1 overflow-x-auto pb-1.5 scrollbar-thin scrollbar-thumb-slate-200 select-none shrink-0">
-                {[
-                  { id: 'all', label: 'All' },
-                  { id: 'architecture-service', label: 'Service' },
-                  { id: 'resource', label: 'Resource' },
-                  { id: 'architecture-group', label: 'Group' },
-                  { id: 'category', label: 'Category' }
-                ].map(cat => (
+          {/* Tab Contents */}
+          <div className="flex-1 overflow-y-auto p-3 flex flex-col min-h-0">
+            {activeTab === 'standard' ? (
+              <div className="grid grid-cols-2 gap-2">
+                {SYSTEM_NODES.map((node) => (
                   <button
-                    key={cat.id}
-                    onClick={() => setSelectedCategory(cat.id)}
-                    className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold border shrink-0 transition-all ${selectedCategory === cat.id ? 'bg-blue-500 text-white border-blue-500' : 'bg-slate-50 text-slate-500 border-slate-100 hover:bg-slate-100 dark:bg-slate-950 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-slate-900'}`}
+                    key={node.type}
+                    onClick={() => handleInsertNode(node)}
+                    draggable={true}
+                    onDragStart={(e) => handleDragStart(e, node, 'standard')}
+                    className="flex flex-col items-center justify-center p-2 rounded-xl bg-slate-50 hover:bg-blue-50/60 border border-slate-100 hover:border-blue-200 transition-all active:scale-95 group cursor-grab active:cursor-grabbing"
+                    title={`Drag or Click to insert ${node.label}`}
                   >
-                    {cat.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* AWS Icons Grid */}
-              <div className="flex-1 overflow-y-auto pr-1 grid grid-cols-3 gap-1.5 min-h-0">
-                {displayedIcons.map((icon) => (
-                  <button
-                    key={icon.id}
-                    disabled={loadingIcon !== null}
-                    onClick={() => handleInsertAWSNode(icon)}
-                    className={`flex flex-col items-center justify-between p-1.5 rounded-xl bg-slate-50 border border-slate-100 dark:bg-slate-950 dark:border-zinc-900 hover:bg-blue-50/50 hover:border-blue-200 dark:hover:bg-blue-950/10 dark:hover:border-blue-900/30 transition-all group active:scale-95 h-[76px] relative ${loadingIcon === icon.id ? 'opacity-70 border-blue-500 bg-blue-50/20' : ''}`}
-                    title={icon.label}
-                  >
-                    {loadingIcon === icon.id ? (
-                      <div className="flex-1 flex items-center justify-center">
-                        <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />
-                      </div>
-                    ) : (
-                      <div className="flex-1 flex items-center justify-center p-0.5">
-                        <img 
-                          src={icon.url} 
-                          alt={icon.label} 
-                          className="w-8 h-8 object-contain group-hover:scale-110 transition-transform"
-                          loading="lazy"
-                        />
-                      </div>
-                    )}
-                    <span className="text-[8px] leading-tight font-semibold text-slate-500 dark:text-zinc-400 text-center line-clamp-2 w-full mt-1 group-hover:text-blue-600 dark:group-hover:text-blue-400">
-                      {icon.label.replace(/^Amazon\s+|AWS\s+/, '')}
+                    <span className="text-xl group-hover:scale-110 transition-transform">{node.emoji}</span>
+                    <span className="text-[10px] font-bold text-slate-500 mt-1 truncate max-w-full text-center group-hover:text-blue-600">
+                      {node.label.replace('AWS ', '')}
                     </span>
                   </button>
                 ))}
               </div>
-              
-              {/* Pagination/Status line */}
-              <div className="text-[8px] text-slate-400 dark:text-zinc-500 font-semibold px-1 text-center mt-1 border-t border-slate-100 dark:border-slate-800/80 pt-1.5 shrink-0">
-                {filteredAWSIcons.length > 100 
-                  ? `Showing first 100 of ${filteredAWSIcons.length} matching icons` 
-                  : `Found ${filteredAWSIcons.length} matching icons`}
+            ) : (
+              <div className="flex-1 flex flex-col min-h-0 gap-2">
+                {/* AWS Search Bar */}
+                <div className="relative shrink-0">
+                  <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search 800+ AWS Icons..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-8 pr-7 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-blue-500/50 focus:border-blue-500/80 text-slate-800"
+                  />
+                  {searchQuery && (
+                    <button 
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 text-[10px]"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {/* AWS Category Tabs */}
+                <div className="flex gap-1 overflow-x-auto pb-1.5 scrollbar-thin scrollbar-thumb-slate-200 select-none shrink-0">
+                  {[
+                    { id: 'all', label: 'All' },
+                    { id: 'architecture-service', label: 'Service' },
+                    { id: 'resource', label: 'Resource' },
+                    { id: 'architecture-group', label: 'Group' },
+                    { id: 'category', label: 'Category' }
+                  ].map(cat => (
+                    <button
+                      key={cat.id}
+                      onClick={() => setSelectedCategory(cat.id)}
+                      className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold border shrink-0 transition-all ${selectedCategory === cat.id ? 'bg-blue-500 text-white border-blue-500' : 'bg-slate-50 text-slate-500 border-slate-100 hover:bg-slate-100'}`}
+                    >
+                      {cat.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* AWS Icons Grid */}
+                <div className="flex-1 overflow-y-auto pr-1 grid grid-cols-3 gap-1.5 min-h-0">
+                  {displayedIcons.map((icon) => (
+                    <button
+                      key={icon.id}
+                      disabled={loadingIcon !== null}
+                      onClick={() => handleInsertAWSNode(icon)}
+                      draggable={true}
+                      onDragStart={(e) => handleDragStart(e, icon, 'aws')}
+                      className={`flex flex-col items-center justify-between p-1.5 rounded-xl bg-slate-50 border border-slate-100 hover:bg-blue-50/50 hover:border-blue-200 transition-all group active:scale-95 h-[76px] relative cursor-grab active:cursor-grabbing ${loadingIcon === icon.id ? 'opacity-70 border-blue-500 bg-blue-50/20' : ''}`}
+                      title={`Drag or Click to insert ${icon.label}`}
+                    >
+                      {loadingIcon === icon.id ? (
+                        <div className="flex-1 flex items-center justify-center">
+                          <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />
+                        </div>
+                      ) : (
+                        <div className="flex-1 flex items-center justify-center p-0.5">
+                          <img 
+                            src={icon.url} 
+                            alt={icon.label} 
+                            className="w-8 h-8 object-contain group-hover:scale-110 transition-transform"
+                            loading="lazy"
+                          />
+                        </div>
+                      )}
+                      <span className="text-[8px] leading-tight font-semibold text-slate-500 text-center line-clamp-2 w-full mt-1 group-hover:text-blue-600">
+                        {icon.label.replace(/^Amazon\s+|AWS\s+/, '')}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                
+                {/* Pagination/Status line */}
+                <div className="text-[8px] text-slate-400 font-semibold px-1 text-center mt-1 border-t border-slate-100 pt-1.5 shrink-0">
+                  {filteredAWSIcons.length > 100 
+                    ? `Showing first 100 of ${filteredAWSIcons.length} matching icons` 
+                    : `Found ${filteredAWSIcons.length} matching icons`}
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
    {fileData&& <Excalidraw 
     theme='light'

@@ -598,10 +598,10 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
                                                         <span className="text-[10px] bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded-full font-bold group-hover:hidden transition-all">
                                                             {totalFiles}
                                                         </span>
-                                                        <div className="hidden group-hover:block transition-all">
+                                                        <div className="hidden group-hover:flex items-center transition-all">
                                                             <DropdownMenu>
                                                                 <DropdownMenuTrigger asChild>
-                                                                    <button className="p-1 rounded hover:bg-slate-200 dark:hover:bg-zinc-800 text-slate-400 hover:text-slate-600 dark:text-zinc-500 dark:hover:text-zinc-300">
+                                                                    <button className="p-1 rounded hover:bg-slate-200 dark:hover:bg-zinc-800 text-slate-400 hover:text-slate-600 dark:text-zinc-500 dark:hover:text-zinc-300 flex items-center justify-center">
                                                                         <MoreHorizontal className="h-3.5 w-3.5" />
                                                                     </button>
                                                                 </DropdownMenuTrigger>
@@ -612,7 +612,7 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
                                                                             setNewFolderInput(childNode.name);
                                                                             setIsFolderRenameOpen(true);
                                                                         }}
-                                                                        className="gap-2 cursor-pointer rounded-lg px-2.5 py-1.5 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-900 transition-all text-xs font-medium"
+                                                                        className="flex items-center gap-2 cursor-pointer rounded-lg px-2.5 py-1.5 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-900 transition-all text-xs font-medium"
                                                                     >
                                                                         <Edit2 className="h-3.5 w-3.5 text-slate-500" /> Rename Folder
                                                                     </DropdownMenuItem>
@@ -658,15 +658,15 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
                                                                                     setSidebarRenameInput(file.fileName);
                                                                                     setIsSidebarRenameOpen(true);
                                                                                 }}
-                                                                                className="gap-2 cursor-pointer rounded-lg px-2 py-1.5 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-900 transition-all text-xs font-medium"
+                                                                                className="flex items-center gap-2 cursor-pointer rounded-lg px-2 py-1.5 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-900 transition-all text-xs font-medium"
                                                                             >
                                                                                 <Edit2 className="h-3.5 w-3.5 text-slate-500" /> Rename
                                                                             </DropdownMenuItem>
                                                                             <DropdownMenuItem
                                                                                 onClick={() => handleSidebarArchive(file)}
-                                                                                className="gap-2 cursor-pointer rounded-lg px-2 py-1.5 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-900 transition-all text-xs font-medium"
+                                                                                className="flex items-center gap-2 cursor-pointer rounded-lg px-2 py-1.5 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-900 transition-all text-xs font-medium"
                                                                             >
-                                                                                <Archive className="h-3 w-3 text-slate-500" /> {file.archive ? 'Restore' : 'Archive'}
+                                                                                <Archive className="h-3.5 w-3.5 text-slate-500" /> {file.archive ? 'Restore' : 'Archive'}
                                                                             </DropdownMenuItem>
                                                                             <DropdownMenuItem
                                                                                 onClick={() => {
@@ -674,7 +674,7 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
                                                                                     setSidebarMoveInput(file.folder || '');
                                                                                     setIsSidebarMoveOpen(true);
                                                                                 }}
-                                                                                className="gap-2 cursor-pointer rounded-lg px-2 py-1.5 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-900 transition-all text-xs font-medium"
+                                                                                className="flex items-center gap-2 cursor-pointer rounded-lg px-2 py-1.5 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-900 transition-all text-xs font-medium"
                                                                             >
                                                                                 <Folder className="h-3.5 w-3.5 text-slate-500" /> Move Folder
                                                                             </DropdownMenuItem>
@@ -683,7 +683,7 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
                                                                                     setSidebarFileToDelete(file);
                                                                                     setIsSidebarDeleteOpen(true);
                                                                                 }}
-                                                                                className="gap-2 cursor-pointer rounded-lg px-2 py-1.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 transition-all text-xs font-medium"
+                                                                                className="flex items-center gap-2 cursor-pointer rounded-lg px-2 py-1.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 transition-all text-xs font-medium"
                                                                             >
                                                                                 <Trash2 className="h-3.5 w-3.5 text-red-500" /> Delete
                                                                             </DropdownMenuItem>
@@ -738,13 +738,13 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
                                                                     setSidebarRenameInput(file.fileName);
                                                                     setIsSidebarRenameOpen(true);
                                                                 }}
-                                                                className="gap-2 cursor-pointer rounded-lg px-2 py-1.5 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-900 transition-all text-xs font-medium"
+                                                                className="flex items-center gap-2 cursor-pointer rounded-lg px-2 py-1.5 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-900 transition-all text-xs font-medium"
                                                             >
                                                                 <Edit2 className="h-3.5 w-3.5 text-slate-500" /> Rename
                                                             </DropdownMenuItem>
                                                             <DropdownMenuItem
                                                                 onClick={() => handleSidebarArchive(file)}
-                                                                className="gap-2 cursor-pointer rounded-lg px-2 py-1.5 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-900 transition-all text-xs font-medium"
+                                                                className="flex items-center gap-2 cursor-pointer rounded-lg px-2 py-1.5 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-900 transition-all text-xs font-medium"
                                                             >
                                                                 <Archive className="h-3.5 w-3.5 text-slate-500" /> {file.archive ? 'Restore' : 'Archive'}
                                                             </DropdownMenuItem>
@@ -754,7 +754,7 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
                                                                     setSidebarMoveInput(file.folder || '');
                                                                     setIsSidebarMoveOpen(true);
                                                                 }}
-                                                                className="gap-2 cursor-pointer rounded-lg px-2 py-1.5 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-900 transition-all text-xs font-medium"
+                                                                className="flex items-center gap-2 cursor-pointer rounded-lg px-2 py-1.5 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-900 transition-all text-xs font-medium"
                                                             >
                                                                 <Folder className="h-3.5 w-3.5 text-slate-500" /> Move Folder
                                                             </DropdownMenuItem>
@@ -763,7 +763,7 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
                                                                     setSidebarFileToDelete(file);
                                                                     setIsSidebarDeleteOpen(true);
                                                                 }}
-                                                                className="gap-2 cursor-pointer rounded-lg px-2 py-1.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 transition-all text-xs font-medium"
+                                                                className="flex items-center gap-2 cursor-pointer rounded-lg px-2 py-1.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 transition-all text-xs font-medium"
                                                             >
                                                                 <Trash2 className="h-3.5 w-3.5 text-red-500" /> Delete
                                                             </DropdownMenuItem>
