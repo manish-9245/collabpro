@@ -6,6 +6,7 @@ import { useKindeBrowserClient } from '@kinde-oss/kinde-auth-nextjs'
 import { Search, Send, Users, Shield, ShieldCheck, Mail, Loader2, UserPlus, CheckCircle2 } from 'lucide-react'
 import Image from 'next/image'
 import { ActiveTeamContext } from '@/app/_context/ActiveTeamContext'
+import { FileListContext } from '@/app/_context/FilesListContext'
 import { useQuery, useMutation } from 'convex/react'
 import { api } from '@/convex/_generated/api'
 import {
@@ -22,6 +23,7 @@ import { toast } from 'sonner'
 function Header() {
   const { user }: any = useKindeBrowserClient()
   const { activeTeam } = useContext(ActiveTeamContext)
+  const { searchQuery, setSearchQuery } = useContext(FileListContext) || {}
   const [inviteEmail, setInviteEmail] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isOpen, setIsOpen] = useState(false)
@@ -67,6 +69,8 @@ function Header() {
         <input 
           type='text' 
           placeholder='Search files...' 
+          value={searchQuery || ''}
+          onChange={(e) => setSearchQuery && setSearchQuery(e.target.value)}
           className='outline-none text-sm bg-transparent w-full text-slate-700 dark:text-slate-200 placeholder-slate-400'
         />
       </div>
@@ -91,30 +95,30 @@ function Header() {
             Invite & Manage
           </Button>
         </DialogTrigger>
-        <DialogContent className='bg-slate-900 border border-slate-800 text-slate-100 max-w-md rounded-2xl shadow-2xl p-6 overflow-hidden'>
+        <DialogContent className='bg-white border border-slate-200 text-slate-800 max-w-md rounded-2xl shadow-xl p-6 overflow-hidden'>
           <DialogHeader className='space-y-2'>
-            <DialogTitle className='text-xl font-bold flex items-center gap-2 text-white'>
-              <Users className='h-5 w-5 text-blue-400' />
+            <DialogTitle className='text-xl font-bold flex items-center gap-2 text-slate-950'>
+              <Users className='h-5 w-5 text-blue-600' />
               Team Management
             </DialogTitle>
-            <DialogDescription className='text-slate-400 text-sm'>
-              Manage collaborators and invite new members to <span className='text-blue-400 font-semibold'>{activeTeam?.teamName || 'your active team'}</span>.
+            <DialogDescription className='text-slate-500 text-sm'>
+              Manage collaborators and invite new members to <span className='text-blue-600 font-semibold'>{activeTeam?.teamName || 'your active team'}</span>.
             </DialogDescription>
           </DialogHeader>
 
           {/* Invitation Form */}
           <form onSubmit={handleInvite} className='mt-4 space-y-3'>
             <div className='flex flex-col gap-1.5'>
-              <label className='text-xs font-semibold text-slate-400 uppercase tracking-wider'>Invite New Collaborator</label>
+              <label className='text-xs font-semibold text-slate-500 uppercase tracking-wider'>Invite New Collaborator</label>
               <div className='flex gap-2'>
                 <div className='relative flex-1'>
-                  <Mail className='absolute left-3 top-2.5 h-4 w-4 text-slate-500' />
+                  <Mail className='absolute left-3 top-2.5 h-4 w-4 text-slate-400' />
                   <Input
                     type='email'
                     placeholder='colleague@company.com'
                     value={inviteEmail}
                     onChange={(e) => setInviteEmail(e.target.value)}
-                    className='pl-9 bg-slate-950/80 border-slate-800 text-white rounded-lg placeholder-slate-600 focus:ring-blue-500/50 focus:border-blue-500'
+                    className='pl-9 bg-slate-50 border-slate-200 text-slate-900 rounded-lg placeholder-slate-400 focus:ring-blue-500/20 focus:border-blue-500'
                     disabled={isSubmitting}
                   />
                 </div>
@@ -138,46 +142,46 @@ function Header() {
 
           {/* Active Members List */}
           <div className='mt-6 space-y-3'>
-            <div className='flex justify-between items-center border-b border-slate-800 pb-2'>
-              <span className='text-xs font-bold text-slate-400 uppercase tracking-wider'>Current Members</span>
-              <span className='text-xs text-slate-500 bg-slate-950/80 px-2 py-0.5 rounded-full border border-slate-800 font-medium'>
+            <div className='flex justify-between items-center border-b border-slate-100 pb-2'>
+              <span className='text-xs font-bold text-slate-500 uppercase tracking-wider'>Current Members</span>
+              <span className='text-xs text-slate-600 bg-slate-50 border border-slate-200/60 px-2 py-0.5 rounded-full font-medium'>
                 {members ? `${members.length} total` : 'Loading...'}
               </span>
             </div>
 
-            <div className='max-h-[220px] overflow-y-auto pr-1 space-y-2 scrollbar-thin scrollbar-thumb-slate-800'>
+            <div className='max-h-[220px] overflow-y-auto pr-1 space-y-2 scrollbar-thin scrollbar-thumb-slate-200'>
               {!members ? (
-                <div className='flex justify-center items-center py-8 text-slate-500 gap-2'>
-                  <Loader2 className='h-4 w-4 animate-spin text-blue-400' />
+                <div className='flex justify-center items-center py-8 text-slate-400 gap-2'>
+                  <Loader2 className='h-4 w-4 animate-spin text-blue-500' />
                   <span className='text-sm'>Loading teammates...</span>
                 </div>
               ) : members.length === 0 ? (
-                <div className='text-center py-6 text-sm text-slate-500'>
+                <div className='text-center py-6 text-sm text-slate-400'>
                   No members found.
                 </div>
               ) : (
                 members.map((member: any, index: number) => (
                   <div 
                     key={index} 
-                    className='flex items-center justify-between p-2.5 rounded-xl bg-slate-950/40 border border-slate-800/60 hover:border-slate-800 hover:bg-slate-950/80 transition-all duration-150'
+                    className='flex items-center justify-between p-2.5 rounded-xl bg-slate-50/50 border border-slate-100 hover:border-slate-200/80 hover:bg-slate-50 transition-all duration-150'
                   >
                     <div className='flex items-center gap-2.5 min-w-0'>
                       <div className='h-8 w-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-xs font-bold uppercase shadow-inner'>
                         {member.email.charAt(0)}
                       </div>
                       <div className='flex flex-col min-w-0'>
-                        <span className='text-sm font-medium text-slate-200 truncate pr-2'>{member.email}</span>
+                        <span className='text-sm font-medium text-slate-700 truncate pr-2'>{member.email}</span>
                       </div>
                     </div>
 
                     <div>
                       {member.role === 'owner' ? (
-                        <span className='inline-flex items-center gap-1 text-[11px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-full uppercase tracking-wider'>
+                        <span className='inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full uppercase tracking-wider'>
                           <ShieldCheck className='h-3 w-3' />
                           Owner
                         </span>
                       ) : (
-                        <span className='inline-flex items-center gap-1 text-[11px] font-bold text-slate-400 bg-slate-500/10 border border-slate-500/20 px-2.5 py-1 rounded-full uppercase tracking-wider'>
+                        <span className='inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-full uppercase tracking-wider'>
                           <Shield className='h-3 w-3' />
                           Member
                         </span>

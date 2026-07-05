@@ -1,12 +1,20 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Inter, Outfit } from "next/font/google";
 import "./globals.css";
 import ConvexClientProvider from "./ConvexClientProvider";
 import { Toaster } from "@/components/ui/sonner";
 import Head from "next/head";
 import Script from "next/script";
 
-const inter = Inter({ subsets: ["latin"] });
+const inter = Inter({ 
+  subsets: ["latin"],
+  variable: "--font-sans",
+});
+
+const outfit = Outfit({
+  subsets: ["latin"],
+  variable: "--font-display",
+});
 
 export const metadata: Metadata = {
   title: "CollabPro — Real-Time Whiteboard & Document Collaboration",
@@ -28,7 +36,7 @@ export default function RootLayout({
           crossOrigin="anonymous"
         />
       </Head>
-      <body className={inter.className}>
+      <body className={`${inter.variable} ${outfit.variable} antialiased`}>
         <ConvexClientProvider>
          {children}
          <Toaster />

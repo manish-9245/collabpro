@@ -1,6 +1,10 @@
 import { Button } from '@/components/ui/button'
-import { Archive, Flag, Github } from 'lucide-react'
+import { Archive, Flag, User, Settings, Bell, HelpCircle, Sparkles } from 'lucide-react'
 import React, { useState, useContext } from 'react'
+import { useRouter, usePathname } from 'next/navigation'
+import { useQuery } from 'convex/react'
+import { api } from '@/convex/_generated/api'
+import { useKindeBrowserClient } from '@kinde-oss/kinde-auth-nextjs'
 import {
   Dialog,
   DialogClose,
@@ -18,20 +22,80 @@ import { FileListContext } from '@/app/_context/FilesListContext'
 
 function SideNavBottomSection({onFileCreate,totalFiles}:any) {
   const { activeTab, setActiveTab, fileList_ } = useContext(FileListContext);
-  const menuList=[
+  const router = useRouter();
+  const pathname = usePathname();
+  const { user }: any = useKindeBrowserClient();
+
+  // Fetch pending invitations for this user
+  const invitations = useQuery(api.notifications.getInvitations, user?.email ? { userEmail: user.email } : 'skip' as any);
+  const pendingCount = invitations?.length || 0;
+
+  const menuList = [
     {
-      id:1,
-      name:'Getting Started',
-      icon:Flag,
-      path:''
+      id: 1,
+      name: 'Files',
+      icon: Flag,
+      path: '/dashboard',
+      action: () => {
+        setActiveTab && setActiveTab('all');
+        router.push('/dashboard');
+      },
+      isActive: pathname === '/dashboard' && activeTab !== 'archive'
     },
     {
-      id:3,
-      name:'Archive',
-      icon:Archive,
-      path:''
+      id: 2,
+      name: 'Profile',
+      icon: User,
+      path: '/dashboard/profile',
+      action: () => {
+        router.push('/dashboard/profile');
+      },
+      isActive: pathname === '/dashboard/profile'
+    },
+    {
+      id: 3,
+      name: 'Settings',
+      icon: Settings,
+      path: '/dashboard/settings',
+      action: () => {
+        router.push('/dashboard/settings');
+      },
+      isActive: pathname === '/dashboard/settings'
+    },
+    {
+      id: 4,
+      name: 'Notifications',
+      icon: Bell,
+      path: '/dashboard/notifications',
+      action: () => {
+        router.push('/dashboard/notifications');
+      },
+      isActive: pathname === '/dashboard/notifications',
+      badge: pendingCount > 0 ? pendingCount : null
+    },
+    {
+      id: 5,
+      name: 'Help Center',
+      icon: HelpCircle,
+      path: '/dashboard/help',
+      action: () => {
+        router.push('/dashboard/help');
+      },
+      isActive: pathname === '/dashboard/help'
+    },
+    {
+      id: 6,
+      name: 'Archive',
+      icon: Archive,
+      path: '/dashboard',
+      action: () => {
+        setActiveTab && setActiveTab('archive');
+        router.push('/dashboard');
+      },
+      isActive: pathname === '/dashboard' && activeTab === 'archive'
     }
   ]
+
   const [fileInput,setFileInput]=useState('');
   const [folderInput,setFolderInput]=useState('');
 
@@ -42,27 +106,27 @@ function SideNavBottomSection({onFileCreate,totalFiles}:any) {
       {menuList.map((menu,index)=>(
         <h2 
           key={index} 
-          onClick={() => {
-            if (menu.id === 3) {
-              setActiveTab && setActiveTab('archive');
-            } else if (menu.id === 1) {
-              setActiveTab && setActiveTab('all');
-            } else if (menu.id === 2) {
-              window.open('https://github.com', '_blank');
-            }
-          }}
-          className={`flex gap-2 p-2 px-3 text-[14px] rounded-lg cursor-pointer transition-all duration-150 items-center mb-1 ${
-            (menu.id === 3 && activeTab === 'archive') || (menu.id === 1 && activeTab === 'all')
+          onClick={menu.action}
+          className={`flex gap-2 p-2 px-3 text-[14px] rounded-lg cursor-pointer transition-all duration-150 items-center justify-between mb-1 ${
+            menu.isActive
               ? 'bg-blue-50 text-blue-600 font-semibold dark:bg-blue-950/40 dark:text-blue-400'
               : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-900'
           }`}
         >
-          <menu.icon className={`h-5 w-5 ${
-            (menu.id === 3 && activeTab === 'archive') || (menu.id === 1 && activeTab === 'all')
-              ? 'text-blue-500'
-              : 'text-zinc-500'
-          }`}/>
-          {menu.name}</h2>
+          <div className="flex items-center gap-2">
+            <menu.icon className={`h-5 w-5 ${
+              menu.isActive
+                ? 'text-blue-500'
+                : 'text-zinc-500'
+            }`}/>
+            {menu.name}
+          </div>
+          {menu.badge !== undefined && menu.badge !== null && (
+            <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white shadow-sm animate-pulse">
+              {menu.badge}
+            </span>
+          )}
+        </h2>
       ))}
 
       {/* Add New File Button  */}

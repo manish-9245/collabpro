@@ -7,19 +7,31 @@ generator client {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  name      String
-  password  String   @default("")
-  image     String?
-  createdAt DateTime @default(now())
+  id          String   @id @default(uuid())
+  email       String   @unique
+  name        String
+  password    String   @default("")
+  image       String?
+  title       String   @default("")
+  description String   @default("")
+  github      String   @default("")
+  twitter     String   @default("")
+  linkedin    String   @default("")
+  portfolio   String   @default("")
+  isPrivate   Boolean  @default(false)
+  createdAt   DateTime @default(now())
 }
 
 model Team {
-  id        String   @id @default(uuid())
-  teamName  String
-  createdBy String
-  createdAt DateTime @default(now())
+  id          String   @id @default(uuid())
+  teamName    String
+  createdBy   String
+  description String   @default("")
+  industry    String   @default("")
+  website     String   @default("")
+  github      String   @default("")
+  isPrivate   Boolean  @default(false)
+  createdAt   DateTime @default(now())
 }
 
 model File {
@@ -52,6 +64,26 @@ model FileVersion {
   createdByImage String   @default("")
   note           String   @default("")
   createdAt      DateTime @default(now())
+}
+
+model Invitation {
+  id           String   @id @default(uuid())
+  teamId       String
+  teamName     String
+  inviterEmail String
+  inviteeEmail String
+  status       String   @default("pending") // "pending", "accepted", "declined"
+  createdAt    DateTime @default(now())
+}
+
+model Notification {
+  id         String   @id @default(uuid())
+  userEmail  String   // Who gets the notification
+  title      String
+  message    String
+  type       String   @default("info") // "invite", "response", "system"
+  read       Boolean  @default(false)
+  createdAt  DateTime @default(now())
 }
 
 

@@ -64,6 +64,73 @@ export async function POST(request: Request) {
         });
         break;
       }
+      case 'user:updateUserProfile': {
+        const { email, title, description, github, twitter, linkedin, portfolio, isPrivate } = args || {};
+        result = await prisma.user.update({
+          where: { email },
+          data: { title, description, github, twitter, linkedin, portfolio, isPrivate },
+        });
+        break;
+      }
+      case 'user:getUserProfile': {
+        const { email, requesterEmail } = args || {};
+        const profile = await prisma.user.findUnique({
+          where: { email },
+        });
+        if (!profile) {
+          result = null;
+          break;
+        }
+        // Privacy logic: if private, only allow people who share at least one team with this user
+        if (profile.isPrivate && requesterEmail && requesterEmail !== email) {
+          const requesterTeams = await prisma.teamMember.findMany({
+            where: { userEmail: requesterEmail },
+          });
+          const requesterCreatedTeams = await prisma.team.findMany({
+            where: { createdBy: requesterEmail },
+          });
+          const requesterTeamIds = [...requesterTeams.map(t => t.teamId), ...requesterCreatedTeams.map(t => t.id)];
+
+          const userTeams = await prisma.teamMember.findMany({
+            where: { userEmail: email },
+          });
+          const userCreatedTeams = await prisma.team.findMany({
+            where: { createdBy: email },
+          });
+          const userTeamIds = [...userTeams.map(t => t.teamId), ...userCreatedTeams.map(t => t.id)];
+
+          const shared = requesterTeamIds.some(id => userTeamIds.includes(id));
+          if (!shared) {
+            // Scrub private details
+            result = {
+              id: profile.id,
+              email: profile.email,
+              name: profile.name,
+              image: profile.image,
+              isPrivate: true,
+              title: "Private Profile",
+              description: "This profile is private to organization & team members.",
+              github: "", twitter: "", linkedin: "", portfolio: ""
+            };
+            break;
+          }
+        }
+        result = profile;
+        break;
+      }
+      case 'user:searchUsers': {
+        const { query } = args || {};
+        result = await prisma.user.findMany({
+          where: {
+            OR: [
+              { email: { contains: query, mode: 'insensitive' } },
+              { name: { contains: query, mode: 'insensitive' } },
+            ],
+          },
+          take: 10,
+        });
+        break;
+      }
 
       // Teams Queries & Mutations
       case 'teams:getTeam': {
@@ -92,6 +159,88 @@ export async function POST(request: Request) {
         const { teamName, createdBy } = args || {};
         result = await prisma.team.create({
           data: { teamName, createdBy },
+        });
+        break;
+      }
+      case 'teams:getTeamProfile': {
+        const { teamId, requesterEmail } = args || {};
+        const team = await prisma.team.findUnique({
+          where: { id: teamId },
+        });
+        if (!team) {
+          result = null;
+          break;
+        }
+        // Privacy logic: if private, only allow members
+        if (team.isPrivate && requesterEmail && team.createdBy !== requesterEmail) {
+          const membership = await prisma.teamMember.findFirst({
+            where: { teamId, userEmail: requesterEmail },
+          });
+          if (!membership) {
+            result = {
+              id: team.id,
+              teamName: team.teamName,
+              createdBy: team.createdBy,
+              isPrivate: true,
+              description: "This team profile is private to team members.",
+              industry: "", website: "", github: ""
+            };
+            break;
+          }
+        }
+        result = team;
+        break;
+      }
+      case 'teams:updateTeamProfile': {
+        const { teamId, description, industry, website, github, isPrivate } = args || {};
+        result = await prisma.team.update({
+          where: { id: teamId },
+          data: { description, industry, website, github, isPrivate },
+        });
+        break;
+      }
+      case 'teams:leaveTeam': {
+        const { teamId, userEmail } = args || {};
+        // Owner cannot leave, they must delete or transfer (handled simply by verifying createdBy)
+        const team = await prisma.team.findUnique({
+          where: { id: teamId },
+        });
+        if (team?.createdBy === userEmail) {
+          throw new Error("As team creator, you cannot leave. You can manage or delete the team.");
+        }
+        result = await prisma.teamMember.deleteMany({
+          where: { teamId, userEmail },
+        });
+        // Create notification for team owner
+        await prisma.notification.create({
+          data: {
+            userEmail: team?.createdBy || "",
+            title: "Member Left Team",
+            message: `${userEmail} has left team ${team?.teamName}.`,
+            type: "response"
+          }
+        });
+        break;
+      }
+      case 'teams:removeMember': {
+        const { teamId, userEmail, ownerEmail } = args || {};
+        const team = await prisma.team.findUnique({
+          where: { id: teamId },
+        });
+        if (team?.createdBy !== ownerEmail) {
+          throw new Error("Only the team owner can remove members.");
+        }
+        result = await prisma.teamMember.deleteMany({
+          where: { teamId, userEmail },
+        });
+        // Create notification for removed member
+        await prisma.notification.create({
+          data: {
+            userEmail,
+            title: "Removed from Team",
+            message: `You have been removed from team ${team?.teamName} by the owner.`,
+            type: "system"
+          }
         });
         break;
       }
@@ -126,22 +275,52 @@ export async function POST(request: Request) {
       }
       case 'teams:inviteMember': {
         const { teamId, userEmail, role } = args || {};
-        const existing = await prisma.teamMember.findFirst({
+        const team = await prisma.team.findUnique({
+          where: { id: teamId },
+        });
+        if (!team) {
+          throw new Error("Team not found");
+        }
+        // Check if already in team
+        const existingMember = await prisma.teamMember.findFirst({
           where: { teamId, userEmail },
         });
-        if (existing) {
-          result = existing;
-          break;
+        if (existingMember || team.createdBy === userEmail) {
+          throw new Error("User is already a member of this team.");
         }
-        result = await prisma.teamMember.create({
+
+        // GitHub strategy: Create a pending invitation!
+        const existingInvite = await prisma.invitation.findFirst({
+          where: { teamId, inviteeEmail: userEmail, status: "pending" },
+        });
+        if (existingInvite) {
+          throw new Error("An invitation is already pending for this user.");
+        }
+
+        const invite = await prisma.invitation.create({
           data: {
             teamId,
-            userEmail,
-            role: role ?? 'member',
-          },
+            teamName: team.teamName,
+            inviterEmail: team.createdBy,
+            inviteeEmail: userEmail,
+            status: "pending",
+          }
         });
+
+        // Create notification for invitee
+        await prisma.notification.create({
+          data: {
+            userEmail,
+            title: "New Team Invitation",
+            message: `You have been invited to join team "${team.teamName}" by ${team.createdBy}.`,
+            type: "invite"
+          }
+        });
+
+        result = invite;
         break;
       }
+
 
       // Files Queries & Mutations
       case 'files:getFiles': {
@@ -334,6 +513,96 @@ export async function POST(request: Request) {
         });
         break;
       }
+      case 'files:updateVersionNote': {
+        const { versionId, note } = args || {};
+        result = await prisma.fileVersion.update({
+          where: { id: versionId },
+          data: { note },
+        });
+        break;
+      }
+      case 'notifications:getNotifications': {
+        const { userEmail } = args || {};
+        result = await prisma.notification.findMany({
+          where: { userEmail },
+          orderBy: { createdAt: 'desc' },
+        });
+        break;
+      }
+      case 'notifications:markRead': {
+        const { userEmail, notificationId } = args || {};
+        if (notificationId) {
+          result = await prisma.notification.update({
+            where: { id: notificationId },
+            data: { read: true },
+          });
+        } else {
+          result = await prisma.notification.updateMany({
+            where: { userEmail },
+            data: { read: true },
+          });
+        }
+        break;
+      }
+      case 'notifications:getInvitations': {
+        const { userEmail } = args || {};
+        result = await prisma.invitation.findMany({
+          where: { inviteeEmail: userEmail, status: "pending" },
+          orderBy: { createdAt: 'desc' },
+        });
+        break;
+      }
+      case 'notifications:respondToInvitation': {
+        const { invitationId, response } = args || {}; // response: "accept" or "decline"
+        const invite = await prisma.invitation.findUnique({
+          where: { id: invitationId },
+        });
+        if (!invite) {
+          throw new Error("Invitation not found");
+        }
+
+        const newStatus = response === 'accept' ? 'accepted' : 'declined';
+        await prisma.invitation.update({
+          where: { id: invitationId },
+          data: { status: newStatus },
+        });
+
+        if (response === 'accept') {
+          // Add as team member
+          await prisma.teamMember.create({
+            data: {
+              teamId: invite.teamId,
+              userEmail: invite.inviteeEmail,
+              role: 'member',
+            }
+          });
+
+          // Create acceptance notification for inviter
+          await prisma.notification.create({
+            data: {
+              userEmail: invite.inviterEmail,
+              title: "Invitation Accepted",
+              message: `${invite.inviteeEmail} accepted your invitation to join team "${invite.teamName}"!`,
+              type: "response"
+            }
+          });
+        } else {
+          // Create decline notification for inviter
+          await prisma.notification.create({
+            data: {
+              userEmail: invite.inviterEmail,
+              title: "Invitation Declined",
+              message: `${invite.inviteeEmail} declined your invitation to join team "${invite.teamName}".`,
+              type: "response"
+            }
+          });
+        }
+
+        result = { success: true, status: newStatus };
+        break;
+      }
+
+
 
       default:
         console.error(`Convex Mock Error: Method ${path} not implemented`);

@@ -41,7 +41,7 @@ export interface FILE {
 }
 
 function FileList() {
-  const { fileList_, setFileList_, activeTab, fileScope, setFileScope } = useContext(FileListContext);
+  const { fileList_, setFileList_, activeTab, fileScope, setFileScope, searchQuery } = useContext(FileListContext);
   const { activeTeam } = useContext(ActiveTeamContext);
   const { user }: any = useKindeBrowserClient();
   const router = useRouter();
@@ -146,6 +146,9 @@ function FileList() {
 
   // Filter files based on whether activeTab is 'archive'
   const filteredFiles = fileList_?.filter((file: FILE) => {
+    if (searchQuery && !file.fileName.toLowerCase().includes(searchQuery.toLowerCase())) {
+      return false;
+    }
     if (activeTab === 'archive') {
       return file.archive === true;
     }
@@ -274,7 +277,7 @@ function FileList() {
                       <img 
                         src={file.creatorImage || '/logo-1.png'}
                         alt='creator'
-                        className='rounded-full border border-slate-100 dark:border-zinc-800 w-6.5 h-6.5 object-cover'
+                        className='rounded-full border border-slate-100 dark:border-zinc-800 w-6 h-6 object-cover'
                         onError={(e) => {
                           (e.target as HTMLImageElement).src = '/logo-1.png';
                         }}

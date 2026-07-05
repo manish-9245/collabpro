@@ -16,11 +16,12 @@ function Workspace({params}:any) {
    const [savingStatus,setSavingStatus]=useState<'idle'|'saving'|'saved'>('idle');
 
    // Coordination for Undo/Redo
+   const [splitPct, setSplitPct] = useState(50);
    const [activePanel, setActivePanel] = useState<'document' | 'canvas'>('document');
-   const [undoTrigger, setUndoTrigger] = useState(0);
-   const [redoTrigger, setRedoTrigger] = useState(0);
    const [canUndo, setCanUndo] = useState(false);
    const [canRedo, setCanRedo] = useState(false);
+   const [undoTrigger, setUndoTrigger] = useState(0);
+   const [redoTrigger, setRedoTrigger] = useState(0);
 
    // Subscribe to file updates in real-time (polls behind the scenes in mock client)
    const fileData = useQuery(api.files.getFileById, params?.fileId ? { _id: params.fileId } : 'skip' as any);
@@ -66,12 +67,16 @@ function Workspace({params}:any) {
          canUndo={canUndo}
          canRedo={canRedo}
        />
- 
-       {/* Workspace Layout  */}
-       <div className={`flex-1 grid grid-cols-1 ${viewMode === 'both' ? 'md:grid-cols-2' : 'grid-cols-1'} overflow-hidden`}>
+
+       {/* Workspace Layout */}
+       <div className="flex-1 flex overflow-hidden w-full relative">
          {/* Document Panel */}
          <div 
-           className={`h-full overflow-y-auto ${viewMode === 'canvas' ? 'hidden' : 'block'}`}
+           style={{ 
+             width: viewMode === 'both' ? `${splitPct}%` : viewMode === 'document' ? '100%' : '0%',
+             display: viewMode === 'canvas' ? 'none' : 'block'
+           }}
+           className="h-full overflow-y-auto"
            onMouseDownCapture={() => setActivePanel('document')}
          >
            <Editor 
@@ -85,9 +90,38 @@ function Workspace({params}:any) {
              activePanel={activePanel}
            />
          </div>
+
+         {/* Draggable Divider (Only in "both" view mode) */}
+         {viewMode === 'both' && (
+           <div
+             className="w-1.5 h-full bg-slate-200 hover:bg-blue-500 cursor-col-resize transition-all duration-150 flex-shrink-0 relative z-50 flex items-center justify-center dark:bg-zinc-800 dark:hover:bg-blue-600"
+             onMouseDown={(e) => {
+               e.preventDefault();
+               const handleMouseMove = (moveEvent: MouseEvent) => {
+                 const newPct = (moveEvent.clientX / window.innerWidth) * 100;
+                 if (newPct > 15 && newPct < 85) {
+                   setSplitPct(newPct);
+                 }
+               };
+               const handleMouseUp = () => {
+                 window.removeEventListener('mousemove', handleMouseMove);
+                 window.removeEventListener('mouseup', handleMouseUp);
+               };
+               window.addEventListener('mousemove', handleMouseMove);
+               window.addEventListener('mouseup', handleMouseUp);
+             }}
+           >
+             <div className="w-[2px] h-8 rounded-full bg-slate-400 dark:bg-zinc-500" />
+           </div>
+         )}
+
          {/* Whiteboard/Canvas Panel */}
          <div 
-           className={`h-full border-l border-slate-200 dark:border-slate-800 ${viewMode === 'document' ? 'hidden' : 'block'}`}
+           style={{ 
+             width: viewMode === 'both' ? `${100 - splitPct}%` : viewMode === 'canvas' ? '100%' : '0%',
+             display: viewMode === 'document' ? 'none' : 'block'
+           }}
+           className="h-full border-l border-slate-200 dark:border-slate-800"
            onMouseDownCapture={() => setActivePanel('canvas')}
          >
            <Canvas
@@ -101,6 +135,7 @@ function Workspace({params}:any) {
            />
          </div>
        </div>
+
      </div>
    )
 }

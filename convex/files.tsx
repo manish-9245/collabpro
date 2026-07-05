@@ -119,3 +119,43 @@ export const updateFileFolder=mutation({
         return result;
     },
 })
+
+export const createVersion=mutation({
+    args:{
+        fileId:v.string(),
+        createdByName:v.optional(v.string()),
+        createdByImage:v.optional(v.string()),
+        note:v.optional(v.string()),
+    },
+    handler:async(ctx, args) => {
+        return null as any;
+    }
+})
+
+export const getVersions=query({
+    args:{
+        fileId:v.string(),
+    },
+    handler:async(ctx, args) => {
+        return [] as any;
+    }
+})
+
+export const restoreVersion=mutation({
+    args:{
+        versionId:v.string(),
+    },
+    handler:async(ctx, args) => {
+        return null as any;
+    }
+})
+
+export const updateVersionNote=mutation({
+    args:{
+        versionId:v.string(),
+        note:v.string(),
+    },
+    handler:async(ctx, args) => {
+        return null as any;
+    }
+})

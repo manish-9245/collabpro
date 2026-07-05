@@ -53,11 +53,34 @@ function WorkspaceHeader({
   const updateFileName = useMutation(api.files.updateFileName)
   const createVersion = useMutation(api.files.createVersion)
   const restoreVersion = useMutation(api.files.restoreVersion)
+  const updateVersionNote = useMutation(api.files.updateVersionNote)
 
   const { user } = useKindeBrowserClient()
   const [isHistoryOpen, setIsHistoryOpen] = useState(false)
   const [versionNote, setVersionNote] = useState('')
   const [isCreatingVersion, setIsCreatingVersion] = useState(false)
+
+  const [editingVersionId, setEditingVersionId] = useState<string | null>(null)
+  const [tempVersionNote, setTempVersionNote] = useState('')
+  const [isUpdatingNote, setIsUpdatingNote] = useState(false)
+
+  const handleUpdateVersionNote = async (versionId: string) => {
+    const trimmed = tempVersionNote.trim()
+    if (!trimmed) {
+      toast.error('Checkpoint name cannot be empty')
+      return
+    }
+    setIsUpdatingNote(true)
+    try {
+      await updateVersionNote({ versionId, note: trimmed })
+      toast.success('Checkpoint name updated successfully!')
+      setEditingVersionId(null)
+    } catch (err) {
+      toast.error('Failed to update checkpoint name')
+    } finally {
+      setIsUpdatingNote(false)
+    }
+  }
 
   // Fetch previous checkpoints
   const versions = useQuery(api.files.getVersions, fileData?._id ? { fileId: fileData._id } : 'skip' as any) || []
@@ -599,13 +622,58 @@ function WorkspaceHeader({
                               </span>
                             </div>
                             
-                            {ver.note && (
-                              <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 font-medium italic break-words leading-tight">
-                                "{ver.note}"
-                              </p>
+                            {editingVersionId === ver._id ? (
+                              <div className="flex items-center gap-1.5 mt-1.5">
+                                <Input
+                                  className="h-7 text-xs px-2 py-1 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-lg focus-visible:ring-1 focus-visible:ring-blue-500 w-full"
+                                  value={tempVersionNote}
+                                  onChange={(e) => setTempVersionNote(e.target.value)}
+                                  placeholder="Checkpoint name"
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') handleUpdateVersionNote(ver._id)
+                                    if (e.key === 'Escape') setEditingVersionId(null)
+                                  }}
+                                  disabled={isUpdatingNote}
+                                />
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 w-7 p-0 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-950/30 shrink-0"
+                                  onClick={() => handleUpdateVersionNote(ver._id)}
+                                  disabled={isUpdatingNote}
+                                >
+                                  {isUpdatingNote ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 w-7 p-0 text-slate-400 hover:text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-900 shrink-0"
+                                  onClick={() => setEditingVersionId(null)}
+                                  disabled={isUpdatingNote}
+                                >
+                                  <X className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="group relative mt-1 flex items-center justify-between gap-1.5">
+                                <p className="text-xs text-slate-600 dark:text-slate-300 font-medium italic break-words leading-tight">
+                                  "{ver.note || 'No description'}"
+                                </p>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-5 w-5 p-0 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                                  onClick={() => {
+                                    setEditingVersionId(ver._id)
+                                    setTempVersionNote(ver.note || '')
+                                  }}
+                                >
+                                  <Edit2 className="h-3 w-3" />
+                                </Button>
+                              </div>
                             )}
                             
-                            <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+                            <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1.5">
                               Created by <span className="font-semibold">{ver.createdByName}</span> • {moment(ver.createdAt).format('lll')}
                             </p>
                             
@@ -618,6 +686,19 @@ function WorkspaceHeader({
                               >
                                 Restore Version
                               </Button>
+                              {editingVersionId !== ver._id && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    setEditingVersionId(ver._id)
+                                    setTempVersionNote(ver.note || '')
+                                  }}
+                                  className="h-7 text-[10px] font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg active:scale-95 transition-all px-2.5"
+                                >
+                                  Rename
+                                </Button>
+                              )}
                             </div>
                           </div>
                         </div>
