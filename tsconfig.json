@@ -18,7 +18,11 @@
       }
     ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@/convex/_generated/api": ["./lib/convex-mock/react.tsx"],
+      "convex/react": ["./lib/convex-mock/react.tsx"],
+      "@kinde-oss/kinde-auth-nextjs": ["./lib/kinde-mock/client.tsx"],
+      "@kinde-oss/kinde-auth-nextjs/server": ["./lib/kinde-mock/server.ts"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", "app/(routes)/dashboard/_components/SideNavTopSection.jsx"],

@@ -63,3 +63,14 @@ export const getFileById=query({
         return result;
     },
 })
+
+export const updateFileName=mutation({
+    args:{
+        _id:v.id('files'),
+        fileName:v.string()
+    },
+    handler:async(ctx, args) =>{
+        const result =await ctx.db.patch(args._id,{fileName:args.fileName});
+        return result;
+    },
+})

@@ -8,13 +8,13 @@ import { useConvex, useMutation } from 'convex/react'
 import { api } from '@/convex/_generated/api'
 import { toast } from 'sonner'
 import { FileListContext } from '@/app/_context/FilesListContext'
-
+import { ActiveTeamContext } from '@/app/_context/ActiveTeamContext'
 
 
 function SideNav() {
   const {user}:any=useKindeBrowserClient();
   const createFile=useMutation(api.files.createFile);
-  const [activeTeam,setActiveTeam]=useState<TEAM|any>();
+  const {activeTeam,setActiveTeam}=useContext(ActiveTeamContext);
   const convex=useConvex();
   const [totalFiles,setTotalFiles]=useState<Number>();
   const {fileList_,setFileList_}=useContext(FileListContext);

@@ -11,6 +11,8 @@ function Workspace({params}:any) {
    const [triggerSave,setTriggerSave]=useState(false);
    const convex=useConvex();
    const [fileData,setFileData]=useState<FILE|any>();
+   const [viewMode,setViewMode]=useState<'both'|'document'|'canvas'>('both');
+
    useEffect(()=>{
     console.log("FILEID",params.fileId)
     params.fileId&&getFileData();
@@ -21,26 +23,31 @@ function Workspace({params}:any) {
     setFileData(result);
   }
   return (
-    <div>
-      <WorkspaceHeader onSave={()=>setTriggerSave(!triggerSave)} />
+    <div className="h-screen flex flex-col overflow-hidden">
+      <WorkspaceHeader 
+        fileData={fileData} 
+        onSave={()=>setTriggerSave(!triggerSave)} 
+        onRename={(newName: string) => setFileData((prev: any) => prev ? { ...prev, fileName: newName } : prev)}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+      />
 
       {/* Workspace Layout  */}
-      <div className='grid grid-cols-1
-      md:grid-cols-2'>
+      <div className={`flex-1 grid grid-cols-1 ${viewMode === 'both' ? 'md:grid-cols-2' : 'grid-cols-1'} overflow-hidden`}>
         {/* Document  */}
-          <div className=' h-screen'>
+          <div className={`h-full overflow-y-auto ${viewMode === 'canvas' ? 'hidden' : 'block'}`}>
             <Editor onSaveTrigger={triggerSave}
             fileId={params.fileId}
             fileData={fileData}
             />
           </div>
         {/* Whiteboard/canvas  */}
-        <div className=' h-screen border-l'>
+        <div className={`h-full border-l border-slate-200 dark:border-slate-800 ${viewMode === 'document' ? 'hidden' : 'block'}`}>
             <Canvas
              onSaveTrigger={triggerSave}
              fileId={params.fileId}
              fileData={fileData}
-            />
+             />
         </div>
       </div>
     </div>

@@ -1,0 +1,43 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String
+  password  String   @default("")
+  image     String?
+  createdAt DateTime @default(now())
+}
+
+model Team {
+  id        String   @id @default(uuid())
+  teamName  String
+  createdBy String
+  createdAt DateTime @default(now())
+}
+
+model File {
+  id         String   @id @default(uuid())
+  fileName   String
+  teamId     String
+  createdBy  String
+  archive    Boolean  @default(false)
+  document   String   @default("")
+  whiteboard String   @default("")
+  createdAt  DateTime @default(now())
+}
+
+model TeamMember {
+  id        String   @id @default(uuid())
+  teamId    String
+  userEmail String
+  role      String   @default("member") // "owner" or "member"
+  createdAt DateTime @default(now())
+}
+
