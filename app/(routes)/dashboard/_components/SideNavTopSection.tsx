@@ -99,6 +99,35 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
     const deleteFile = useMutation(api.files.deleteFile);
     const archiveFile = useMutation(api.files.archiveFile);
     const updateFileFolder = useMutation(api.files.updateFileFolder);
+    const renameFolderMutation = useMutation(api.files.renameFolder);
+
+    const [isFolderRenameOpen, setIsFolderRenameOpen] = useState(false);
+    const [oldFolderName, setOldFolderName] = useState('');
+    const [newFolderInput, setNewFolderInput] = useState('');
+
+    const handleFolderRenameSubmit = async () => {
+        const trimmedOld = oldFolderName.trim();
+        const trimmedNew = newFolderInput.trim();
+        if (!trimmedOld) return;
+        if (!trimmedNew) {
+            toast.error('Folder name cannot be empty');
+            return;
+        }
+
+        try {
+            await renameFolderMutation({
+                teamId: activeTeam?._id as string,
+                oldFolderName: trimmedOld,
+                newFolderName: trimmedNew
+            });
+            toast.success('Folder renamed successfully!');
+            setIsFolderRenameOpen(false);
+            refreshFiles();
+        } catch (error) {
+            console.error(error);
+            toast.error('Failed to rename folder');
+        }
+    };
 
     const toggleFolder = (folderName: string, e: React.MouseEvent) => {
         e.stopPropagation();
@@ -565,9 +594,32 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
                                                             {childNode.name}
                                                         </span>
                                                     </div>
-                                                    <span className="text-[10px] bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded-full font-bold">
-                                                        {totalFiles}
-                                                    </span>
+                                                    <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                                        <span className="text-[10px] bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded-full font-bold group-hover:hidden transition-all">
+                                                            {totalFiles}
+                                                        </span>
+                                                        <div className="hidden group-hover:block transition-all">
+                                                            <DropdownMenu>
+                                                                <DropdownMenuTrigger asChild>
+                                                                    <button className="p-1 rounded hover:bg-slate-200 dark:hover:bg-zinc-800 text-slate-400 hover:text-slate-600 dark:text-zinc-500 dark:hover:text-zinc-300">
+                                                                        <MoreHorizontal className="h-3.5 w-3.5" />
+                                                                    </button>
+                                                                </DropdownMenuTrigger>
+                                                                <DropdownMenuContent className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 shadow-lg rounded-xl p-1 min-w-[130px]">
+                                                                    <DropdownMenuItem
+                                                                        onClick={() => {
+                                                                            setOldFolderName(childNode.name);
+                                                                            setNewFolderInput(childNode.name);
+                                                                            setIsFolderRenameOpen(true);
+                                                                        }}
+                                                                        className="gap-2 cursor-pointer rounded-lg px-2.5 py-1.5 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-900 transition-all text-xs font-medium"
+                                                                    >
+                                                                        <Edit2 className="h-3.5 w-3.5 text-slate-500" /> Rename Folder
+                                                                    </DropdownMenuItem>
+                                                                </DropdownMenuContent>
+                                                            </DropdownMenu>
+                                                        </div>
+                                                    </div>
                                                 </div>
 
                                                 {/* Folder Contents */}
@@ -848,6 +900,49 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
                             className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-8 px-3 rounded-lg border-0"
                         >
                             Move File
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* Sidebar Folder Rename Dialog */}
+            <Dialog open={isFolderRenameOpen} onOpenChange={setIsFolderRenameOpen}>
+                <DialogContent className='bg-white border border-slate-200 text-slate-900 max-w-sm rounded-xl p-5 shadow-2xl'>
+                    <DialogHeader className="space-y-1.5">
+                        <DialogTitle className="text-base font-bold text-slate-900 flex items-center gap-1.5">
+                            <Folder className="h-5 w-5 text-blue-500" /> Rename Folder
+                        </DialogTitle>
+                        <DialogDescription className="text-slate-500 text-xs">
+                            Rename the folder <span className="font-semibold text-slate-800">"{oldFolderName}"</span> across all files in this team.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="mt-3">
+                        <Input 
+                            value={newFolderInput} 
+                            onChange={(e) => setNewFolderInput(e.target.value)}
+                            placeholder="New folder name"
+                            className="bg-white border-slate-200 text-slate-900 placeholder-slate-400 focus:border-blue-500 text-xs h-9 rounded-lg"
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' && newFolderInput.trim().length > 0) {
+                                    handleFolderRenameSubmit();
+                                }
+                            }}
+                        />
+                    </div>
+                    <div className="mt-5 flex justify-end gap-2">
+                        <Button 
+                            variant="ghost" 
+                            onClick={() => setIsFolderRenameOpen(false)}
+                            className="text-slate-500 hover:text-slate-800 hover:bg-slate-100 text-xs h-8 px-3 rounded-lg border-0"
+                        >
+                            Cancel
+                        </Button>
+                        <Button 
+                            onClick={handleFolderRenameSubmit}
+                            disabled={!newFolderInput || newFolderInput.trim().length === 0}
+                            className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-8 px-3 rounded-lg border-0"
+                        >
+                            Rename Folder
                         </Button>
                     </div>
                 </DialogContent>

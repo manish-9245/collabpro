@@ -159,3 +159,24 @@ export const updateVersionNote=mutation({
         return null as any;
     }
 })
+
+export const renameFolder=mutation({
+    args:{
+        teamId:v.string(),
+        oldFolderName:v.string(),
+        newFolderName:v.string()
+    },
+    handler:async(ctx, args) =>{
+        const files = await ctx.db.query('files')
+            .filter(q => q.and(
+                q.eq(q.field('teamId'), args.teamId),
+                q.eq(q.field('folder'), args.oldFolderName)
+            ))
+            .collect();
+        
+        for (const file of files) {
+            await ctx.db.patch(file._id, { folder: args.newFolderName });
+        }
+        return files.length;
+    },
+})
