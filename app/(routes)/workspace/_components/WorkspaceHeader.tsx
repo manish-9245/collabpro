@@ -1,7 +1,7 @@
 "use client"
 
 import { Button } from '@/components/ui/button'
-import { Link, Save, Edit2, Check, X, Loader2, FileText, Columns, Palette, Download, Share2, History, Plus, Cloud } from 'lucide-react'
+import { Link, Save, Edit2, Check, X, Loader2, FileText, Columns, Palette, Download, Share2, History, Plus, Cloud, Undo, Redo } from 'lucide-react'
 import Image from 'next/image'
 import React, { useState, useEffect, useRef } from 'react'
 import { useMutation, useQuery } from 'convex/react'
@@ -26,9 +26,24 @@ interface WorkspaceHeaderProps {
   viewMode: 'both' | 'document' | 'canvas'
   onViewModeChange: (mode: 'both' | 'document' | 'canvas') => void
   savingStatus?: 'idle' | 'saving' | 'saved'
+  onUndo?: () => void
+  onRedo?: () => void
+  canUndo?: boolean
+  canRedo?: boolean
 }
 
-function WorkspaceHeader({ fileData, onSave, onRename, viewMode, onViewModeChange, savingStatus = 'idle' }: WorkspaceHeaderProps) {
+function WorkspaceHeader({ 
+  fileData, 
+  onSave, 
+  onRename, 
+  viewMode, 
+  onViewModeChange, 
+  savingStatus = 'idle',
+  onUndo,
+  onRedo,
+  canUndo = false,
+  canRedo = false
+}: WorkspaceHeaderProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [fileName, setFileName] = useState('Untitled File')
   const [tempName, setTempName] = useState('Untitled File')
@@ -344,46 +359,77 @@ function WorkspaceHeader({ fileData, onSave, onRename, viewMode, onViewModeChang
         </div>
       </div>
 
-      {/* Center: Beautiful Segmented View Switcher Control */}
-      <div className='flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200/80 dark:border-slate-800 shrink-0 shadow-inner'>
-        <button
-          onClick={() => onViewModeChange('document')}
-          className={`flex items-center gap-1.5 px-2 py-1 md:px-3 md:py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 ${
-            viewMode === 'document'
-              ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm border border-slate-200/40 dark:border-slate-800/40'
-              : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
-          title="Document Editor Only"
-        >
-          <FileText className='h-3.5 w-3.5' />
-          <span className='hidden md:inline'>Document</span>
-        </button>
-        
-        <button
-          onClick={() => onViewModeChange('both')}
-          className={`flex items-center gap-1.5 px-2 py-1 md:px-3 md:py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 ${
-            viewMode === 'both'
-              ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm border border-slate-200/40 dark:border-slate-800/40'
-              : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
-          title="Split Screen View"
-        >
-          <Columns className='h-3.5 w-3.5' />
-          <span className='hidden md:inline'>Split View</span>
-        </button>
-        
-        <button
-          onClick={() => onViewModeChange('canvas')}
-          className={`flex items-center gap-1.5 px-2 py-1 md:px-3 md:py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 ${
-            viewMode === 'canvas'
-              ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm border border-slate-200/40 dark:border-slate-800/40'
-              : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
-          title="Whiteboard Canvas Only"
-        >
-          <Palette className='h-3.5 w-3.5' />
-          <span className='hidden md:inline'>Canvas</span>
-        </button>
+      {/* Center: Beautiful Segmented View Switcher Control & Undo/Redo Controls */}
+      <div className="flex items-center gap-2">
+        {/* Undo/Redo Button Group */}
+        <div className='flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200/80 dark:border-slate-800 shrink-0 shadow-inner mr-1'>
+          <button
+            onClick={onUndo}
+            disabled={!canUndo}
+            className={`p-1.5 rounded-lg transition-all duration-200 ${
+              canUndo
+                ? 'text-slate-700 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-900 hover:shadow-sm active:scale-90'
+                : 'text-slate-300 dark:text-slate-700/40 cursor-not-allowed'
+            }`}
+            title="Undo (Ctrl+Z / Cmd+Z)"
+          >
+            <Undo className='h-3.5 w-3.5' />
+          </button>
+          <button
+            onClick={onRedo}
+            disabled={!canRedo}
+            className={`p-1.5 rounded-lg transition-all duration-200 ${
+              canRedo
+                ? 'text-slate-700 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-900 hover:shadow-sm active:scale-90'
+                : 'text-slate-300 dark:text-slate-700/40 cursor-not-allowed'
+            }`}
+            title="Redo (Ctrl+Y / Cmd+Y)"
+          >
+            <Redo className='h-3.5 w-3.5' />
+          </button>
+        </div>
+
+        {/* View Switcher Control */}
+        <div className='flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200/80 dark:border-slate-800 shrink-0 shadow-inner'>
+          <button
+            onClick={() => onViewModeChange('document')}
+            className={`flex items-center gap-1.5 px-2 py-1 md:px-3 md:py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 ${
+              viewMode === 'document'
+                ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm border border-slate-200/40 dark:border-slate-800/40'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+            title="Document Editor Only"
+          >
+            <FileText className='h-3.5 w-3.5' />
+            <span className='hidden md:inline'>Document</span>
+          </button>
+          
+          <button
+            onClick={() => onViewModeChange('both')}
+            className={`flex items-center gap-1.5 px-2 py-1 md:px-3 md:py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 ${
+              viewMode === 'both'
+                ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm border border-slate-200/40 dark:border-slate-800/40'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+            title="Split Screen View"
+          >
+            <Columns className='h-3.5 w-3.5' />
+            <span className='hidden md:inline'>Split View</span>
+          </button>
+          
+          <button
+            onClick={() => onViewModeChange('canvas')}
+            className={`flex items-center gap-1.5 px-2 py-1 md:px-3 md:py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 ${
+              viewMode === 'canvas'
+                ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm border border-slate-200/40 dark:border-slate-800/40'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+            title="Whiteboard Canvas Only"
+          >
+            <Palette className='h-3.5 w-3.5' />
+            <span className='hidden md:inline'>Canvas</span>
+          </button>
+        </div>
       </div>
       
       {/* Right side buttons */}
