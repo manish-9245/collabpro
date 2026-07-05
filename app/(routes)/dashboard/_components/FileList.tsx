@@ -11,7 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useRouter } from 'next/navigation';
-import { useConvex, useMutation } from 'convex/react';
+import { useConvex, useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { ActiveTeamContext } from '@/app/_context/ActiveTeamContext';
 import { toast } from 'sonner';
@@ -34,11 +34,13 @@ export interface FILE {
   teamId: string,
   whiteboard: string,
   _id: string,
-  _creationTime: number
+  _creationTime: number,
+  creatorName?: string,
+  creatorImage?: string | null
 }
 
 function FileList() {
-  const { fileList_, setFileList_, activeTab } = useContext(FileListContext);
+  const { fileList_, setFileList_, activeTab, fileScope, setFileScope } = useContext(FileListContext);
   const { activeTeam } = useContext(ActiveTeamContext);
   const { user }: any = useKindeBrowserClient();
   const router = useRouter();
@@ -46,6 +48,8 @@ function FileList() {
 
   const archiveFile = useMutation(api.files.archiveFile);
   const updateFileName = useMutation(api.files.updateFileName);
+  const localUserList = useQuery(api.user.getUser, user?.email ? { email: user.email } : 'skip' as any);
+  const localUser = localUserList && localUserList.length > 0 ? localUserList[0] : null;
 
   const [isRenameDialogOpen, setIsRenameDialogOpen] = useState(false);
   const [renameInput, setRenameInput] = useState('');
@@ -53,7 +57,11 @@ function FileList() {
 
   const getFiles = async () => {
     if (activeTeam?._id) {
-      const result = await convex.query(api.files.getFiles, { teamId: activeTeam._id as string });
+      const result = await convex.query(api.files.getFiles, { 
+        teamId: activeTeam._id as string,
+        userEmail: user?.email,
+        scope: fileScope
+      });
       setFileList_(result);
     }
   }
@@ -105,6 +113,49 @@ function FileList() {
 
   return (
     <div className='mt-10'>
+      {/* Scope Filtering Segmented Tabs - Premium Design */}
+      <div className="flex justify-between items-center mb-6 gap-4 flex-wrap">
+        <div className="flex bg-slate-100/80 dark:bg-zinc-900/60 p-1 rounded-xl border border-slate-200/50 dark:border-zinc-800/80 shadow-inner">
+          <button
+            onClick={() => setFileScope && setFileScope('team')}
+            className={`px-4 py-2 text-xs font-semibold rounded-lg transition-all duration-200 flex items-center gap-2 ${
+              fileScope === 'team' || !fileScope
+                ? 'bg-white dark:bg-zinc-950 text-blue-600 dark:text-blue-400 shadow-sm border border-slate-200/20 dark:border-zinc-800/30'
+                : 'text-slate-500 hover:text-slate-800 dark:text-zinc-400 dark:hover:text-zinc-200'
+            }`}
+          >
+            <span>Team Files</span>
+          </button>
+          
+          <button
+            onClick={() => setFileScope && setFileScope('personal')}
+            className={`px-4 py-2 text-xs font-semibold rounded-lg transition-all duration-200 flex items-center gap-2 ${
+              fileScope === 'personal'
+                ? 'bg-white dark:bg-zinc-950 text-blue-600 dark:text-blue-400 shadow-sm border border-slate-200/20 dark:border-zinc-800/30'
+                : 'text-slate-500 hover:text-slate-800 dark:text-zinc-400 dark:hover:text-zinc-200'
+            }`}
+          >
+            <span>My Files</span>
+          </button>
+
+          <button
+            onClick={() => setFileScope && setFileScope('org')}
+            className={`px-4 py-2 text-xs font-semibold rounded-lg transition-all duration-200 flex items-center gap-2 ${
+              fileScope === 'org'
+                ? 'bg-white dark:bg-zinc-950 text-blue-600 dark:text-blue-400 shadow-sm border border-slate-200/20 dark:border-zinc-800/30'
+                : 'text-slate-500 hover:text-slate-800 dark:text-zinc-400 dark:hover:text-zinc-200'
+            }`}
+          >
+            <span>Organization Files</span>
+          </button>
+        </div>
+        
+        {/* Active tab label */}
+        <div className="text-xs font-semibold text-slate-500 dark:text-zinc-400 bg-slate-50 dark:bg-zinc-900/30 px-3 py-1.5 rounded-lg border border-slate-100 dark:border-zinc-800/50">
+          Showing: <span className="text-blue-600 dark:text-blue-400 capitalize">{fileScope === 'org' ? 'All Org Teams' : fileScope === 'personal' ? 'My Files' : 'Team Files'}</span>
+        </div>
+      </div>
+
       <div className="overflow-x-auto rounded-xl border border-slate-100 dark:border-zinc-800 shadow-sm">
         <table className="min-w-full divide-y divide-gray-100 dark:divide-zinc-800 bg-white dark:bg-zinc-950 text-sm">
           <thead>
@@ -160,20 +211,19 @@ function FileList() {
                     {moment(file._creationTime).format('DD MMM YYYY')}
                   </td>
                   <td className="whitespace-nowrap px-6 py-4">
-                    {user && (
-                      <div className="flex items-center gap-2">
-                        <Image 
-                          src={user?.picture}
-                          alt='user'
-                          width={26}
-                          height={26}
-                          className='rounded-full border border-slate-100 dark:border-zinc-800'
-                        />
-                        <span className="text-xs text-slate-500 dark:text-zinc-400 font-medium">
-                          {user?.given_name || 'Author'}
-                        </span>
-                      </div>
-                    )}
+                    <div className="flex items-center gap-2">
+                      <img 
+                        src={file.creatorImage || '/logo-1.png'}
+                        alt='creator'
+                        className='rounded-full border border-slate-100 dark:border-zinc-800 w-6.5 h-6.5 object-cover'
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = '/logo-1.png';
+                        }}
+                      />
+                      <span className="text-xs text-slate-500 dark:text-zinc-400 font-medium">
+                        {file.creatorName || 'Author'}
+                      </span>
+                    </div>
                   </td>
                   <td className="whitespace-nowrap px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
                     <DropdownMenu>

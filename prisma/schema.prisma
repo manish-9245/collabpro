@@ -41,3 +41,16 @@ model TeamMember {
   createdAt DateTime @default(now())
 }
 
+model FileVersion {
+  id             String   @id @default(uuid())
+  fileId         String
+  document       String   @default("")
+  whiteboard     String   @default("")
+  version        Int
+  createdByName  String   @default("Author")
+  createdByImage String   @default("")
+  note           String   @default("")
+  createdAt      DateTime @default(now())
+}
+
+

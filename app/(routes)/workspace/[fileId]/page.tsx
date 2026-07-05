@@ -12,6 +12,7 @@ function Workspace({params}:any) {
    const convex=useConvex();
    const [fileData,setFileData]=useState<FILE|any>();
    const [viewMode,setViewMode]=useState<'both'|'document'|'canvas'>('both');
+   const [savingStatus,setSavingStatus]=useState<'idle'|'saving'|'saved'>('idle');
 
    useEffect(()=>{
     console.log("FILEID",params.fileId)
@@ -30,6 +31,7 @@ function Workspace({params}:any) {
         onRename={(newName: string) => setFileData((prev: any) => prev ? { ...prev, fileName: newName } : prev)}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
+        savingStatus={savingStatus}
       />
 
       {/* Workspace Layout  */}
@@ -39,6 +41,7 @@ function Workspace({params}:any) {
             <Editor onSaveTrigger={triggerSave}
             fileId={params.fileId}
             fileData={fileData}
+            setSavingStatus={setSavingStatus}
             />
           </div>
         {/* Whiteboard/canvas  */}
@@ -47,6 +50,7 @@ function Workspace({params}:any) {
              onSaveTrigger={triggerSave}
              fileId={params.fileId}
              fileData={fileData}
+             setSavingStatus={setSavingStatus}
              />
         </div>
       </div>

@@ -29,6 +29,8 @@ function Header() {
   // Fetch team members if activeTeam is set
   const members = useQuery(api.teams.getTeamMembers, activeTeam?._id ? { teamId: activeTeam._id } : 'skip' as any)
   const inviteMember = useMutation(api.teams.inviteMember)
+  const localUserList = useQuery(api.user.getUser, user?.email ? { email: user.email } : 'skip' as any);
+  const localUser = localUserList && localUserList.length > 0 ? localUserList[0] : null;
 
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -71,12 +73,10 @@ function Header() {
 
       {user && (
         <div className='flex items-center gap-2 border-r border-slate-200 dark:border-slate-800 pr-4'>
-          <Image 
-            src={user?.picture || '/logo-1.png'} 
+          <img 
+            src={localUser?.image || user?.picture || '/logo-1.png'} 
             alt='user'
-            width={32}
-            height={32}
-            className='rounded-full border border-slate-200 dark:border-slate-800 shadow-sm'
+            className='rounded-full border border-slate-200 dark:border-slate-800 shadow-sm w-8 h-8 object-cover'
           />
           <span className='text-xs font-semibold text-slate-600 dark:text-slate-300 hidden md:inline-block'>
             {user?.given_name || 'User'}

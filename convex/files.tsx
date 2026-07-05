@@ -18,14 +18,26 @@ export const createFile=mutation({
 
 export const getFiles=query({
     args:{
-        teamId:v.string()
+        teamId:v.string(),
+        userEmail:v.optional(v.string()),
+        scope:v.optional(v.string())
     },
     handler:async(ctx, args)=> {
-        const result=ctx.db.query('files')
-        .filter(q=>q.eq(q.field('teamId'),args.teamId))
-        .order('desc')
-        .collect();
-
+        let result;
+        if (args.scope === 'personal' && args.userEmail) {
+            result = await ctx.db.query('files')
+            .filter(q => q.and(
+                q.eq(q.field('teamId'), args.teamId),
+                q.eq(q.field('createdBy'), args.userEmail)
+            ))
+            .order('desc')
+            .collect();
+        } else {
+            result = await ctx.db.query('files')
+            .filter(q => q.eq(q.field('teamId'), args.teamId))
+            .order('desc')
+            .collect();
+        }
         return result;
     },
 })

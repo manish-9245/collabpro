@@ -25,3 +25,14 @@ export const createUser=mutation({
        return await ctx.db.insert("user",args);
     },
 })
+
+export const updateUserImage=mutation({
+    args:{
+        _id:v.id('user'),
+        image:v.string()
+    },
+    handler:async(ctx, args) =>{
+        const result =await ctx.db.patch(args._id,{image:args.image});
+        return result;
+    },
+})

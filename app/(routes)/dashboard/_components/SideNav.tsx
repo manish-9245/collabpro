@@ -17,10 +17,10 @@ function SideNav() {
   const {activeTeam,setActiveTeam}=useContext(ActiveTeamContext);
   const convex=useConvex();
   const [totalFiles,setTotalFiles]=useState<Number>();
-  const {fileList_,setFileList_}=useContext(FileListContext);
+  const {fileList_,setFileList_,fileScope}=useContext(FileListContext);
   useEffect(()=>{
     activeTeam&&getFiles();
-  },[activeTeam])
+  },[activeTeam, fileScope])
   const onFileCreate=(fileName:string)=>{
     console.log(fileName)
     createFile({
@@ -43,7 +43,11 @@ function SideNav() {
   }
 
   const getFiles=async()=>{
-    const result=await convex.query(api.files.getFiles,{teamId:activeTeam?._id});
+    const result=await convex.query(api.files.getFiles,{
+      teamId:activeTeam?._id,
+      userEmail:user?.email,
+      scope:fileScope
+    });
     console.log(result);
     setFileList_(result);
     setTotalFiles(result?.length)

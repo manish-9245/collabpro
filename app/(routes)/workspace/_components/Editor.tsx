@@ -35,25 +35,30 @@ const rawDocument={
     }],
     "version" : "2.8.1"
 }
-function Editor({onSaveTrigger,fileId,fileData}:{onSaveTrigger:any,fileId:any,fileData:FILE}) {
+function Editor({onSaveTrigger,fileId,fileData,setSavingStatus}:{onSaveTrigger:any,fileId:any,fileData:FILE,setSavingStatus:any}) {
     const ref=useRef<EditorJS>();
     const updateDocument=useMutation(api.files.updateDocument);
-    const [document,setDocument]=useState(rawDocument);
+    const saveTimeoutRef=useRef<NodeJS.Timeout|null>(null);
+
     useEffect(()=>{
-        fileData&&initEditor();
+        if (fileData && !ref.current) {
+            initEditor();
+        }
     },[fileData])
 
     useEffect(()=>{
       console.log("triiger Value:",onSaveTrigger);
-      onSaveTrigger&&onSaveDocument();
+      onSaveTrigger&&onSaveDocument(true);
     },[onSaveTrigger])
+
+    useEffect(() => {
+        return () => {
+            if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+        }
+    }, []);
 
     const initEditor=()=>{
         const editor = new EditorJS({
-            /**
-             * Id of Element that should contain Editor instance
-             */
-
             tools:{
                 header: {
                     class: Header,
@@ -78,27 +83,40 @@ function Editor({onSaveTrigger,fileId,fileData}:{onSaveTrigger:any,fileId:any,fi
             },
            
             holder: 'editorjs',
-            data:fileData?.document?JSON.parse(fileData.document):rawDocument
+            data:fileData?.document?JSON.parse(fileData.document):rawDocument,
+            
+            onChange: () => {
+                setSavingStatus('saving');
+                if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+                saveTimeoutRef.current = setTimeout(() => {
+                    onSaveDocument(false);
+                }, 1500);
+            }
           });
           ref.current=editor;
     }
 
-    const onSaveDocument=()=>{
+    const onSaveDocument=(showToast = false)=>{
       if(ref.current)
       {
+        setSavingStatus('saving');
         ref.current.save().then((outputData) => {
           console.log('Article data: ', outputData);
           updateDocument({
             _id:fileId,
             document:JSON.stringify(outputData)
           }).then(resp=>{
-            
-              toast('Document Updated!')
-            
+              setSavingStatus('saved');
+              setTimeout(() => setSavingStatus('idle'), 2000);
+              if (showToast) {
+                toast('Document Updated!')
+              }
           },(e)=>{
+            setSavingStatus('idle');
             toast("Server Error!")
           })
         }).catch((error) => {
+          setSavingStatus('idle');
           console.log('Saving failed: ', error)
         });
       }

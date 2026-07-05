@@ -1,12 +1,15 @@
 "use client"
 
 import { Button } from '@/components/ui/button'
-import { Link, Save, Edit2, Check, X, Loader2, FileText, Columns, Palette, Download, Share2 } from 'lucide-react'
+import { Link, Save, Edit2, Check, X, Loader2, FileText, Columns, Palette, Download, Share2, History, Plus, Cloud } from 'lucide-react'
 import Image from 'next/image'
 import React, { useState, useEffect, useRef } from 'react'
-import { useMutation } from 'convex/react'
+import { useMutation, useQuery } from 'convex/react'
 import { api } from '@/convex/_generated/api'
 import { toast } from 'sonner'
+import { useKindeBrowserClient } from '@kinde-oss/kinde-auth-nextjs'
+import moment from 'moment'
+import { Input } from '@/components/ui/input'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,9 +25,10 @@ interface WorkspaceHeaderProps {
   onRename: (newName: string) => void
   viewMode: 'both' | 'document' | 'canvas'
   onViewModeChange: (mode: 'both' | 'document' | 'canvas') => void
+  savingStatus?: 'idle' | 'saving' | 'saved'
 }
 
-function WorkspaceHeader({ fileData, onSave, onRename, viewMode, onViewModeChange }: WorkspaceHeaderProps) {
+function WorkspaceHeader({ fileData, onSave, onRename, viewMode, onViewModeChange, savingStatus = 'idle' }: WorkspaceHeaderProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [fileName, setFileName] = useState('Untitled File')
   const [tempName, setTempName] = useState('Untitled File')
@@ -32,6 +36,16 @@ function WorkspaceHeader({ fileData, onSave, onRename, viewMode, onViewModeChang
   const inputRef = useRef<HTMLInputElement>(null)
   
   const updateFileName = useMutation(api.files.updateFileName)
+  const createVersion = useMutation(api.files.createVersion)
+  const restoreVersion = useMutation(api.files.restoreVersion)
+
+  const { user } = useKindeBrowserClient()
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false)
+  const [versionNote, setVersionNote] = useState('')
+  const [isCreatingVersion, setIsCreatingVersion] = useState(false)
+
+  // Fetch previous checkpoints
+  const versions = useQuery(api.files.getVersions, fileData?._id ? { fileId: fileData._id } : 'skip' as any) || []
 
   // Sync state with fileData when it loads or changes
   useEffect(() => {
@@ -95,6 +109,39 @@ function WorkspaceHeader({ fileData, onSave, onRename, viewMode, onViewModeChang
     if (typeof window !== 'undefined') {
       navigator.clipboard.writeText(window.location.href)
       toast.success('Workspace link copied to clipboard!')
+    }
+  }
+
+  const handleCreateVersion = async () => {
+    if (!fileData?._id) return
+    setIsCreatingVersion(true)
+    try {
+      await createVersion({
+        fileId: fileData._id,
+        createdByName: user?.given_name || "Author",
+        createdByImage: user?.picture || "",
+        note: versionNote.trim() || "Manual Savepoint"
+      })
+      setVersionNote('')
+      toast.success('Version checkpoint created successfully!')
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to create version checkpoint')
+    } finally {
+      setIsCreatingVersion(false)
+    }
+  }
+
+  const handleRestoreVersion = async (versionId: string) => {
+    try {
+      await restoreVersion({ versionId })
+      toast.success('Version restored successfully! Re-syncing and loading...')
+      setTimeout(() => {
+        window.location.reload()
+      }, 1000)
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to restore version')
     }
   }
 
@@ -341,11 +388,32 @@ function WorkspaceHeader({ fileData, onSave, onRename, viewMode, onViewModeChang
       
       {/* Right side buttons */}
       <div className='flex items-center gap-2 shrink-0 flex-1 justify-end'>
-        <Button className='h-8.5 text-[12px] font-medium
-        gap-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg shadow-sm hover:shadow active:scale-95 transition-all'
-        onClick={() => onSave()}
-        > 
-          <Save className='h-4 w-4' /> <span className='hidden sm:inline'>Save</span> 
+        {/* Dynamic Realtime Saving Status Indicator */}
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-200/80 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs font-semibold shadow-inner min-w-[125px] justify-center transition-all duration-300">
+          {savingStatus === 'saving' ? (
+            <div className="flex items-center gap-1.5 text-amber-500 dark:text-amber-400">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <span>Saving...</span>
+            </div>
+          ) : savingStatus === 'saved' ? (
+            <div className="flex items-center gap-1.5 text-emerald-500 dark:text-emerald-400">
+              <Check className="h-3.5 w-3.5" />
+              <span>Saved</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+              <Cloud className="h-3.5 w-3.5" />
+              <span>Synced</span>
+            </div>
+          )}
+        </div>
+
+        {/* Version History Button */}
+        <Button 
+          onClick={() => setIsHistoryOpen(true)}
+          className='h-8.5 text-[12px] font-medium gap-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 rounded-lg shadow-sm hover:shadow active:scale-95 transition-all border border-slate-200 dark:border-slate-700'
+        >
+          <History className='h-4 w-4' /> <span className='hidden sm:inline'>History</span>
         </Button>
         
         {/* Export Dropdown */}
@@ -380,6 +448,142 @@ function WorkspaceHeader({ fileData, onSave, onRename, viewMode, onViewModeChang
           <span className='hidden sm:inline'>Share</span> <Share2 className='h-4 w-4' /> 
         </Button>
       </div>
+
+      {/* Slide-out Drawer Panel for Version History */}
+      {isHistoryOpen && (
+        <div className="fixed inset-0 z-50 overflow-hidden">
+          {/* Backdrop Overlay */}
+          <div 
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity duration-300"
+            onClick={() => setIsHistoryOpen(false)}
+          />
+          
+          {/* Panel positioning container */}
+          <div className="absolute inset-y-0 right-0 max-w-full flex pl-10">
+            <div className="w-screen max-w-md bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col h-full transform transition-transform duration-300 ease-in-out">
+              
+              {/* Drawer Header */}
+              <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900/50">
+                <div className="flex items-center gap-2">
+                  <History className="h-5 w-5 text-blue-500" />
+                  <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">Version History</h2>
+                </div>
+                <button 
+                  onClick={() => setIsHistoryOpen(false)}
+                  className="p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              
+              {/* Drawer Content - Scrollable */}
+              <div className="flex-1 overflow-y-auto p-5 space-y-6">
+                
+                {/* Create custom Savepoint Form */}
+                <div className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800/80 p-4 rounded-xl space-y-3 shadow-inner">
+                  <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Create Custom Savepoint</h3>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="E.g., Final draft, Meeting notes..."
+                      value={versionNote}
+                      onChange={(e) => setVersionNote(e.target.value)}
+                      className="h-9 text-xs border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 dark:text-slate-100 focus:ring-1 focus:ring-blue-500"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleCreateVersion()
+                      }}
+                    />
+                    <Button 
+                      onClick={handleCreateVersion}
+                      disabled={isCreatingVersion}
+                      className="h-9 text-xs px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg gap-1 shadow-sm shrink-0"
+                    >
+                      {isCreatingVersion ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Plus className="h-3.5 w-3.5" />
+                      )}
+                      Create
+                    </Button>
+                  </div>
+                  <p className="text-[10px] text-slate-400 dark:text-slate-500 leading-normal">
+                    This will freeze a snapshot of both your document editor and whiteboard canvas as a custom named savepoint.
+                  </p>
+                </div>
+                
+                {/* Checkpoints Scroll Container */}
+                <div className="space-y-3">
+                  <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Previous Checkpoints</h3>
+                  
+                  {versions.length === 0 ? (
+                    <div className="text-center py-8 px-4 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+                      <History className="h-8 w-8 text-slate-300 dark:text-slate-700 mx-auto mb-2" />
+                      <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">No saved versions found.</p>
+                      <p className="text-[10px] text-slate-400 dark:text-slate-600 mt-1">Create a savepoint to capture current state.</p>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-slate-100 dark:divide-slate-800 border border-slate-100 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm bg-white dark:bg-slate-950">
+                      {versions.map((ver: any) => (
+                        <div 
+                          key={ver._id} 
+                          className="p-4 flex gap-3 items-start hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-colors"
+                        >
+                          {/* User Avatar */}
+                          <div className="h-8 w-8 rounded-full border border-slate-100 dark:border-slate-800 overflow-hidden bg-slate-100 dark:bg-slate-800 shrink-0 shadow-sm relative">
+                            {ver.createdByImage ? (
+                              <img 
+                                src={ver.createdByImage} 
+                                alt={ver.createdByName} 
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <div className="h-full w-full flex items-center justify-center text-xs font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800">
+                                {ver.createdByName.charAt(0).toUpperCase()}
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* Version Details */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1.5">
+                              <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                                Version #{ver.version}
+                              </span>
+                              <span className="text-[10px] text-slate-400 dark:text-slate-500 shrink-0">
+                                {moment(ver.createdAt).fromNow()}
+                              </span>
+                            </div>
+                            
+                            {ver.note && (
+                              <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 font-medium italic break-words leading-tight">
+                                "{ver.note}"
+                              </p>
+                            )}
+                            
+                            <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+                              Created by <span className="font-semibold">{ver.createdByName}</span> • {moment(ver.createdAt).format('lll')}
+                            </p>
+                            
+                            {/* Actions */}
+                            <div className="flex gap-2 mt-2">
+                              <Button
+                                size="sm"
+                                onClick={() => handleRestoreVersion(ver._id)}
+                                className="h-7 text-[10px] font-medium bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-950/80 text-blue-600 dark:text-blue-400 border border-blue-100 dark:border-blue-900/60 rounded-lg active:scale-95 transition-all px-2.5"
+                              >
+                                Restore Version
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
