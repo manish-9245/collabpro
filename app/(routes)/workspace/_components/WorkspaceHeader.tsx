@@ -302,7 +302,7 @@ function WorkspaceHeader({
     <div className='p-3 border-b flex justify-between items-center bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm gap-2 h-14 shrink-0'>
       {/* Left section */}
       <div className='flex gap-3 items-center min-w-0 flex-1 mr-2'>
-        <Image src={'/logo-1.png'}
+        <img src={'/logo-1.png'}
           alt='logo'
           height={32}
           width={32}

@@ -30,7 +30,7 @@ function CreateTeam() {
   }
   return (
     <div className=' px-6 md:px-16 my-16'>
-      <Image src='/logo-1.png'
+      <img src='/logo-1.png'
       alt='logo'
       width={64}
       height={64}

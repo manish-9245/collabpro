@@ -84,32 +84,21 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
     const [isSidebarDeleteOpen, setIsSidebarDeleteOpen] = useState(false);
     const [sidebarFileToDelete, setSidebarFileToDelete] = useState<any>(null);
 
-    // Sidebar local file list to always show all team files regardless of fileScope filter
-    const [sidebarFiles, setSidebarFiles] = useState<any[]>([]);
+    // Sidebar "Move to Folder" States
+    const [isSidebarMoveOpen, setIsSidebarMoveOpen] = useState(false);
+    const [sidebarMoveInput, setSidebarMoveInput] = useState('');
+    const [sidebarFileToMove, setSidebarFileToMove] = useState<any>(null);
+
+    // Use Convex real-time reactive query for sidebar files
+    const sidebarFiles = useQuery(
+        api.files.getFiles, 
+        activeTeam?._id ? { teamId: activeTeam._id as string } : 'skip' as any
+    ) || [];
 
     const updateFileName = useMutation(api.files.updateFileName);
     const deleteFile = useMutation(api.files.deleteFile);
     const archiveFile = useMutation(api.files.archiveFile);
-
-    const getSidebarFiles = async () => {
-        if (activeTeam?._id) {
-            try {
-                const result = await convex.query(api.files.getFiles, {
-                    teamId: activeTeam._id as string
-                });
-                setSidebarFiles(result || []);
-            } catch (err) {
-                console.error("Error fetching sidebar team files:", err);
-            }
-        } else {
-            setSidebarFiles([]);
-        }
-    };
-
-    // Re-fetch all team files whenever the active team changes or the global fileList_ in context changes
-    useEffect(() => {
-        getSidebarFiles();
-    }, [activeTeam, fileList_]);
+    const updateFileFolder = useMutation(api.files.updateFileFolder);
 
     const toggleFolder = (folderName: string, e: React.MouseEvent) => {
         e.stopPropagation();
@@ -134,7 +123,6 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
             });
             toast.success('File renamed successfully!');
             setIsSidebarRenameOpen(false);
-            await getSidebarFiles();
             refreshFiles();
         } catch (error) {
             console.error(error);
@@ -150,7 +138,6 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
             });
             toast.success('File deleted permanently!');
             setIsSidebarDeleteOpen(false);
-            await getSidebarFiles();
             refreshFiles();
         } catch (error) {
             console.error(error);
@@ -166,11 +153,26 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
                 archive: isArchiving
             });
             toast.success(isArchiving ? 'File archived successfully!' : 'File restored successfully!');
-            await getSidebarFiles();
             refreshFiles();
         } catch (error) {
             console.error(error);
             toast.error(isArchiving ? 'Failed to archive file' : 'Failed to restore file');
+        }
+    };
+
+    const handleSidebarMoveSubmit = async () => {
+        if (!sidebarFileToMove) return;
+        try {
+            await updateFileFolder({
+                _id: sidebarFileToMove._id as any,
+                folder: sidebarMoveInput.trim() || undefined
+            });
+            toast.success('File folder updated successfully!');
+            setIsSidebarMoveOpen(false);
+            refreshFiles();
+        } catch (error) {
+            console.error(error);
+            toast.error('Failed to update folder');
         }
     };
 
@@ -308,7 +310,7 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
             <Popover>
                 <PopoverTrigger>
                     <div className='flex items-center gap-3 hover:bg-slate-200 dark:hover:bg-slate-800 p-3 rounded-lg cursor-pointer transition-all'>
-                        <Image src='/logo-1.png' alt='logo'
+                        <img src='/logo-1.png' alt='logo'
                             width={32}
                             height={32}
                             className="rounded-full bg-white p-0.5 border border-slate-200 dark:border-slate-800 shadow-sm" />
@@ -616,6 +618,16 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
                                                                             </DropdownMenuItem>
                                                                             <DropdownMenuItem
                                                                                 onClick={() => {
+                                                                                    setSidebarFileToMove(file);
+                                                                                    setSidebarMoveInput(file.folder || '');
+                                                                                    setIsSidebarMoveOpen(true);
+                                                                                }}
+                                                                                className="gap-2 cursor-pointer rounded-lg px-2 py-1.5 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-900 transition-all text-xs font-medium"
+                                                                            >
+                                                                                <Folder className="h-3.5 w-3.5 text-slate-500" /> Move Folder
+                                                                            </DropdownMenuItem>
+                                                                            <DropdownMenuItem
+                                                                                onClick={() => {
                                                                                     setSidebarFileToDelete(file);
                                                                                     setIsSidebarDeleteOpen(true);
                                                                                 }}
@@ -683,6 +695,16 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
                                                                 className="gap-2 cursor-pointer rounded-lg px-2 py-1.5 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-900 transition-all text-xs font-medium"
                                                             >
                                                                 <Archive className="h-3.5 w-3.5 text-slate-500" /> {file.archive ? 'Restore' : 'Archive'}
+                                                            </DropdownMenuItem>
+                                                            <DropdownMenuItem
+                                                                onClick={() => {
+                                                                    setSidebarFileToMove(file);
+                                                                    setSidebarMoveInput(file.folder || '');
+                                                                    setIsSidebarMoveOpen(true);
+                                                                }}
+                                                                className="gap-2 cursor-pointer rounded-lg px-2 py-1.5 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-900 transition-all text-xs font-medium"
+                                                            >
+                                                                <Folder className="h-3.5 w-3.5 text-slate-500" /> Move Folder
                                                             </DropdownMenuItem>
                                                             <DropdownMenuItem
                                                                 onClick={() => {
@@ -778,6 +800,54 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
                             className="bg-red-600 hover:bg-red-700 text-white text-xs h-8 px-3 rounded-lg border-0"
                         >
                             Delete
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* Sidebar Move Folder Dialog */}
+            <Dialog open={isSidebarMoveOpen} onOpenChange={setIsSidebarMoveOpen}>
+                <DialogContent className='bg-white border border-slate-200 text-slate-900 max-w-sm rounded-xl p-5 shadow-2xl'>
+                    <DialogHeader className="space-y-1.5">
+                        <DialogTitle className="text-base font-bold text-slate-900 flex items-center gap-1.5">
+                            <Folder className="h-5 w-5 text-blue-500" /> Move / Assign Folder
+                        </DialogTitle>
+                        <DialogDescription className="text-slate-500 text-xs">
+                            Enter a folder name (e.g. Design, Frontend/Mockups) to group this file. Leave empty to move it to root.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="mt-3">
+                        <Input 
+                            value={sidebarMoveInput} 
+                            onChange={(e) => setSidebarMoveInput(e.target.value)}
+                            placeholder="Folder name (e.g. Design, Engineering)"
+                            className="bg-white border-slate-200 text-slate-900 placeholder-slate-400 focus:border-blue-500 text-xs h-9 rounded-lg"
+                            list="sidebar-existing-folders"
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    handleSidebarMoveSubmit();
+                                }
+                            }}
+                        />
+                        <datalist id="sidebar-existing-folders">
+                            {Array.from(new Set(sidebarFiles?.filter((f: any) => f.folder).map((f: any) => f.folder))).map((fold: any) => (
+                                <option key={fold} value={fold} />
+                            ))}
+                        </datalist>
+                    </div>
+                    <div className="mt-5 flex justify-end gap-2">
+                        <Button 
+                            variant="ghost" 
+                            onClick={() => setIsSidebarMoveOpen(false)}
+                            className="text-slate-500 hover:text-slate-800 hover:bg-slate-100 text-xs h-8 px-3 rounded-lg border-0"
+                        >
+                            Cancel
+                        </Button>
+                        <Button 
+                            onClick={handleSidebarMoveSubmit}
+                            className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-8 px-3 rounded-lg border-0"
+                        >
+                            Move File
                         </Button>
                     </div>
                 </DialogContent>

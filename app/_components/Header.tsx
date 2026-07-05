@@ -8,7 +8,7 @@ function Header() {
     <header className="bg-black">
   <div className="mx-auto flex h-16 max-w-screen-xl items-center gap-8 px-4 sm:px-6 lg:px-8">
     <div className="flex items-center gap-2">
-      <Image src='/logo-1.png' alt='CollabPro'
+      <img src='/logo-1.png' alt='CollabPro'
         width={36}
         height={36}
         className="rounded-full bg-white p-0.5 shadow-md shadow-blue-500/10 border border-slate-200/50"
