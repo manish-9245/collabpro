@@ -1,6 +1,6 @@
 import { FileListContext } from '@/app/_context/FilesListContext'
 import { useKindeBrowserClient } from '@kinde-oss/kinde-auth-nextjs';
-import { Archive, MoreHorizontal, Edit2, FileText, ArrowLeftRight } from 'lucide-react';
+import { Archive, MoreHorizontal, Edit2, FileText, ArrowLeftRight, Trash2, Folder } from 'lucide-react';
 import moment from 'moment';
 import Image from 'next/image';
 import React, { useContext, useEffect, useState } from 'react'
@@ -36,7 +36,8 @@ export interface FILE {
   _id: string,
   _creationTime: number,
   creatorName?: string,
-  creatorImage?: string | null
+  creatorImage?: string | null,
+  teamName?: string | null
 }
 
 function FileList() {
@@ -54,6 +55,46 @@ function FileList() {
   const [isRenameDialogOpen, setIsRenameDialogOpen] = useState(false);
   const [renameInput, setRenameInput] = useState('');
   const [fileToRename, setFileForRename] = useState<FILE | null>(null);
+
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [fileToDelete, setFileToDelete] = useState<FILE | null>(null);
+  const deleteFile = useMutation(api.files.deleteFile);
+
+  const [isMoveDialogOpen, setIsMoveDialogOpen] = useState(false);
+  const [moveInput, setMoveInput] = useState('');
+  const [fileToMove, setFileToMove] = useState<FILE | null>(null);
+  const updateFileFolder = useMutation(api.files.updateFileFolder);
+
+  const handleMoveSubmit = async () => {
+    if (!fileToMove) return;
+    try {
+      await updateFileFolder({
+        _id: fileToMove._id as any,
+        folder: moveInput.trim() || undefined
+      });
+      toast.success('File folder updated successfully!');
+      setIsMoveDialogOpen(false);
+      getFiles(); // Refetch file list
+    } catch (error) {
+      console.error(error);
+      toast.error('Failed to update folder');
+    }
+  };
+
+  const handleDeleteSubmit = async () => {
+    if (!fileToDelete) return;
+    try {
+      await deleteFile({
+        _id: fileToDelete._id as any
+      });
+      toast.success('File deleted permanently!');
+      setIsDeleteDialogOpen(false);
+      getFiles(); // Refetch file list
+    } catch (error) {
+      console.error(error);
+      toast.error('Failed to delete file');
+    }
+  };
 
   const getFiles = async () => {
     if (activeTeam?._id) {
@@ -163,6 +204,9 @@ function FileList() {
               <th className="whitespace-nowrap px-6 py-3 text-left font-semibold text-slate-700 dark:text-zinc-300">File Name</th>
               <th className="whitespace-nowrap px-6 py-3 text-left font-semibold text-slate-700 dark:text-zinc-300">Created At</th>
               <th className="whitespace-nowrap px-6 py-3 text-left font-semibold text-slate-700 dark:text-zinc-300">Edited</th>
+              {fileScope === 'org' && (
+                <th className="whitespace-nowrap px-6 py-3 text-left font-semibold text-slate-700 dark:text-zinc-300">Team</th>
+              )}
               <th className="whitespace-nowrap px-6 py-3 text-left font-semibold text-slate-700 dark:text-zinc-300">Author</th>
               <th className="whitespace-nowrap px-6 py-3 text-left font-semibold text-slate-700 dark:text-zinc-300 w-10"></th>
             </tr>
@@ -200,8 +244,16 @@ function FileList() {
                 >
                   <td className="whitespace-nowrap px-6 py-4 font-semibold text-slate-800 dark:text-zinc-100">
                     <div className="flex items-center gap-2.5">
-                      <FileText className="h-4 w-4 text-blue-500" />
-                      <span>{file.fileName}</span>
+                      <FileText className="h-4 w-4 text-blue-500 shrink-0" />
+                      <div className="flex flex-col min-w-0">
+                        <span className="truncate">{file.fileName}</span>
+                        {(file as any).folder && (
+                          <span className="inline-flex items-center gap-1 mt-1 text-[10px] text-blue-600 dark:text-blue-400 font-bold bg-blue-50/50 dark:bg-blue-950/20 px-2 py-0.5 rounded border border-blue-100/30 w-max truncate max-w-[150px]">
+                            <Folder className="h-2.5 w-2.5 shrink-0 text-blue-500 dark:text-blue-400" />
+                            {(file as any).folder}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </td>
                   <td className="whitespace-nowrap px-6 py-4 text-slate-500 dark:text-zinc-400">
@@ -210,6 +262,13 @@ function FileList() {
                   <td className="whitespace-nowrap px-6 py-4 text-slate-500 dark:text-zinc-400">
                     {moment(file._creationTime).format('DD MMM YYYY')}
                   </td>
+                  {fileScope === 'org' && (
+                    <td className="whitespace-nowrap px-6 py-4">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300 border border-blue-100 dark:border-blue-900/30">
+                        {file.teamName || 'Unknown Team'}
+                      </span>
+                    </td>
+                  )}
                   <td className="whitespace-nowrap px-6 py-4">
                     <div className="flex items-center gap-2">
                       <img 
@@ -244,6 +303,16 @@ function FileList() {
                           <Edit2 className="h-3.5 w-3.5 text-slate-500" /> Rename File
                         </DropdownMenuItem>
                         <DropdownMenuItem 
+                          onClick={() => {
+                            setFileToMove(file);
+                            setMoveInput((file as any).folder || '');
+                            setIsMoveDialogOpen(true);
+                          }}
+                          className="gap-2.5 cursor-pointer rounded-lg px-2.5 py-2 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-900 transition-all text-xs font-medium"
+                        >
+                          <Folder className="h-3.5 w-3.5 text-slate-500" /> Move / Assign Folder
+                        </DropdownMenuItem>
+                        <DropdownMenuItem 
                           onClick={() => handleArchiveToggle(file)}
                           className={`gap-2.5 cursor-pointer rounded-lg px-2.5 py-2 transition-all text-xs font-medium ${
                             file.archive 
@@ -260,6 +329,15 @@ function FileList() {
                               <Archive className="h-3.5 w-3.5" /> Archive File
                             </>
                           )}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem 
+                          onClick={() => {
+                            setFileToDelete(file);
+                            setIsDeleteDialogOpen(true);
+                          }}
+                          className="gap-2.5 cursor-pointer rounded-lg px-2.5 py-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 transition-all text-xs font-medium"
+                        >
+                          <Trash2 className="h-3.5 w-3.5 text-red-500" /> Delete Permanently
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -309,6 +387,83 @@ function FileList() {
               className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white border-0 text-xs h-9 px-4 rounded-lg"
             >
               Rename
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent className="bg-slate-900 border border-slate-800 text-white max-w-sm rounded-2xl shadow-2xl p-6">
+          <DialogHeader className="space-y-1.5">
+            <DialogTitle className="text-lg font-bold text-red-500">
+              Delete File
+            </DialogTitle>
+            <DialogDescription className="text-zinc-400 text-xs leading-relaxed">
+              Are you sure you want to permanently delete <span className="font-semibold text-white">"{fileToDelete?.fileName}"</span>? This action is irreversible and all document history will be wiped.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-6 flex justify-end gap-2">
+            <Button 
+              variant="ghost" 
+              onClick={() => setIsDeleteDialogOpen(false)}
+              className="text-zinc-400 hover:text-white hover:bg-zinc-800 text-xs h-9 px-4 rounded-lg border-0"
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleDeleteSubmit}
+              className="bg-red-600 hover:bg-red-700 text-white border-0 text-xs h-9 px-4 rounded-lg"
+            >
+              Delete Permanently
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Move Folder Dialog */}
+      <Dialog open={isMoveDialogOpen} onOpenChange={setIsMoveDialogOpen}>
+        <DialogContent className="bg-slate-900 border border-slate-800 text-white max-w-sm rounded-2xl shadow-2xl p-6">
+          <DialogHeader className="space-y-1.5">
+            <DialogTitle className="text-lg font-bold bg-gradient-to-r from-white to-zinc-400 bg-clip-text text-transparent">
+              Organize File Folder
+            </DialogTitle>
+            <DialogDescription className="text-zinc-400 text-xs">
+              Enter a folder name to group this file, or clear it to move it to the root level.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4">
+            <Input 
+              value={moveInput} 
+              onChange={(e) => setMoveInput(e.target.value)}
+              placeholder="Folder name (e.g., Design, Engineering)"
+              list="move-existing-folders"
+              className="bg-zinc-800/80 border-zinc-700 text-white placeholder-zinc-500 focus:border-blue-500 text-sm h-10 rounded-lg"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  handleMoveSubmit();
+                }
+              }}
+            />
+            <datalist id="move-existing-folders">
+              {Array.from(new Set(fileList_?.filter((f: any) => f.folder).map((f: any) => f.folder))).map((f: any) => (
+                <option key={f} value={f} />
+              ))}
+            </datalist>
+          </div>
+          <DialogFooter className="mt-6 flex justify-end gap-2">
+            <Button 
+              variant="ghost" 
+              onClick={() => setIsMoveDialogOpen(false)}
+              className="text-zinc-400 hover:text-white hover:bg-zinc-800 text-xs h-9 px-4 rounded-lg"
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleMoveSubmit}
+              className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white border-0 text-xs h-9 px-4 rounded-lg"
+            >
+              Update Folder
             </Button>
           </DialogFooter>
         </DialogContent>

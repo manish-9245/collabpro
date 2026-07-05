@@ -7,10 +7,14 @@ function Header() {
   return (
     <header className="bg-black">
   <div className="mx-auto flex h-16 max-w-screen-xl items-center gap-8 px-4 sm:px-6 lg:px-8">
-    <Image src='/logo.svg' alt='logo'
-    width={100}
-    height={100}
-    />
+    <div className="flex items-center gap-2">
+      <Image src='/logo-1.png' alt='CollabPro'
+        width={36}
+        height={36}
+        className="rounded-full bg-white p-0.5 shadow-md shadow-blue-500/10 border border-slate-200/50"
+      />
+      <span className="font-extrabold text-lg tracking-tight bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">CollabPro</span>
+    </div>
 
     <div className="flex flex-1 items-center justify-end md:justify-between">
       <nav aria-label="Global" className="hidden md:block">

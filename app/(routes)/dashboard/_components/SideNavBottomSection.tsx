@@ -17,18 +17,12 @@ import PricingDialog from './PricingDialog'
 import { FileListContext } from '@/app/_context/FilesListContext'
 
 function SideNavBottomSection({onFileCreate,totalFiles}:any) {
-  const { activeTab, setActiveTab } = useContext(FileListContext);
+  const { activeTab, setActiveTab, fileList_ } = useContext(FileListContext);
   const menuList=[
     {
       id:1,
       name:'Getting Started',
       icon:Flag,
-      path:''
-    },
-    {
-      id:2,
-      name:'Github',
-      icon:Github,
       path:''
     },
     {
@@ -39,6 +33,10 @@ function SideNavBottomSection({onFileCreate,totalFiles}:any) {
     }
   ]
   const [fileInput,setFileInput]=useState('');
+  const [folderInput,setFolderInput]=useState('');
+
+  const folders = Array.from(new Set(fileList_?.filter((f: any) => f.folder).map((f: any) => f.folder))) as string[];
+
   return (
     <div>
       {menuList.map((menu,index)=>(
@@ -81,6 +79,18 @@ function SideNavBottomSection({onFileCreate,totalFiles}:any) {
           className='mt-3 bg-zinc-900/80 border-zinc-800 text-white placeholder-zinc-500 focus:border-blue-500'
           onChange={(e)=>setFileInput(e.target.value)}
           />
+          
+          <Input placeholder='Enter Folder Name (Optional)' 
+          list='existing-folders'
+          className='mt-3 bg-zinc-900/80 border-zinc-800 text-white placeholder-zinc-500 focus:border-blue-500'
+          onChange={(e)=>setFolderInput(e.target.value)}
+          value={folderInput}
+          />
+          <datalist id='existing-folders'>
+            {folders.map(folder => (
+              <option key={folder} value={folder} />
+            ))}
+          </datalist>
       </DialogDescription>
     </DialogHeader>
     <DialogFooter className="mt-4">
@@ -88,7 +98,11 @@ function SideNavBottomSection({onFileCreate,totalFiles}:any) {
             <Button type="button" 
             className='bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white border-0'
             disabled={!(fileInput && fileInput.trim().length > 0)}
-            onClick={()=>onFileCreate(fileInput)}
+            onClick={() => {
+              onFileCreate(fileInput, folderInput.trim() || undefined);
+              setFileInput('');
+              setFolderInput('');
+            }}
             >
               Create File
             </Button>

@@ -3,7 +3,7 @@ datasource db {
 }
 
 generator client {
-  provider = "prisma-client-js"
+  provider   = "prisma-client-js"
 }
 
 model User {
@@ -30,6 +30,7 @@ model File {
   archive    Boolean  @default(false)
   document   String   @default("")
   whiteboard String   @default("")
+  folder     String?
   createdAt  DateTime @default(now())
 }
 

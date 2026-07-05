@@ -183,13 +183,22 @@ export async function POST(request: Request) {
         });
         
         const userMap = new Map(users.map(u => [u.email, u]));
+
+        // Fetch team details to map teamId to teamName
+        const teamIds = Array.from(new Set(files.map(f => f.teamId)));
+        const teams = await prisma.team.findMany({
+          where: { id: { in: teamIds } },
+        });
+        const teamMap = new Map(teams.map(t => [t.id, t]));
         
         result = files.map(file => {
           const creator = userMap.get(file.createdBy);
+          const team = teamMap.get(file.teamId);
           return {
             ...file,
             creatorName: creator?.name || file.createdBy.split('@')[0],
-            creatorImage: creator?.image || null
+            creatorImage: creator?.image || null,
+            teamName: team?.teamName || null
           };
         });
         break;
@@ -202,7 +211,7 @@ export async function POST(request: Request) {
         break;
       }
       case 'files:createFile': {
-        const { fileName, teamId, createdBy, archive, document, whiteboard } = args || {};
+        const { fileName, teamId, createdBy, archive, document, whiteboard, folder } = args || {};
         result = await prisma.file.create({
           data: {
             fileName,
@@ -211,6 +220,7 @@ export async function POST(request: Request) {
             archive: archive ?? false,
             document: document ?? '',
             whiteboard: whiteboard ?? '',
+            folder: folder ?? null,
           },
         });
         break;
@@ -239,11 +249,31 @@ export async function POST(request: Request) {
         });
         break;
       }
+      case 'files:updateFileFolder': {
+        const { _id, folder } = args || {};
+        result = await prisma.file.update({
+          where: { id: _id },
+          data: { folder: folder || null },
+        });
+        break;
+      }
       case 'files:archiveFile': {
         const { _id, archive } = args || {};
         result = await prisma.file.update({
           where: { id: _id },
           data: { archive },
+        });
+        break;
+      }
+      case 'files:deleteFile': {
+        const { _id } = args || {};
+        // Delete all file versions first
+        await prisma.fileVersion.deleteMany({
+          where: { fileId: _id },
+        });
+        // Delete the file
+        result = await prisma.file.delete({
+          where: { id: _id },
         });
         break;
       }

@@ -304,9 +304,9 @@ function WorkspaceHeader({
       <div className='flex gap-3 items-center min-w-0 flex-1 mr-2'>
         <Image src={'/logo-1.png'}
           alt='logo'
-          height={36}
-          width={36}
-          className='transition-transform hover:scale-105 duration-200 shrink-0'
+          height={32}
+          width={32}
+          className='rounded-full bg-white p-0.5 border border-slate-200/60 dark:border-slate-800/80 transition-transform hover:scale-105 duration-200 shrink-0 shadow-sm'
         />
         
         {/* Dynamic / Editable File Name */}

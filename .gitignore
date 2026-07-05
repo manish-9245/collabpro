@@ -28,7 +28,11 @@ yarn-error.log*
 # local env files
 .env*.local
 .env
-*.png
+# Ignore root level screenshot files
+/*.png
+# But allow logo and public images
+!/public/**/*.png
+
 
 
 

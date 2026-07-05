@@ -8,10 +8,11 @@ export const createFile=mutation({
         createdBy:v.string(),
         archive:v.boolean(),
         document:v.string(),
-        whiteboard:v.string()
+        whiteboard:v.string(),
+        folder:v.optional(v.string())
     },
     handler:async(ctx, args) =>{
-        const result=await ctx.db.insert('files',args);
+        const result=await ctx.db.insert('files',args as any);
         return result;
     },
 })
@@ -94,6 +95,27 @@ export const archiveFile=mutation({
     },
     handler:async(ctx, args) =>{
         const result =await ctx.db.patch(args._id,{archive:args.archive});
+        return result;
+    },
+})
+
+export const deleteFile=mutation({
+    args:{
+        _id:v.id('files')
+    },
+    handler:async(ctx, args) =>{
+        const result =await ctx.db.delete(args._id);
+        return result;
+    },
+})
+
+export const updateFileFolder=mutation({
+    args:{
+        _id:v.id('files'),
+        folder:v.optional(v.string())
+    },
+    handler:async(ctx, args) =>{
+        const result =await ctx.db.patch(args._id,{folder:args.folder} as any);
         return result;
     },
 })

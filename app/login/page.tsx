@@ -49,7 +49,7 @@ function LoginForm() {
   return (
     <div className="w-full max-w-md p-8 bg-zinc-950/60 backdrop-blur-md border border-zinc-800 rounded-2xl shadow-2xl relative z-10">
       <div className="flex flex-col items-center mb-8">
-        <Image src="/logo-1.png" alt="CollabPro Logo" width={60} height={60} className="mb-2" />
+        <Image src="/logo-1.png" alt="CollabPro Logo" width={56} height={56} className="mb-2 rounded-full bg-white p-1 border border-zinc-800 shadow-xl" />
         <h1 className="text-2xl font-bold tracking-tight text-center bg-gradient-to-r from-white via-zinc-200 to-zinc-400 bg-clip-text text-transparent">
           Welcome back to CollabPro
         </h1>

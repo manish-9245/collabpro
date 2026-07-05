@@ -1,4 +1,4 @@
-import { Archive, ChevronDown, Flag, Github } from 'lucide-react'
+import { Archive, ChevronDown, Flag } from 'lucide-react'
 import Image from 'next/image'
 import React, { useContext, useEffect, useState } from 'react'
 import SideNavTopSection, { TEAM } from './SideNavTopSection'
@@ -21,15 +21,16 @@ function SideNav() {
   useEffect(()=>{
     activeTeam&&getFiles();
   },[activeTeam, fileScope])
-  const onFileCreate=(fileName:string)=>{
-    console.log(fileName)
+  const onFileCreate=(fileName:string, folder?: string)=>{
+    console.log(fileName, folder)
     createFile({
       fileName:fileName,
       teamId:activeTeam?._id,
       createdBy:user?.email,
       archive:false,
       document:'',
-      whiteboard:''
+      whiteboard:'',
+      folder: folder || undefined
     }).then(resp=>{
       if(resp)
       {
