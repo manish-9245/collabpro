@@ -88,7 +88,15 @@ export async function POST(request: Request) {
         break;
       }
       case 'teams:getTeamMembers': {
+        if (args === 'skip' || !args) {
+          result = [];
+          break;
+        }
         const { teamId } = args || {};
+        if (!teamId) {
+          result = [];
+          break;
+        }
         const team = await prisma.team.findUnique({
           where: { id: teamId },
         });
