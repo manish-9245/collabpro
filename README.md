@@ -43,8 +43,8 @@ The following Mermaid diagram outlines the high-level request lifecycle, state r
 graph TD
     %% Define Styles & Classes
     classDef client fill:#eff6ff,stroke:#2563eb,stroke-width:2px,color:#1e3a8a;
-    classDef api fill:#faf5ff,stroke:#7c3aed,stroke-width:2px,color:#4c1d95;
-    classDef auth fill:#fdf2f8,stroke:#db2777,stroke-width:2px,color:#831843;
+    classDef mock fill:#faf5ff,stroke:#7c3aed,stroke-width:2px,color:#4c1d95;
+    classDef server fill:#fdf2f8,stroke:#db2777,stroke-width:2px,color:#831843;
     classDef db fill:#ecfdf5,stroke:#059669,stroke-width:2px,color:#064e3b;
     classDef storage fill:#fffbeb,stroke:#d97706,stroke-width:2px,color:#78350f;
 
@@ -54,13 +54,14 @@ graph TD
         CanvasComponent["System Design Canvas<br/>(Excalidraw Engine + AWS Icons)"]:::client
     end
 
-    subgraph AuthLayer ["Identity & Access Control"]
-        Kinde["Kinde Auth Platform<br/>(Multi-tenant JWT Auth)"]:::auth
+    subgraph EmulationLayer ["Local SDK Emulation Layer"]
+        KindeMock["Kinde Client Mock<br/>(Cookie-based Session Auth)"]:::mock
+        ConvexMock["Convex React Mock<br/>(React Hooks Proxy)"]:::mock
     end
 
-    subgraph ServerLayer ["Serverless Middleware & Sync Engine"]
-        ConvexAPI["Convex Dev Server<br/>(Reactive State WebSocket Sync)"]:::api
-        NextAPI["Next.js Server Actions<br/>(API Routes & Dynamic SSE)"]:::api
+    subgraph ServerLayer ["Next.js Server (API Routing)"]
+        AuthMeAPI["/api/auth/me & login<br/>(Local Session Handlers)"]:::server
+        ConvexAPI["/api/convex REST Gateway<br/>(Sync Controller)"]:::server
     end
 
     subgraph DataLayer ["Stateful Databases & Storage"]
@@ -70,20 +71,24 @@ graph TD
     end
 
     %% Flow Connections
-    UI -->|JWT Token Auth| Kinde
+    UI -->|Check auth / authenticate| KindeMock
+    KindeMock -->|Verify Session| AuthMeAPI
+    
     UI -->|Render Rich Text| EditorComponent
     UI -->|Render Architecture| CanvasComponent
     
-    EditorComponent <-->|WebSocket Real-time Polling| ConvexAPI
-    CanvasComponent <-->|Debounced Auto-save Sync| ConvexAPI
+    EditorComponent <-->|Queries & Mutations| ConvexMock
+    CanvasComponent <-->|Debounced Auto-save Sync| ConvexMock
     CanvasComponent -->|Fetch AWS SVG Base64| AWS_Icons_List
 
-    ConvexAPI <-->|Sync State| NeonDB
-    NextAPI <-->|Prisma Database Engine| NeonDB
+    ConvexMock <-->|REST POST Requests| ConvexAPI
+    ConvexAPI <-->|Read / Write State| PrismaORM
+    AuthMeAPI <-->|Query User Profiles| PrismaORM
     PrismaORM <-->|Client Queries| NeonDB
 
     %% Layout Links
     style ClientLayer fill:#f8fafc,stroke:#cbd5e1,stroke-dasharray: 5 5;
+    style EmulationLayer fill:#f8fafc,stroke:#cbd5e1,stroke-dasharray: 5 5;
     style ServerLayer fill:#f8fafc,stroke:#cbd5e1,stroke-dasharray: 5 5;
     style DataLayer fill:#f8fafc,stroke:#cbd5e1,stroke-dasharray: 5 5;
 ```
