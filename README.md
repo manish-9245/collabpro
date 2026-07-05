@@ -106,7 +106,6 @@ graph TD
 Ensure you have the following installed on your developer machine:
 - Node.js (version 20 or higher)
 - PostgreSQL database instance
-- CLI Accounts for [Convex](https://convex.dev/) and [Kinde](https://kinde.com/)
 
 ### 📦 1. Clone & Install Dependencies
 ```bash
@@ -116,23 +115,15 @@ npm install
 ```
 
 ### 🔑 2. Environment Setup
-Create a `.env.local` or `.env` file in the root directory and supply the following configuration secrets:
+Create a `.env.local` or `.env` file in the root directory and supply your PostgreSQL connection string:
 
 ```env
 # Database Credentials
 DATABASE_URL="postgresql://<user>:<password>@<host>:<port>/collabpro?schema=public"
-
-# Kinde Auth credentials
-KINDE_CLIENT_ID="<your-kinde-client-id>"
-KINDE_CLIENT_SECRET="<your-kinde-client-secret>"
-KINDE_ISSUER_URL="https://<your-kinde-domain>.kinde.com"
-NEXT_PUBLIC_KINDE_REDIRECT_URL="http://localhost:3000/dashboard"
-NEXT_PUBLIC_KINDE_POST_LOGOUT_REDIRECT_URL="http://localhost:3000"
-
-# Convex Credentials
-CONVEX_DEPLOYMENT="dev:<your-deployment-id>"
-NEXT_PUBLIC_CONVEX_URL="https://<your-convex-app>.convex.cloud"
 ```
+
+> [!NOTE]
+> CollabPro features a built-in local emulation layer for Kinde Authentication and Convex state sync. No third-party accounts or secrets are required for these systems.
 
 ### 🗃️ 3. Initialize Prisma Database Schema
 Push the schema structure to your PostgreSQL database:
@@ -140,13 +131,7 @@ Push the schema structure to your PostgreSQL database:
 npx prisma db push
 ```
 
-### 🛰️ 4. Launch Convex Sync Dev Server
-In a separate terminal tab, initiate the live Convex replication listener:
-```bash
-npx convex dev
-```
-
-### 💻 5. Launch Local Dev Server
+### 💻 4. Launch Local Dev Server
 ```bash
 npm run dev
 ```
@@ -157,7 +142,7 @@ Open [http://localhost:3000](http://localhost:3000) to view the application in a
 ## 🌐 Production Deployment
 
 ### Vercel / Railway Deployment Rules
-- Make sure all environment variables listed above are present in your dashboard settings.
+- Make sure the `DATABASE_URL` environment variable is defined in your deployment dashboard settings.
 - Do NOT run database migration triggers during build time as it might block. Run `npx prisma db push` beforehand or via custom runtime deployment hooks.
 - Deploy the production Next.js bundle:
 ```bash
