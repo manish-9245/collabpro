@@ -1,12 +1,20 @@
 "use client"
 
 import { Button } from '@/components/ui/button'
-import { Link, Save, Edit2, Check, X, Loader2, FileText, Columns, Palette } from 'lucide-react'
+import { Link, Save, Edit2, Check, X, Loader2, FileText, Columns, Palette, Download, Share2 } from 'lucide-react'
 import Image from 'next/image'
 import React, { useState, useEffect, useRef } from 'react'
 import { useMutation } from 'convex/react'
 import { api } from '@/convex/_generated/api'
 import { toast } from 'sonner'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 interface WorkspaceHeaderProps {
   fileData: any
@@ -80,6 +88,151 @@ function WorkspaceHeader({ fileData, onSave, onRename, viewMode, onViewModeChang
     } else if (e.key === 'Escape') {
       setTempName(fileName)
       setIsEditing(false)
+    }
+  }
+
+  const handleShare = () => {
+    if (typeof window !== 'undefined') {
+      navigator.clipboard.writeText(window.location.href)
+      toast.success('Workspace link copied to clipboard!')
+    }
+  }
+
+  const exportAsMarkdown = () => {
+    if (!fileData?.document) {
+      toast.error('No document content to export')
+      return
+    }
+    try {
+      const data = JSON.parse(fileData.document)
+      let md = `# ${fileName || 'Untitled Document'}\n\n`
+      if (data.blocks && Array.isArray(data.blocks)) {
+        data.blocks.forEach((block: any) => {
+          if (block.type === 'header') {
+            const hashes = '#'.repeat(block.data.level || 2)
+            md += `${hashes} ${block.data.text}\n\n`
+          } else if (block.type === 'paragraph') {
+            md += `${block.data.text}\n\n`
+          } else if (block.type === 'list') {
+            if (block.data.items && Array.isArray(block.data.items)) {
+              block.data.items.forEach((item: string) => {
+                md += `- ${item}\n`
+              })
+              md += `\n`
+            }
+          } else if (block.type === 'checklist') {
+            if (block.data.items && Array.isArray(block.data.items)) {
+              block.data.items.forEach((item: any) => {
+                const checked = item.checked ? '[x]' : '[ ]'
+                md += `- ${checked} ${item.text}\n`
+              })
+              md += `\n`
+            }
+          } else if (block.type === 'warning') {
+            md += `> **Warning:** ${block.data.title || ''}\n`
+            md += `> ${block.data.message || ''}\n\n`
+          }
+        })
+      }
+      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${fileName || 'Untitled'}.md`
+      link.click()
+      URL.revokeObjectURL(url)
+      toast.success('Exported document as Markdown!')
+    } catch (e) {
+      console.error(e)
+      toast.error('Failed to export as Markdown')
+    }
+  }
+
+  const exportAsHTML = () => {
+    if (!fileData?.document) {
+      toast.error('No document content to export')
+      return
+    }
+    try {
+      const data = JSON.parse(fileData.document)
+      let html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>${fileName || 'Untitled Document'}</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 40px auto; padding: 0 20px; color: #333; }
+    h1, h2, h3 { color: #111; margin-top: 1.5em; }
+    blockquote { border-left: 4px solid #ddd; padding-left: 15px; color: #666; margin-left: 0; }
+    ul { padding-left: 20px; }
+    li { margin-bottom: 5px; }
+  </style>
+</head>
+<body>
+  <h1>${fileName || 'Untitled Document'}</h1>\n`
+      if (data.blocks && Array.isArray(data.blocks)) {
+        data.blocks.forEach((block: any) => {
+          if (block.type === 'header') {
+            const tag = `h${block.data.level || 2}`
+            html += `  <${tag}>${block.data.text}</${tag}>\n`
+          } else if (block.type === 'paragraph') {
+            html += `  <p>${block.data.text}</p>\n`
+          } else if (block.type === 'list') {
+            if (block.data.items && Array.isArray(block.data.items)) {
+              html += `  <ul>\n`
+              block.data.items.forEach((item: string) => {
+                html += `    <li>${item}</li>\n`
+              })
+              html += `  </ul>\n`
+            }
+          } else if (block.type === 'checklist') {
+            if (block.data.items && Array.isArray(block.data.items)) {
+              html += `  <ul style="list-style-type: none; padding-left: 0;">\n`
+              block.data.items.forEach((item: any) => {
+                const checked = item.checked ? 'checked' : ''
+                html += `    <li><input type="checkbox" ${checked} disabled> ${item.text}</li>\n`
+              })
+              html += `  </ul>\n`
+            }
+          } else if (block.type === 'warning') {
+            html += `  <blockquote><strong>Warning:</strong> ${block.data.title || ''}<br>${block.data.message || ''}</blockquote>\n`
+          }
+        })
+      }
+      html += `</body>\n</html>`
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${fileName || 'Untitled'}.html`
+      link.click()
+      URL.revokeObjectURL(url)
+      toast.success('Exported document as HTML!')
+    } catch (e) {
+      console.error(e)
+      toast.error('Failed to export as HTML')
+    }
+  }
+
+  const exportAsJSON = () => {
+    if (!fileData?.whiteboard) {
+      toast.error('No whiteboard content to export')
+      return
+    }
+    try {
+      const data = JSON.parse(fileData.whiteboard)
+      const jsonStr = JSON.stringify(data, null, 2)
+      const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${fileName || 'Untitled'}_whiteboard.json`
+      link.click()
+      URL.revokeObjectURL(url)
+      toast.success('Exported whiteboard configuration!')
+    } catch (e) {
+      console.error(e)
+      toast.error('Failed to export whiteboard JSON')
     }
   }
 
@@ -187,16 +340,44 @@ function WorkspaceHeader({ fileData, onSave, onRename, viewMode, onViewModeChang
       </div>
       
       {/* Right side buttons */}
-      <div className='flex items-center gap-3 shrink-0 flex-1 justify-end'>
+      <div className='flex items-center gap-2 shrink-0 flex-1 justify-end'>
         <Button className='h-8.5 text-[12px] font-medium
         gap-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg shadow-sm hover:shadow active:scale-95 transition-all'
         onClick={() => onSave()}
         > 
           <Save className='h-4 w-4' /> <span className='hidden sm:inline'>Save</span> 
         </Button>
-        <Button className='h-8.5 text-[12px] font-medium
-        gap-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-sm hover:shadow active:scale-95 transition-all'>
-          <span className='hidden sm:inline'>Share</span> <Link className='h-4 w-4' /> 
+        
+        {/* Export Dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button className='h-8.5 text-[12px] font-medium gap-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 rounded-lg shadow-sm hover:shadow active:scale-95 transition-all border border-slate-200 dark:border-slate-700'>
+              <Download className='h-4 w-4' /> <span className='hidden sm:inline'>Export</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800">
+            <DropdownMenuLabel className="text-slate-500 dark:text-slate-400 font-bold text-xs uppercase tracking-wider">Export Document</DropdownMenuLabel>
+            <DropdownMenuItem onClick={exportAsMarkdown} className="cursor-pointer gap-2 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">
+              <FileText className="h-4 w-4 text-blue-500" /> Export as Markdown (.md)
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={exportAsHTML} className="cursor-pointer gap-2 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">
+              <FileText className="h-4 w-4 text-green-500" /> Export as HTML (.html)
+            </DropdownMenuItem>
+            
+            <DropdownMenuSeparator className="bg-slate-100 dark:bg-slate-800" />
+            
+            <DropdownMenuLabel className="text-slate-500 dark:text-slate-400 font-bold text-xs uppercase tracking-wider">Export Whiteboard</DropdownMenuLabel>
+            <DropdownMenuItem onClick={exportAsJSON} className="cursor-pointer gap-2 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">
+              <Palette className="h-4 w-4 text-purple-500" /> Export Canvas (.json)
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <Button 
+          onClick={handleShare}
+          className='h-8.5 text-[12px] font-medium gap-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-sm hover:shadow active:scale-95 transition-all'
+        >
+          <span className='hidden sm:inline'>Share</span> <Share2 className='h-4 w-4' /> 
         </Button>
       </div>
     </div>
