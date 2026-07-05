@@ -20,6 +20,7 @@ function DashboardLayout(
     const {user}:any=useKindeBrowserClient();
     const [fileList_,setFileList_]=useState();
     const [activeTeam,setActiveTeam]=useState<any>();
+    const [activeTab,setActiveTab]=useState<string>('all');
     const router=useRouter();
     useEffect(()=>{
         user&&checkTeam();
@@ -38,7 +39,7 @@ function DashboardLayout(
   return (
     <div>
       <ActiveTeamContext.Provider value={{activeTeam,setActiveTeam}}>
-      <FileListContext.Provider value={{fileList_,setFileList_}}>
+      <FileListContext.Provider value={{fileList_,setFileList_,activeTab,setActiveTab}}>
       <div className='grid grid-cols-4'>
           <div className='bg-white h-screen w-72 fixed'>
           <SideNav/>

@@ -74,3 +74,14 @@ export const updateFileName=mutation({
         return result;
     },
 })
+
+export const archiveFile=mutation({
+    args:{
+        _id:v.id('files'),
+        archive:v.boolean()
+    },
+    handler:async(ctx, args) =>{
+        const result =await ctx.db.patch(args._id,{archive:args.archive});
+        return result;
+    },
+})

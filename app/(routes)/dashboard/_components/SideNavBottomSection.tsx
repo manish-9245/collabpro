@@ -1,6 +1,6 @@
 import { Button } from '@/components/ui/button'
 import { Archive, Flag, Github } from 'lucide-react'
-import React, { useState } from 'react'
+import React, { useState, useContext } from 'react'
 import {
   Dialog,
   DialogClose,
@@ -14,7 +14,10 @@ import {
 import { Input } from '@/components/ui/input'
 import Constant from '@/app/_constant/Constant'
 import PricingDialog from './PricingDialog'
+import { FileListContext } from '@/app/_context/FilesListContext'
+
 function SideNavBottomSection({onFileCreate,totalFiles}:any) {
+  const { activeTab, setActiveTab } = useContext(FileListContext);
   const menuList=[
     {
       id:1,
@@ -39,9 +42,28 @@ function SideNavBottomSection({onFileCreate,totalFiles}:any) {
   return (
     <div>
       {menuList.map((menu,index)=>(
-        <h2 key={index} className='flex gap-2 p-1 px-2 text-[14px] 
-        hover:bg-gray-100 rounded-md cursor-pointer'>
-          <menu.icon className='h-5 w-5'/>
+        <h2 
+          key={index} 
+          onClick={() => {
+            if (menu.id === 3) {
+              setActiveTab && setActiveTab('archive');
+            } else if (menu.id === 1) {
+              setActiveTab && setActiveTab('all');
+            } else if (menu.id === 2) {
+              window.open('https://github.com', '_blank');
+            }
+          }}
+          className={`flex gap-2 p-2 px-3 text-[14px] rounded-lg cursor-pointer transition-all duration-150 items-center mb-1 ${
+            (menu.id === 3 && activeTab === 'archive') || (menu.id === 1 && activeTab === 'all')
+              ? 'bg-blue-50 text-blue-600 font-semibold dark:bg-blue-950/40 dark:text-blue-400'
+              : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-900'
+          }`}
+        >
+          <menu.icon className={`h-5 w-5 ${
+            (menu.id === 3 && activeTab === 'archive') || (menu.id === 1 && activeTab === 'all')
+              ? 'text-blue-500'
+              : 'text-zinc-500'
+          }`}/>
           {menu.name}</h2>
       ))}
 

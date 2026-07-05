@@ -1,6 +1,6 @@
 import { ChevronDown, LayoutGrid, LogOut, Settings, Users } from 'lucide-react'
 import Image from 'next/image'
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useContext } from 'react'
 import {
     Popover,
     PopoverContent,
@@ -12,6 +12,7 @@ import { useConvex } from 'convex/react'
 import { api } from '@/convex/_generated/api'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
+import { FileListContext } from '@/app/_context/FilesListContext'
 
 export interface TEAM{
     createdBy:String,
@@ -19,6 +20,7 @@ export interface TEAM{
     _id:String
 }
 function SideNavTopSection({user,setActiveTeamInfo}:any) {
+    const { activeTab, setActiveTab } = useContext(FileListContext);
     const menu=[
         {
             id:1,
@@ -126,11 +128,18 @@ function SideNavTopSection({user,setActiveTeamInfo}:any) {
         </Popover>
 
         {/* All File Button  */}
-        <Button variant='outline'
-         className='w-full justify-start
-          gap-2 font-bold mt-8 bg-gray-100'>
-            <LayoutGrid className='h-5 w-5'/>
-            All Files</Button>
+        <Button 
+          variant='outline'
+          onClick={() => setActiveTab && setActiveTab('all')}
+          className={`w-full justify-start gap-2 font-bold mt-8 transition-all ${
+            activeTab === 'all' 
+              ? 'bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-900/50 hover:bg-blue-50 hover:text-blue-600' 
+              : 'bg-transparent text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-zinc-900'
+          }`}
+        >
+          <LayoutGrid className='h-5 w-5'/>
+          All Files
+        </Button>
         </div>
 
     )
