@@ -940,15 +940,15 @@ function Canvas({
       {isSidebarCollapsed ? (
         <button
           onClick={() => setIsSidebarCollapsed(false)}
-          className="absolute top-4 left-4 z-[99] flex items-center gap-2 bg-white/95 backdrop-blur-md hover:bg-slate-50 px-3 py-2 rounded-xl border border-slate-200/60 shadow-xl pointer-events-auto transition-all active:scale-95 text-slate-800"
+          className="absolute top-4 right-4 z-[99] flex items-center gap-2 bg-white/95 backdrop-blur-md hover:bg-slate-50 px-3 py-2 rounded-xl border border-slate-200/60 shadow-xl pointer-events-auto transition-all active:scale-95 text-slate-800"
           title="Expand Panel"
         >
           <Cloud className="h-4 w-4 text-blue-500 animate-pulse shrink-0" />
           <span className="text-[10px] font-bold uppercase tracking-wider">Canvas Elements</span>
-          <ChevronRight className="h-4 w-4 text-slate-400 ml-1" />
+          <ChevronLeft className="h-4 w-4 text-slate-400 ml-1" />
         </button>
       ) : (
-        <div className="absolute top-4 left-4 z-[99] flex flex-col bg-white/95 backdrop-blur-md rounded-2xl border border-slate-200/60 shadow-2xl w-[290px] h-[460px] pointer-events-auto overflow-hidden transition-all">
+        <div className="absolute top-4 right-4 z-[99] flex flex-col bg-white/95 backdrop-blur-md rounded-2xl border border-slate-200/60 shadow-2xl w-[290px] h-[460px] pointer-events-auto overflow-hidden transition-all">
           {/* Header */}
           <div className="p-3 border-b border-slate-100 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-1.5">
@@ -957,7 +957,7 @@ function Canvas({
                 className="p-1 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition-all mr-0.5"
                 title="Collapse Panel"
               >
-                <ChevronLeft className="h-4 w-4" />
+                <ChevronRight className="h-4 w-4" />
               </button>
               <Cloud className="h-4 w-4 text-blue-500 animate-pulse shrink-0" />
               <span className="text-[10px] font-black text-slate-800 uppercase tracking-wider">Library</span>

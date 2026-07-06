@@ -188,3 +188,26 @@ h6.ce-header {
     font-family: var(--font-display), system-ui, -apple-system, sans-serif;
   }
 }
+
+/* Complete Third-Party Canvas Brand Stripping */
+.excalidraw .welcome-screen-center__logo,
+.excalidraw .welcome-screen-center__logo img,
+.excalidraw .welcome-screen-center__title,
+.excalidraw .App-menu__left .logo {
+  display: none !important;
+}
+
+.excalidraw .footer-branding,
+.excalidraw .App-menu_bottom-right,
+.excalidraw .layer-ui__wrapper .footer-branding,
+.excalidraw .layer-ui__wrapper .footer-center,
+.excalidraw .HelpDialog-trigger {
+  display: none !important;
+}
+
+/* Hide Excalidraw's redundant built-in library triggers to favor our premium custom right-sidebar */
+.excalidraw .sidebar-trigger,
+.excalidraw button[data-testid="sidebar-trigger"],
+.excalidraw .layer-ui__wrapper button[data-testid="sidebar-trigger"] {
+  display: none !important;
+}
