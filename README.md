@@ -19,11 +19,13 @@ CollabPro is engineered to be **completely self-contained with 100% zero externa
 - **Syncing & Cache**: State auto-saves dynamically with custom save intervals and state caching to prevent network collisions.
 
 ### 📐 2. Infinite Collaborative Canvas
-- **Excalidraw Engine Integration**: Standard vector nodes, freehand sketching, colors, grouping, alignment, and export.
-- **800+ AWS Icons System**: Drag or click to inject high-resolution AWS architecture or resource SVG nodes directly from a searchable, paginated sidebar.
+- **Excalidraw Engine Integration**: High-performance canvas supporting standard vector nodes, freehand sketching, custom colors, grouping, alignment, and export.
+- **Unified Design Assets Sidebar**: A beautifully aligned, fully integrated right-side sidebar organizing drawing shapes across tabbed categories: Standard, AWS, Custom, and Library.
+- **Dynamic Vector Icon Previews**: On-the-fly vector coordinate parsing using a custom preview renderer that calculates real-time bounding boxes and scales complex `.excalidrawlib` shapes into elegant inline SVG icons inside a premium 2-column grid.
+- **800+ Searchable AWS Icons**: Search, filter, and drag-and-drop over 800 high-resolution AWS architecture or resource SVG nodes directly from the sidebar onto the canvas.
 - **Drag-and-Drop Coordinate Mapping**: Drop AWS elements or standard flow nodes exactly where your cursor releases relative to viewport zoom and panning scroll states.
 - **Atomic Rendering**: Immediate, lag-free file-data loading so you never see blank or broken shapes.
-- **Collapsible Elements Panel**: One-click collapsible sidebar header allowing full canvas usage.
+- **Collapsible Design Sidebar**: One-click collapsible panel header that hides the right-side library seamlessly to maximize focus and canvas real estate.
 
 ### 📁 3. File & Nested Folder Tree Navigation
 - **Directory Hierarchy**: Create and map files into parent folders or deeply nested subfolders.
@@ -158,5 +160,16 @@ npm run start
 
 ---
 
+## 💖 Acknowledgements & Credits
+
+CollabPro is built on top of and made possible by several incredible open-source projects, and we owe them a special debt of gratitude:
+
+- **[Excalidraw](https://github.com/excalidraw/excalidraw)**: A massive thanks to the Excalidraw team for their outstanding, world-class virtual whiteboard library. Their robust vector graphics canvas engine enables the seamless, high-fidelity collaborative system diagramming experience that forms the core of CollabPro.
+- **[Lexical](https://github.com/facebook/lexical)**: For providing the highly reliable, extensible, and high-performance rich-text editor engine.
+- **AWS Simple Icons**: For the comprehensive library of architecture and service icons that make technical system design smooth and professional.
+
+---
+
 ## 📄 License
 Distributed under the MIT License. See [LICENSE](LICENSE) for details.
+
