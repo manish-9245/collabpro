@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react'
-import { Excalidraw, MainMenu, WelcomeScreen } from "@excalidraw/excalidraw";
+import { Excalidraw, MainMenu, WelcomeScreen, Sidebar, DefaultSidebar } from "@excalidraw/excalidraw";
 import { FILE } from '../../dashboard/_components/FileList';
 import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
@@ -168,11 +168,13 @@ function Canvas({
     const saveTimeoutRef=useRef<NodeJS.Timeout|null>(null);
     const lastSavedDataRef=useRef<string>("");
 
-    const [activeTab, setActiveTab] = useState<'standard' | 'aws' | 'libraries' | 'custom'>('standard');
+    const [activeTab, setActiveTab] = useState<'standard' | 'aws' | 'libraries' | 'custom' | 'library'>('standard');
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedCategory, setSelectedCategory] = useState<string>('all');
     const [loadingIcon, setLoadingIcon] = useState<string | null>(null);
-    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+    const [isLibraryDocked, setIsLibraryDocked] = useState(true);
+    const [includeLabel, setIncludeLabel] = useState(true);
+    const [includeCard, setIncludeCard] = useState(true);
 
     // Custom library state persisted in localStorage
     const [customIcons, setCustomIcons] = useState<any[]>([]);
@@ -443,47 +445,61 @@ function Canvas({
             const textId = `text_${Math.random().toString(36).substr(2, 9)}`;
             const groupId = `group_${Math.random().toString(36).substr(2, 9)}`;
 
-            // 1. Bounding Rounded Rectangle (Card structure that enables excalidraw line/arrow connectors)
-            const boxElement = {
-                type: "rectangle",
-                version: 1,
-                versionNonce: Math.floor(Math.random() * 1000000),
-                isDeleted: false,
-                id: boxId,
-                x: x,
-                y: y,
-                width: 100,
-                height: 105,
-                strokeColor: icon.stroke || "#cbd5e1",
-                backgroundColor: icon.fill || "#ffffff",
-                fillStyle: "solid",
-                strokeWidth: 1.5,
-                strokeStyle: "solid",
-                roughness: 0,
-                opacity: 100,
-                angle: 0,
-                strokeSharpness: "round",
-                boundElements: null,
-                updated: Date.now(),
-                link: null,
-                locked: false,
-                groupIds: [groupId],
-                seed: Math.floor(Math.random() * 1000000),
-                frameId: null,
-                roundness: { type: 3 }
-            };
+            const groupIds = (includeCard || includeLabel) ? [groupId] : [];
+            const newElements = [...currentElements];
 
-            // 2. Centered SVG logo/image
+            let imageX = x;
+            let imageY = y;
+            let imageW = 60;
+            let imageH = 60;
+
+            if (includeCard) {
+                imageW = 50;
+                imageH = 50;
+                imageX = x + 25;
+                imageY = y + 12;
+
+                const boxElement = {
+                    type: "rectangle",
+                    version: 1,
+                    versionNonce: Math.floor(Math.random() * 1000000),
+                    isDeleted: false,
+                    id: boxId,
+                    x: x,
+                    y: y,
+                    width: 100,
+                    height: includeLabel ? 105 : 74,
+                    strokeColor: icon.stroke || "#cbd5e1",
+                    backgroundColor: icon.fill || "#ffffff",
+                    fillStyle: "solid",
+                    strokeWidth: 1.5,
+                    strokeStyle: "solid",
+                    roughness: 0,
+                    opacity: 100,
+                    angle: 0,
+                    strokeSharpness: "round",
+                    boundElements: null,
+                    updated: Date.now(),
+                    link: null,
+                    locked: false,
+                    groupIds: groupIds,
+                    seed: Math.floor(Math.random() * 1000000),
+                    frameId: null,
+                    roundness: { type: 3 }
+                };
+                newElements.push(boxElement);
+            }
+
             const imageElement = {
                 type: "image",
                 version: 1,
                 versionNonce: Math.floor(Math.random() * 1000000),
                 isDeleted: false,
                 id: imageId,
-                x: x + 25,
-                y: y + 12,
-                width: 50,
-                height: 50,
+                x: imageX,
+                y: imageY,
+                width: imageW,
+                height: imageH,
                 angle: 0,
                 strokeColor: "transparent",
                 backgroundColor: "transparent",
@@ -496,53 +512,64 @@ function Canvas({
                 fileId: icon.id,
                 scale: [1, 1],
                 locked: false,
-                groupIds: [groupId],
+                groupIds: groupIds,
                 frameId: null,
                 roundness: null,
                 seed: Math.floor(Math.random() * 1000000),
                 updated: Date.now(),
                 link: null
             };
+            newElements.push(imageElement);
 
-            // 3. Crisp text label (gives a generous 12px margin beneath the logo)
-            const textElement = {
-                type: "text",
-                version: 1,
-                versionNonce: Math.floor(Math.random() * 1000000),
-                isDeleted: false,
-                id: textId,
-                x: x + 5,
-                y: y + 74, // logo ends at y+12+50=y+62. This leaves a neat 12px gap.
-                width: 90,
-                height: 20,
-                strokeColor: "#334155",
-                backgroundColor: "transparent",
-                fillStyle: "solid",
-                strokeWidth: 1,
-                strokeStyle: "solid",
-                roughness: 0,
-                opacity: 100,
-                angle: 0,
-                text: icon.label,
-                fontSize: 10,
-                fontFamily: 1,
-                textAlign: "center",
-                verticalAlign: "middle",
-                originalText: icon.label,
-                updated: Date.now(),
-                link: null,
-                locked: false,
-                groupIds: [groupId],
-                frameId: null,
-                roundness: null,
-                seed: Math.floor(Math.random() * 1000000),
-                baseline: 13,
-                lineHeight: 1.25,
-                boundElements: null
-            };
+            if (includeLabel) {
+                let textX = x + 5;
+                let textY = y + 74;
+                let textW = 90;
 
-            const newElements = [...currentElements, boxElement, imageElement, textElement];
-            
+                if (!includeCard) {
+                    textX = x - 20;
+                    textY = y + 66;
+                    textW = 100;
+                }
+
+                const textElement = {
+                    type: "text",
+                    version: 1,
+                    versionNonce: Math.floor(Math.random() * 1000000),
+                    isDeleted: false,
+                    id: textId,
+                    x: textX,
+                    y: textY,
+                    width: textW,
+                    height: 20,
+                    strokeColor: "#334155",
+                    backgroundColor: "transparent",
+                    fillStyle: "solid",
+                    strokeWidth: 1,
+                    strokeStyle: "solid",
+                    roughness: 0,
+                    opacity: 100,
+                    angle: 0,
+                    text: icon.label,
+                    fontSize: 10,
+                    fontFamily: 1,
+                    textAlign: "center",
+                    verticalAlign: "middle",
+                    originalText: icon.label,
+                    updated: Date.now(),
+                    link: null,
+                    locked: false,
+                    groupIds: groupIds,
+                    frameId: null,
+                    roundness: null,
+                    seed: Math.floor(Math.random() * 1000000),
+                    baseline: 13,
+                    lineHeight: 1.25,
+                    boundElements: null
+                };
+                newElements.push(textElement);
+            }
+
             const filesObj = {
                 [icon.id]: {
                     id: icon.id,
@@ -930,727 +957,837 @@ function Canvas({
         return matchesCategory && matchesQuery;
     });
 
+    // Filters for Standard tab
+    const filteredSystemNodes = SYSTEM_NODES.filter(node => {
+        return node.label.toLowerCase().includes(searchQuery.toLowerCase());
+    });
+
     return (
     <div 
       style={{ height: "calc(100vh - 80px)", position: "relative" }}
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleDrop}
     >
-      {/* Floating System Design Toolset */}
-      {isSidebarCollapsed ? (
-        <button
-          onClick={() => setIsSidebarCollapsed(false)}
-          className="absolute top-4 right-4 z-[99] flex items-center gap-2 bg-white/95 backdrop-blur-md hover:bg-slate-50 px-3 py-2 rounded-xl border border-slate-200/60 shadow-xl pointer-events-auto transition-all active:scale-95 text-slate-800"
-          title="Expand Panel"
+      {fileData && (
+        <Excalidraw 
+          theme="light"
+          excalidrawAPI={(api) => setExcalidrawAPI(api)}
+          initialData={{
+              elements: fileData?.whiteboard && JSON.parse(fileData?.whiteboard)
+          }}
+          onChange={handleCanvasChange}
+          UIOptions={{
+              canvasActions: {
+                  saveToActiveFile: false,
+                  loadScene: false,
+                  export: false,
+                  toggleTheme: false
+              }
+          }}
         >
-          <Cloud className="h-4 w-4 text-blue-500 animate-pulse shrink-0" />
-          <span className="text-[10px] font-bold uppercase tracking-wider">Canvas Elements</span>
-          <ChevronLeft className="h-4 w-4 text-slate-400 ml-1" />
-        </button>
-      ) : (
-        <div className="absolute top-4 right-4 z-[99] flex flex-col bg-white/95 backdrop-blur-md rounded-2xl border border-slate-200/60 shadow-2xl w-[290px] h-[460px] pointer-events-auto overflow-hidden transition-all">
-          {/* Header */}
-          <div className="p-3 border-b border-slate-100 flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => setIsSidebarCollapsed(true)}
-                className="p-1 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition-all mr-0.5"
-                title="Collapse Panel"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </button>
-              <Cloud className="h-4 w-4 text-blue-500 animate-pulse shrink-0" />
-              <span className="text-[10px] font-black text-slate-800 uppercase tracking-wider">Library</span>
-            </div>
-            {/* Quick Tab Switcher */}
-            <div className="flex p-0.5 bg-slate-100 rounded-lg text-[9px] font-bold shrink-0">
-              <button
-                type="button"
-                onClick={() => setActiveTab('standard')}
-                className={`px-1 py-1 rounded-md transition-all ${activeTab === 'standard' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
-              >
+          <MainMenu>
+              <MainMenu.DefaultItems.ClearCanvas/>
+              <MainMenu.DefaultItems.SaveAsImage/>
+              <MainMenu.DefaultItems.ChangeCanvasBackground/>
+          </MainMenu>
+          
+          <WelcomeScreen>
+              <WelcomeScreen.Hints.MenuHint/>
+              <WelcomeScreen.Hints.MenuHint/>
+              <WelcomeScreen.Hints.ToolbarHint/>
+              <WelcomeScreen.Center>
+                  <WelcomeScreen.Center.MenuItemHelp/>
+              </WelcomeScreen.Center>
+          </WelcomeScreen>
+
+          {/* Premium Native-Integrated Default Sidebar */}
+          <DefaultSidebar 
+            docked={isLibraryDocked} 
+            onDock={setIsLibraryDocked}
+            onStateChange={(state) => {
+              if (state?.tab) {
+                setActiveTab(state.tab as any);
+              }
+            }}
+          >
+            <DefaultSidebar.TabTriggers>
+              <Sidebar.TabTrigger tab="library">
+                Personal
+              </Sidebar.TabTrigger>
+              <Sidebar.TabTrigger tab="standard">
                 Standard
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('aws')}
-                className={`px-1 py-1 rounded-md transition-all ${activeTab === 'aws' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
-              >
+              </Sidebar.TabTrigger>
+              <Sidebar.TabTrigger tab="aws">
                 AWS
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('libraries')}
-                className={`px-1 py-1 rounded-md transition-all ${activeTab === 'libraries' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
-              >
-                Libraries
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('custom')}
-                className={`px-1 py-1 rounded-md transition-all ${activeTab === 'custom' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
-              >
+              </Sidebar.TabTrigger>
+              <Sidebar.TabTrigger tab="custom">
                 Custom
-              </button>
-            </div>
-          </div>
+              </Sidebar.TabTrigger>
+              <Sidebar.TabTrigger tab="libraries">
+                External
+              </Sidebar.TabTrigger>
+            </DefaultSidebar.TabTriggers>
 
-          {/* Search bar shared for AWS and Custom tabs */}
-          {(activeTab === 'aws' || activeTab === 'custom') && (
-            <div className="px-3 pt-3 pb-1 shrink-0">
-              <div className="relative">
-                <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder={activeTab === 'aws' ? "Search 800+ AWS Icons..." : "Search custom library..."}
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-8 pr-7 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-blue-500/50 focus:border-blue-500/80 text-slate-800 font-medium"
-                />
-                {searchQuery && (
-                  <button 
-                    onClick={() => setSearchQuery('')}
-                    className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 text-[10px]"
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Tab Contents */}
-          <div className="flex-1 overflow-y-auto p-3 flex flex-col min-h-0">
-            
-            {/* 1. STANDARD GRID (INFRASTRUCTURE SVGS) */}
-            {activeTab === 'standard' && (
-              <div className="grid grid-cols-2 gap-2 overflow-y-auto pr-0.5">
-                {SYSTEM_NODES.map((node) => (
-                  <button
-                    key={node.id}
-                    disabled={loadingIcon !== null}
-                    onClick={() => handleInsertIconNode(node)}
-                    draggable={true}
-                    onDragStart={(e) => handleDragStart(e, node, 'standard')}
-                    className="flex flex-col items-center justify-center p-2 rounded-xl bg-slate-50 hover:bg-blue-50/60 border border-slate-100 hover:border-blue-200 transition-all active:scale-95 group cursor-grab active:cursor-grabbing min-h-[76px]"
-                    title={`Drag or Click to insert ${node.label}`}
-                  >
-                    {loadingIcon === node.id ? (
-                      <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />
-                    ) : (
-                      <img 
-                        src={node.url} 
-                        alt={node.label} 
-                        className="w-8 h-8 object-contain group-hover:scale-110 transition-transform" 
-                      />
-                    )}
-                    <span className="text-[9px] font-bold text-slate-600 mt-1.5 truncate max-w-full text-center group-hover:text-blue-600">
-                      {node.label}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* 2. AWS SEARCHABLE / CATEGORIZED LIST */}
-            {activeTab === 'aws' && (
-              <div className="flex-1 flex flex-col min-h-0 gap-2">
-                {/* AWS Category Tabs */}
-                <div className="flex gap-1 overflow-x-auto pb-1.5 scrollbar-thin scrollbar-thumb-slate-200 select-none shrink-0">
-                  {[
-                    { id: 'all', label: 'All' },
-                    { id: 'architecture-service', label: 'Service' },
-                    { id: 'resource', label: 'Resource' },
-                    { id: 'architecture-group', label: 'Group' },
-                    { id: 'category', label: 'Category' }
-                  ].map(cat => (
-                    <button
-                      key={cat.id}
-                      onClick={() => setSelectedCategory(cat.id)}
-                      className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold border shrink-0 transition-all ${selectedCategory === cat.id ? 'bg-blue-500 text-white border-blue-500' : 'bg-slate-50 text-slate-500 border-slate-100 hover:bg-slate-100'}`}
-                    >
-                      {cat.label}
-                    </button>
-                  ))}
-                </div>
-
-                {/* AWS Icons Grid */}
-                <div className="flex-1 overflow-y-auto pr-1 grid grid-cols-3 gap-1.5 min-h-0">
-                  {displayedAWSIcons.map((icon) => (
-                    <button
-                      key={icon.id}
-                      disabled={loadingIcon !== null}
-                      onClick={() => handleInsertIconNode(icon)}
-                      draggable={true}
-                      onDragStart={(e) => handleDragStart(e, icon, 'aws')}
-                      className={`flex flex-col items-center justify-between p-1.5 rounded-xl bg-slate-50 border border-slate-100 hover:bg-blue-50/50 hover:border-blue-200 transition-all group active:scale-95 h-[76px] relative cursor-grab active:cursor-grabbing ${loadingIcon === icon.id ? 'opacity-70 border-blue-500 bg-blue-50/20' : ''}`}
-                      title={`Drag or Click to insert ${icon.label}`}
-                    >
-                      {loadingIcon === icon.id ? (
-                        <div className="flex-1 flex items-center justify-center">
-                          <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />
-                        </div>
-                      ) : (
-                        <div className="flex-1 flex items-center justify-center p-0.5">
-                          <img 
-                            src={icon.url} 
-                            alt={icon.label} 
-                            className="w-8 h-8 object-contain group-hover:scale-110 transition-transform"
-                            loading="lazy"
-                          />
-                        </div>
-                      )}
-                      <span className="text-[8px] leading-tight font-semibold text-slate-500 text-center line-clamp-2 w-full mt-1 group-hover:text-blue-600">
-                        {icon.label.replace(/^Amazon\s+|AWS\s+/, '')}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-                
-                {/* AWS Status Footer */}
-                <div className="text-[8px] text-slate-400 font-semibold px-1 text-center mt-1 border-t border-slate-100 pt-1.5 shrink-0">
-                  {filteredAWSIcons.length > 100 
-                    ? `Showing first 100 of ${filteredAWSIcons.length} matching icons` 
-                    : `Found ${filteredAWSIcons.length} matching icons`}
-                </div>
-              </div>
-            )}
-
-            {/* 3. FULLY CUSTOMIZABLE LIBRARY */}
-            {activeTab === 'custom' && (
-              <div className="flex-1 flex flex-col min-h-0 gap-2">
-                {/* Form to Add New Custom Icon */}
-                {isAddFormOpen ? (
-                  <form onSubmit={handleAddCustomIcon} className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2 mb-1 shrink-0">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-black uppercase text-slate-700 tracking-wider">New Custom Icon</span>
+            {/* 1. STANDARD TAB */}
+            <Sidebar.Tab tab="standard">
+              <div className="flex flex-col h-full bg-white dark:bg-slate-900 min-h-0">
+                {/* Search */}
+                <div className="px-3 pt-3 pb-1 shrink-0 bg-white dark:bg-slate-900">
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Search standard nodes..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full pl-8 pr-7 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#6965db]/50 focus:border-[#6965db]/80 text-slate-800 dark:text-slate-200 font-medium"
+                    />
+                    {searchQuery && (
                       <button 
-                        type="button" 
-                        onClick={() => setIsAddFormOpen(false)}
-                        className="text-[10px] text-slate-400 hover:text-slate-600 font-bold"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[8px] font-bold uppercase text-slate-400 tracking-wider">Icon Name</label>
-                      <input
-                        type="text"
-                        placeholder="e.g. NextJS, Redis"
-                        value={customName}
-                        onChange={(e) => setCustomName(e.target.value)}
-                        className="w-full px-2 py-1 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-slate-800"
-                        required
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[8px] font-bold uppercase text-slate-400 tracking-wider">SVG / Image URL</label>
-                      <input
-                        type="url"
-                        placeholder="https://example.com/logo.svg"
-                        value={customUrl}
-                        onChange={(e) => setCustomUrl(e.target.value)}
-                        className="w-full px-2 py-1 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-slate-800"
-                        required
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[8px] font-bold uppercase text-slate-400 tracking-wider">Category (Optional)</label>
-                      <input
-                        type="text"
-                        placeholder="Database, Cache, Frontend, etc."
-                        value={customCategory}
-                        onChange={(e) => setCustomCategory(e.target.value)}
-                        className="w-full px-2 py-1 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-slate-800"
-                      />
-                    </div>
-                    <button
-                      type="submit"
-                      className="w-full py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm"
-                    >
-                      Save Custom Icon
-                    </button>
-                  </form>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setIsAddFormOpen(true)}
-                    className="w-full py-2 bg-slate-50 hover:bg-slate-100 border border-dashed border-slate-200 rounded-xl text-xs text-slate-600 font-bold transition-all flex items-center justify-center gap-1 shrink-0 mb-1"
-                  >
-                    <Plus className="h-3.5 w-3.5 text-blue-500" /> Add Custom Icon
-                  </button>
-                )}
-
-                {/* Custom Category Tabs */}
-                {customCategories.length > 2 && (
-                  <div className="flex gap-1 overflow-x-auto pb-1.5 scrollbar-thin scrollbar-thumb-slate-200 select-none shrink-0">
-                    {customCategories.map(cat => (
-                      <button
-                        key={cat}
                         type="button"
-                        onClick={() => setSelectedCustomCategory(cat)}
-                        className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold border shrink-0 transition-all ${selectedCustomCategory === cat ? 'bg-blue-500 text-white border-blue-500' : 'bg-slate-50 text-slate-500 border-slate-100 hover:bg-slate-100'}`}
+                        onClick={() => setSearchQuery('')}
+                        className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-[10px] cursor-pointer"
                       >
-                        {cat}
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Placement Style */}
+                <div className="px-3 py-1.5 shrink-0 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800/60 flex items-center justify-between gap-4 text-[10px] select-none font-bold">
+                  <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wider">Placement Style</span>
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-1.5 cursor-pointer text-slate-600 dark:text-slate-300 hover:text-[#6965db] dark:hover:text-[#8572e3] transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={includeCard}
+                        onChange={(e) => setIncludeCard(e.target.checked)}
+                        className="rounded text-[#6965db] focus:ring-[#6965db]/50 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 h-3 w-3 cursor-pointer"
+                      />
+                      <span>Card Frame</span>
+                    </label>
+                    <label className="flex items-center gap-1.5 cursor-pointer text-slate-600 dark:text-slate-300 hover:text-[#6965db] dark:hover:text-[#8572e3] transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={includeLabel}
+                        onChange={(e) => setIncludeLabel(e.target.checked)}
+                        className="rounded text-[#6965db] focus:ring-[#6965db]/50 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 h-3 w-3 cursor-pointer"
+                      />
+                      <span>Name Label</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Content */}
+                <div className="flex-1 overflow-y-auto p-3 min-h-0 bg-white dark:bg-slate-900">
+                  <div className="grid grid-cols-2 gap-2 overflow-y-auto pr-0.5">
+                    {filteredSystemNodes.map((node) => (
+                      <button
+                        key={node.id}
+                        disabled={loadingIcon !== null}
+                        onClick={() => handleInsertIconNode(node)}
+                        draggable={true}
+                        onDragStart={(e) => handleDragStart(e, node, 'standard')}
+                        className="flex flex-col items-center justify-center p-2 rounded-xl bg-slate-50 dark:bg-slate-800/40 hover:bg-[#6965db]/5 dark:hover:bg-[#6965db]/10 border border-slate-100 dark:border-slate-800 hover:border-[#6965db]/30 dark:hover:border-[#6965db]/50 transition-all active:scale-95 group cursor-grab active:cursor-grabbing min-h-[76px]"
+                        title={`Drag or Click to insert ${node.label}`}
+                      >
+                        {loadingIcon === node.id ? (
+                          <Loader2 className="h-4 w-4 text-[#6965db] animate-spin" />
+                        ) : (
+                          <img 
+                            src={node.url} 
+                            alt={node.label} 
+                            className="w-8 h-8 object-contain group-hover:scale-110 transition-transform dark:brightness-90" 
+                          />
+                        )}
+                        <span className="text-[9px] font-bold text-slate-600 dark:text-slate-400 mt-1.5 truncate max-w-full text-center group-hover:text-[#6965db] dark:group-hover:text-[#8572e3]">
+                          {node.label}
+                        </span>
                       </button>
                     ))}
                   </div>
-                )}
+                  {filteredSystemNodes.length === 0 && (
+                    <div className="text-center p-4 text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase">
+                      No matching nodes found
+                    </div>
+                  )}
+                </div>
+              </div>
+            </Sidebar.Tab>
 
-                {/* Custom Icons Grid */}
-                {filteredCustomIcons.length > 0 ? (
-                  <div className="flex-1 overflow-y-auto pr-1 grid grid-cols-3 gap-1.5 min-h-0">
-                    {filteredCustomIcons.map((icon) => (
-                      <div
+            {/* 2. AWS TAB */}
+            <Sidebar.Tab tab="aws">
+              <div className="flex flex-col h-full bg-white dark:bg-slate-900 min-h-0">
+                {/* Search */}
+                <div className="px-3 pt-3 pb-1 shrink-0 bg-white dark:bg-slate-900">
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Search 800+ AWS Icons..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full pl-8 pr-7 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#6965db]/50 focus:border-[#6965db]/80 text-slate-800 dark:text-slate-200 font-medium"
+                    />
+                    {searchQuery && (
+                      <button 
+                        type="button"
+                        onClick={() => setSearchQuery('')}
+                        className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-[10px] cursor-pointer"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Placement Style */}
+                <div className="px-3 py-1.5 shrink-0 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800/60 flex items-center justify-between gap-4 text-[10px] select-none font-bold">
+                  <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wider">Placement Style</span>
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-1.5 cursor-pointer text-slate-600 dark:text-slate-300 hover:text-[#6965db] dark:hover:text-[#8572e3] transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={includeCard}
+                        onChange={(e) => setIncludeCard(e.target.checked)}
+                        className="rounded text-[#6965db] focus:ring-[#6965db]/50 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 h-3 w-3 cursor-pointer"
+                      />
+                      <span>Card Frame</span>
+                    </label>
+                    <label className="flex items-center gap-1.5 cursor-pointer text-slate-600 dark:text-slate-300 hover:text-[#6965db] dark:hover:text-[#8572e3] transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={includeLabel}
+                        onChange={(e) => setIncludeLabel(e.target.checked)}
+                        className="rounded text-[#6965db] focus:ring-[#6965db]/50 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 h-3 w-3 cursor-pointer"
+                      />
+                      <span>Name Label</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Content */}
+                <div className="flex-1 overflow-y-auto p-3 flex flex-col min-h-0 bg-white dark:bg-slate-900">
+                  {/* AWS Category Tabs */}
+                  <div className="flex gap-1 overflow-x-auto pb-1.5 scrollbar-thin select-none shrink-0">
+                    {[
+                      { id: 'all', label: 'All' },
+                      { id: 'architecture-service', label: 'Service' },
+                      { id: 'resource', label: 'Resource' },
+                      { id: 'architecture-group', label: 'Group' },
+                      { id: 'category', label: 'Category' }
+                    ].map(cat => (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => setSelectedCategory(cat.id)}
+                        className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold border shrink-0 transition-all ${selectedCategory === cat.id ? 'bg-[#6965db] text-white border-[#6965db]' : 'bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-100 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+                      >
+                        {cat.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* AWS Icons Grid */}
+                  <div className="flex-1 overflow-y-auto pr-1 grid grid-cols-3 gap-1.5 min-h-0 mt-1">
+                    {displayedAWSIcons.map((icon) => (
+                      <button
                         key={icon.id}
-                        className={`flex flex-col items-center justify-between p-1.5 rounded-xl bg-slate-50 border border-slate-100 hover:bg-blue-50/50 hover:border-blue-200 transition-all group h-[76px] relative cursor-grab active:cursor-grabbing ${loadingIcon === icon.id ? 'opacity-70' : ''}`}
+                        disabled={loadingIcon !== null}
+                        onClick={() => handleInsertIconNode(icon)}
+                        draggable={true}
+                        onDragStart={(e) => handleDragStart(e, icon, 'aws')}
+                        className={`flex flex-col items-center justify-between p-1.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 hover:bg-[#6965db]/5 dark:hover:bg-[#6965db]/10 hover:border-[#6965db]/30 dark:hover:border-[#6965db]/50 transition-all group active:scale-95 h-[76px] relative cursor-grab active:cursor-grabbing ${loadingIcon === icon.id ? 'opacity-70 border-[#6965db] bg-[#6965db]/10' : ''}`}
                         title={`Drag or Click to insert ${icon.label}`}
                       >
-                        {/* Drag / Click transparent spacer layer */}
-                        <button
-                          onClick={() => handleInsertIconNode(icon)}
-                          className="absolute inset-0 z-0 rounded-xl"
-                          draggable={true}
-                          onDragStart={(e) => handleDragStart(e, icon, 'custom')}
-                        />
-                        
-                        <div className="flex-1 flex items-center justify-center p-0.5 z-10 pointer-events-none">
-                          {loadingIcon === icon.id ? (
-                            <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />
-                          ) : (
+                        {loadingIcon === icon.id ? (
+                          <div className="flex-1 flex items-center justify-center">
+                            <Loader2 className="h-4 w-4 text-[#6965db] animate-spin" />
+                          </div>
+                        ) : (
+                          <div className="flex-1 flex items-center justify-center p-0.5">
                             <img 
                               src={icon.url} 
                               alt={icon.label} 
-                              className="w-8 h-8 object-contain group-hover:scale-110 transition-transform"
-                              onError={(e) => {
-                                // Safe fallback if icon URL fails
-                                e.currentTarget.src = "https://cdn.jsdelivr.net/npm/aws-icons@3.3.0/icons/resource/User.svg";
-                              }}
+                              className="w-8 h-8 object-contain group-hover:scale-110 transition-transform dark:brightness-90"
                               loading="lazy"
                             />
-                          )}
-                        </div>
-                        <div className="w-full flex items-center justify-between gap-1 z-10 px-0.5 mt-1">
-                          <span className="text-[8px] leading-tight font-semibold text-slate-500 truncate group-hover:text-blue-600 flex-1 select-none pointer-events-none">
-                            {icon.label}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteCustomIcon(icon.id, icon.label);
-                            }}
-                            className="text-slate-400 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all p-0.5 rounded hover:bg-rose-50"
-                            title={`Delete ${icon.label}`}
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </button>
-                        </div>
-                      </div>
+                          </div>
+                        )}
+                        <span className="text-[8px] leading-tight font-semibold text-slate-500 dark:text-slate-400 text-center line-clamp-2 w-full mt-1 group-hover:text-[#6965db] dark:group-hover:text-[#8572e3]">
+                          {icon.label.replace(/^Amazon\s+|AWS\s+/, '')}
+                        </span>
+                      </button>
                     ))}
                   </div>
-                ) : (
-                  <div className="flex-1 flex flex-col items-center justify-center text-center p-4 border border-dashed border-slate-100 rounded-xl bg-slate-50/20">
-                    <Cloud className="h-8 w-8 text-slate-300 animate-pulse mb-1.5" />
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Custom Library Empty</span>
-                    <span className="text-[9px] text-slate-400 leading-normal max-w-[140px]">
-                      Add customized database, API, or frontend logos using the form above!
-                    </span>
+                  
+                  {/* AWS Status Footer */}
+                  <div className="text-[8px] text-slate-400 dark:text-slate-500 font-semibold px-1 text-center mt-1 border-t border-slate-100 dark:border-slate-800 pt-1.5 shrink-0">
+                    {filteredAWSIcons.length > 100 
+                      ? `Showing first 100 of ${filteredAWSIcons.length} matching icons` 
+                      : `Found ${filteredAWSIcons.length} matching icons`}
                   </div>
-                )}
+                </div>
               </div>
-            )}
+            </Sidebar.Tab>
 
-            {/* 4. EXTENSIBLE EXCALIDRAW LIBRARIES INTEGRATION */}
-            {activeTab === 'libraries' && (
-              <div className="flex-1 flex flex-col min-h-0 gap-2">
-                {/* Sleek Sub-Tab switcher: Active vs Community Browse */}
-                <div className="flex bg-slate-100 p-0.5 rounded-xl text-[10px] font-bold select-none shrink-0 mb-1">
-                  <button
-                    type="button"
-                    onClick={() => setLibSubTab('active')}
-                    className={`flex-1 py-1 rounded-lg transition-all text-center cursor-pointer ${libSubTab === 'active' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
-                  >
-                    Active Libraries
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setLibSubTab('browse')}
-                    className={`flex-1 py-1 rounded-lg transition-all text-center cursor-pointer ${libSubTab === 'browse' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
-                  >
-                    Community Directory
-                  </button>
+            {/* 3. CUSTOM TAB */}
+            <Sidebar.Tab tab="custom">
+              <div className="flex flex-col h-full bg-white dark:bg-slate-900 min-h-0">
+                {/* Search */}
+                <div className="px-3 pt-3 pb-1 shrink-0 bg-white dark:bg-slate-900">
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Search custom library..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full pl-8 pr-7 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#6965db]/50 focus:border-[#6965db]/80 text-slate-800 dark:text-slate-200 font-medium"
+                    />
+                    {searchQuery && (
+                      <button 
+                        type="button"
+                        onClick={() => setSearchQuery('')}
+                        className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-[10px] cursor-pointer"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
                 </div>
 
-                {libSubTab === 'active' ? (
-                  <div className="flex-1 flex flex-col min-h-0 gap-2">
-                    {/* Select Library Dropdown & Custom Importer Form */}
-                    <div className="space-y-1.5 shrink-0">
+                {/* Placement Style */}
+                <div className="px-3 py-1.5 shrink-0 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800/60 flex items-center justify-between gap-4 text-[10px] select-none font-bold">
+                  <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wider">Placement Style</span>
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-1.5 cursor-pointer text-slate-600 dark:text-slate-300 hover:text-[#6965db] dark:hover:text-[#8572e3] transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={includeCard}
+                        onChange={(e) => setIncludeCard(e.target.checked)}
+                        className="rounded text-[#6965db] focus:ring-[#6965db]/50 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 h-3 w-3 cursor-pointer"
+                      />
+                      <span>Card Frame</span>
+                    </label>
+                    <label className="flex items-center gap-1.5 cursor-pointer text-slate-600 dark:text-slate-300 hover:text-[#6965db] dark:hover:text-[#8572e3] transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={includeLabel}
+                        onChange={(e) => setIncludeLabel(e.target.checked)}
+                        className="rounded text-[#6965db] focus:ring-[#6965db]/50 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 h-3 w-3 cursor-pointer"
+                      />
+                      <span>Name Label</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Content */}
+                <div className="flex-1 overflow-y-auto p-3 flex flex-col min-h-0 bg-white dark:bg-slate-900">
+                  {/* Form to Add New Custom Icon */}
+                  {isAddFormOpen ? (
+                    <form onSubmit={handleAddCustomIcon} className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-3 space-y-2 mb-2 shrink-0">
                       <div className="flex items-center justify-between">
-                        <label className="text-[9px] font-black uppercase text-slate-500 tracking-wider">Select Library</label>
-                        <button
-                          type="button"
-                          onClick={() => setIsAddLibFormOpen(!isAddLibFormOpen)}
-                          className="text-[9px] font-extrabold text-blue-600 hover:text-blue-700 flex items-center gap-0.5"
+                        <span className="text-[10px] font-black uppercase text-slate-700 dark:text-slate-300 tracking-wider">New Custom Icon</span>
+                        <button 
+                          type="button" 
+                          onClick={() => setIsAddFormOpen(false)}
+                          className="text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 font-bold cursor-pointer"
                         >
-                          <Plus className="h-2.5 w-2.5" /> Import Custom
+                          Cancel
                         </button>
                       </div>
-                      <select
-                        value={selectedLibraryId}
-                        onChange={(e) => setSelectedLibraryId(e.target.value)}
-                        className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-blue-500/50 text-slate-700 font-bold cursor-pointer"
+                      <div className="space-y-1">
+                        <label className="text-[8px] font-bold uppercase text-slate-400 dark:text-slate-500 tracking-wider">Icon Name</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. NextJS, Redis"
+                          value={customName}
+                          onChange={(e) => setCustomName(e.target.value)}
+                          className="w-full px-2 py-1 text-xs border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#6965db] bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-medium"
+                          required
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[8px] font-bold uppercase text-slate-400 dark:text-slate-500 tracking-wider">SVG / Image URL</label>
+                        <input
+                          type="url"
+                          placeholder="https://example.com/logo.svg"
+                          value={customUrl}
+                          onChange={(e) => setCustomUrl(e.target.value)}
+                          className="w-full px-2 py-1 text-xs border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#6965db] bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-medium"
+                          required
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[8px] font-bold uppercase text-slate-400 dark:text-slate-500 tracking-wider">Category (Optional)</label>
+                        <input
+                          type="text"
+                          placeholder="Database, Cache, Frontend, etc."
+                          value={customCategory}
+                          onChange={(e) => setCustomCategory(e.target.value)}
+                          className="w-full px-2 py-1 text-xs border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#6965db] bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-medium"
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        className="w-full py-1.5 bg-[#6965db] hover:bg-[#5b57c6] text-white rounded-lg text-xs font-bold transition-all shadow-sm cursor-pointer"
                       >
-                        <optgroup label="Curated Technical Libraries">
-                          {CURATED_LIBRARIES.map(lib => (
-                            <option key={lib.id} value={lib.id}>{lib.name}</option>
-                          ))}
-                        </optgroup>
-                        {customLibrariesList.length > 0 && (
-                          <optgroup label="Imported & Community Libraries">
-                            {customLibrariesList.map(lib => (
-                              <option key={lib.id} value={lib.id}>{lib.name}</option>
-                            ))}
-                          </optgroup>
-                        )}
-                        {loadedLibraries.filter(l => l.id.startsWith('uploaded_')).length > 0 && (
-                          <optgroup label="Locally Uploaded Files">
-                            {loadedLibraries.filter(l => l.id.startsWith('uploaded_')).map(lib => (
-                              <option key={lib.id} value={lib.id}>{lib.name}</option>
-                            ))}
-                          </optgroup>
-                        )}
-                      </select>
-                    </div>
+                        Save Custom Icon
+                      </button>
+                    </form>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setIsAddFormOpen(true)}
+                      className="w-full py-2 bg-slate-50 dark:bg-slate-800/40 hover:bg-slate-100 dark:hover:bg-slate-800 border border-dashed border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-600 dark:text-slate-400 font-bold transition-all flex items-center justify-center gap-1 shrink-0 mb-2 cursor-pointer"
+                    >
+                      <Plus className="h-3.5 w-3.5 text-[#6965db]" /> Add Custom Icon
+                    </button>
+                  )}
 
-                    {/* Import Custom Library URL or upload local file form */}
-                    {isAddLibFormOpen && (
-                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2 shrink-0">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-black uppercase text-slate-700 tracking-wider">Import Library</span>
-                          <button 
-                            type="button" 
-                            onClick={() => setIsAddLibFormOpen(false)}
-                            className="text-[10px] text-slate-400 hover:text-slate-600 font-bold cursor-pointer"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                        
-                        {/* Option A: From Web URL */}
-                        <form onSubmit={handleAddCustomLibraryUrl} className="space-y-1.5">
-                          <label className="text-[8px] font-bold uppercase text-slate-400 tracking-wider block">Option 1: Raw .excalidrawlib URL</label>
-                          <div className="flex gap-1">
-                            <input
-                              type="url"
-                              placeholder="https://.../*.excalidrawlib"
-                              value={customLibraryUrl}
-                              onChange={(e) => setCustomLibraryUrl(e.target.value)}
-                              className="flex-1 px-2 py-1 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-slate-800 font-medium"
-                              required
-                            />
+                  {/* Custom Category Tabs */}
+                  {customCategories.length > 2 && (
+                    <div className="flex gap-1 overflow-x-auto pb-1.5 scrollbar-thin select-none shrink-0 mb-1">
+                      {customCategories.map(cat => (
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() => setSelectedCustomCategory(cat)}
+                          className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold border shrink-0 transition-all ${selectedCustomCategory === cat ? 'bg-[#6965db] text-white border-[#6965db]' : 'bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-100 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+                        >
+                          {cat}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Custom Icons Grid */}
+                  {filteredCustomIcons.length > 0 ? (
+                    <div className="flex-1 overflow-y-auto pr-1 grid grid-cols-3 gap-1.5 min-h-0">
+                      {filteredCustomIcons.map((icon) => (
+                        <div
+                          key={icon.id}
+                          className={`flex flex-col items-center justify-between p-1.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 hover:bg-[#6965db]/5 dark:hover:bg-[#6965db]/10 hover:border-[#6965db]/30 dark:hover:border-[#6965db]/50 transition-all group h-[76px] relative cursor-grab active:cursor-grabbing ${loadingIcon === icon.id ? 'opacity-70' : ''}`}
+                          title={`Drag or Click to insert ${icon.label}`}
+                        >
+                          {/* Drag / Click transparent spacer layer */}
+                          <button
+                            type="button"
+                            onClick={() => handleInsertIconNode(icon)}
+                            className="absolute inset-0 z-0 rounded-xl cursor-pointer"
+                            draggable={true}
+                            onDragStart={(e) => handleDragStart(e, icon, 'custom')}
+                          />
+                          
+                          <div className="flex-1 flex items-center justify-center p-0.5 z-10 pointer-events-none">
+                            {loadingIcon === icon.id ? (
+                              <Loader2 className="h-4 w-4 text-[#6965db] animate-spin" />
+                            ) : (
+                              <img 
+                                src={icon.url} 
+                                alt={icon.label} 
+                                className="w-8 h-8 object-contain group-hover:scale-110 transition-transform dark:brightness-90"
+                                onError={(e) => {
+                                  e.currentTarget.src = "https://cdn.jsdelivr.net/npm/aws-icons@3.3.0/icons/resource/User.svg";
+                                }}
+                                loading="lazy"
+                              />
+                            )}
+                          </div>
+                          <div className="w-full flex items-center justify-between gap-1 z-10 px-0.5 mt-1">
+                            <span className="text-[8px] leading-tight font-semibold text-slate-500 dark:text-slate-400 truncate group-hover:text-[#6965db] dark:group-hover:text-[#8572e3] flex-1 select-none pointer-events-none">
+                              {icon.label}
+                            </span>
                             <button
-                              type="submit"
-                              className="px-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-bold transition-all shrink-0 cursor-pointer"
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteCustomIcon(icon.id, icon.label);
+                              }}
+                              className="text-slate-400 hover:text-rose-500 dark:text-slate-500 dark:hover:text-rose-400 opacity-0 group-hover:opacity-100 transition-all p-0.5 rounded hover:bg-rose-50 dark:hover:bg-rose-950/20 cursor-pointer"
+                              title={`Delete ${icon.label}`}
                             >
-                              Import
+                              <Trash2 className="h-3 w-3" />
                             </button>
                           </div>
-                        </form>
-
-                        {/* Divider */}
-                        <div className="relative flex py-1 items-center">
-                          <div className="flex-grow border-t border-slate-200"></div>
-                          <span className="flex-shrink mx-2 text-[8px] text-slate-400 font-bold uppercase">or</span>
-                          <div className="flex-grow border-t border-slate-200"></div>
                         </div>
-
-                        {/* Option B: Local File Upload */}
-                        <div className="space-y-1.5">
-                          <label className="text-[8px] font-bold uppercase text-slate-400 tracking-wider block">Option 2: Upload File</label>
-                          <div className="relative">
-                            <input
-                              type="file"
-                              accept=".excalidrawlib"
-                              onChange={handleLocalLibraryUpload}
-                              id="local-lib-file"
-                              className="hidden"
-                            />
-                            <label
-                              htmlFor="local-lib-file"
-                              className="w-full py-1.5 bg-white border border-dashed border-slate-300 rounded-lg text-[10px] text-slate-600 font-bold hover:bg-slate-50 transition-all flex items-center justify-center gap-1 cursor-pointer"
-                            >
-                              <Upload className="h-3 w-3 text-blue-500" /> Choose .excalidrawlib file
-                            </label>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Library Shapes Search */}
-                    <div className="relative shrink-0">
-                      <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
-                      <input
-                        type="text"
-                        placeholder="Search active library shapes..."
-                        value={librarySearchQuery}
-                        onChange={(e) => setLibrarySearchQuery(e.target.value)}
-                        className="w-full pl-8 pr-7 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-blue-500/50 focus:border-blue-500/80 text-slate-800 font-medium"
-                      />
-                      {librarySearchQuery && (
-                        <button 
-                          type="button"
-                          onClick={() => setLibrarySearchQuery('')}
-                          className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 text-[10px] cursor-pointer"
-                        >
-                          ✕
-                        </button>
-                      )}
+                      ))}
                     </div>
+                  ) : (
+                    <div className="flex-1 flex flex-col items-center justify-center text-center p-4 border border-dashed border-slate-100 dark:border-slate-800 rounded-xl bg-slate-50/20 dark:bg-slate-800/10">
+                      <Cloud className="h-8 w-8 text-slate-300 dark:text-slate-600 animate-pulse mb-1.5" />
+                      <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Custom Library Empty</span>
+                      <span className="text-[9px] text-slate-400 dark:text-slate-500 leading-normal max-w-[140px]">
+                        Add customized database, API, or frontend logos using the form above!
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </Sidebar.Tab>
 
-                    {/* Library Shapes List */}
-                    {loadingLibrary === selectedLibraryId ? (
-                      <div className="flex-1 flex flex-col items-center justify-center text-center p-6">
-                        <Loader2 className="h-6 w-6 text-blue-500 animate-spin mb-2" />
-                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider animate-pulse">Fetching Library Assets...</span>
+            {/* 4. EXTENSIBLE EXCALIDRAW LIBRARIES INTEGRATION */}
+            <Sidebar.Tab tab="libraries">
+              <div className="flex flex-col h-full bg-white dark:bg-slate-900 min-h-0">
+                {/* Content */}
+                <div className="flex-1 overflow-y-auto p-3 flex flex-col min-h-0 bg-white dark:bg-slate-900">
+                  {/* Sleek Sub-Tab switcher: Active vs Community Browse */}
+                  <div className="flex bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl text-[10px] font-bold select-none shrink-0 mb-2 border border-slate-200/40 dark:border-slate-700/40">
+                    <button
+                      type="button"
+                      onClick={() => setLibSubTab('active')}
+                      className={`flex-1 py-1 rounded-lg transition-all text-center cursor-pointer ${libSubTab === 'active' ? 'bg-white dark:bg-slate-700 text-[#6965db] dark:text-[#8572e3] shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'}`}
+                    >
+                      Active Libraries
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLibSubTab('browse')}
+                      className={`flex-1 py-1 rounded-lg transition-all text-center cursor-pointer ${libSubTab === 'browse' ? 'bg-white dark:bg-slate-700 text-[#6965db] dark:text-[#8572e3] shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'}`}
+                    >
+                      Community Directory
+                    </button>
+                  </div>
+
+                  {libSubTab === 'active' ? (
+                    <div className="flex-1 flex flex-col min-h-0 gap-2">
+                      {/* Select Library Dropdown & Custom Importer Form */}
+                      <div className="space-y-1.5 shrink-0">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[9px] font-black uppercase text-slate-500 dark:text-slate-400 tracking-wider">Select Library</label>
+                          <button
+                            type="button"
+                            onClick={() => setIsAddLibFormOpen(!isAddLibFormOpen)}
+                            className="text-[9px] font-extrabold text-[#6965db] hover:text-[#5b57c6] dark:text-[#8572e3] dark:hover:text-[#8572e3]/80 flex items-center gap-0.5 cursor-pointer"
+                          >
+                            <Plus className="h-2.5 w-2.5" /> Import Custom
+                          </button>
+                        </div>
+                        <select
+                          value={selectedLibraryId}
+                          onChange={(e) => setSelectedLibraryId(e.target.value)}
+                          className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#6965db]/50 text-slate-700 dark:text-slate-300 font-bold cursor-pointer"
+                        >
+                          <optgroup label="Curated Technical Libraries" className="dark:bg-slate-900">
+                            {CURATED_LIBRARIES.map(lib => (
+                              <option key={lib.id} value={lib.id}>{lib.name}</option>
+                            ))}
+                          </optgroup>
+                          {customLibrariesList.length > 0 && (
+                            <optgroup label="Imported & Community Libraries" className="dark:bg-slate-900">
+                              {customLibrariesList.map(lib => (
+                                <option key={lib.id} value={lib.id}>{lib.name}</option>
+                              ))}
+                            </optgroup>
+                          )}
+                          {loadedLibraries.filter(l => l.id.startsWith('uploaded_')).length > 0 && (
+                            <optgroup label="Locally Uploaded Files" className="dark:bg-slate-900">
+                              {loadedLibraries.filter(l => l.id.startsWith('uploaded_')).map(lib => (
+                                <option key={lib.id} value={lib.id}>{lib.name}</option>
+                              ))}
+                            </optgroup>
+                          )}
+                        </select>
                       </div>
-                    ) : (() => {
-                      const currentLib = loadedLibraries.find(l => l.id === selectedLibraryId);
-                      if (!currentLib || !currentLib.items || currentLib.items.length === 0) {
-                        return (
-                          <div className="flex-1 flex flex-col items-center justify-center text-center p-6 border border-dashed border-slate-100 rounded-xl bg-slate-50/20 mt-1">
-                            <BookOpen className="h-8 w-8 text-slate-300 animate-pulse mb-1.5" />
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">No Assets Loaded</span>
-                            <span className="text-[9px] text-slate-400 leading-normal max-w-[150px]">
-                              Select a library above or import one to see the software design assets.
-                            </span>
-                          </div>
-                        );
-                      }
 
-                      // Filter items based on search query
-                      const filteredItems = currentLib.items.filter((item: any, idx: number) => {
-                        const name = getItemName(item.elements, idx, currentLib.itemNames).toLowerCase();
-                        return name.includes(librarySearchQuery.toLowerCase());
-                      });
-
-                      return (
-                        <div className="flex-1 overflow-y-auto pr-0.5 space-y-1.5 min-h-0">
-                          <div className="text-[8px] text-slate-400 font-extrabold uppercase tracking-wider px-1 flex items-center justify-between shrink-0 mb-1">
-                            <span className="truncate max-w-[170px]">{currentLib.description}</span>
-                            {customLibrariesList.some(l => l.id === currentLib.id) && (
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteCustomLibraryUrl(currentLib.id, currentLib.name)}
-                                className="text-slate-400 hover:text-rose-500 transition-colors uppercase font-black cursor-pointer"
-                                title="Remove Library"
-                              >
-                                Remove
-                              </button>
-                            )}
+                      {/* Import Custom Library URL or upload local file form */}
+                      {isAddLibFormOpen && (
+                        <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-3 space-y-2 shrink-0">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-black uppercase text-slate-700 dark:text-slate-300 tracking-wider">Import Library</span>
+                            <button 
+                              type="button" 
+                              onClick={() => setIsAddLibFormOpen(false)}
+                              className="text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 font-bold cursor-pointer"
+                            >
+                              Cancel
+                            </button>
                           </div>
                           
-                          <div className="grid grid-cols-1 gap-1">
-                            {filteredItems.map((item: any, idx: number) => {
-                              const name = getItemName(item.elements, idx, currentLib.itemNames);
-                              const elementCount = item.elements.length;
-                              
-                              return (
-                                <button
-                                  key={`${selectedLibraryId}_item_${idx}`}
-                                  type="button"
-                                  onClick={() => insertLibraryElements(item.elements)}
-                                  className="flex items-center justify-between p-2 rounded-xl bg-slate-50 hover:bg-blue-50/60 border border-slate-100 hover:border-blue-200 transition-all active:scale-[0.98] group cursor-pointer text-left w-full"
-                                >
-                                  <div className="flex items-center gap-2 min-w-0">
-                                    <div className="h-7 w-7 rounded-lg bg-white border border-slate-200/50 flex items-center justify-center text-blue-500 font-extrabold text-[10px] shrink-0 shadow-sm group-hover:bg-blue-50 transition-colors">
-                                      {name.substring(0, 2).toUpperCase()}
-                                    </div>
-                                    <div className="min-w-0">
-                                      <div className="text-[10px] font-bold text-slate-700 truncate group-hover:text-blue-600 max-w-[170px]">
-                                        {name}
-                                      </div>
-                                      <div className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">
-                                        {elementCount === 1 ? '1 element' : `${elementCount} elements`}
-                                      </div>
-                                    </div>
-                                  </div>
-                                  <Plus className="h-3.5 w-3.5 text-slate-300 group-hover:text-blue-500 shrink-0 transition-transform group-hover:scale-110" />
-                                </button>
-                              );
-                            })}
-                            {filteredItems.length === 0 && (
-                              <div className="text-center p-4 text-[10px] text-slate-400 font-bold uppercase">
-                                No matching shapes found
-                              </div>
-                            )}
+                          {/* Option A: From Web URL */}
+                          <form onSubmit={handleAddCustomLibraryUrl} className="space-y-1.5">
+                            <label className="text-[8px] font-bold uppercase text-slate-400 dark:text-slate-500 tracking-wider block">Option 1: Raw .excalidrawlib URL</label>
+                            <div className="flex gap-1">
+                              <input
+                                type="url"
+                                placeholder="https://.../*.excalidrawlib"
+                                value={customLibraryUrl}
+                                onChange={(e) => setCustomLibraryUrl(e.target.value)}
+                                className="flex-1 px-2 py-1 text-xs border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#6965db] bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-medium"
+                                required
+                              />
+                              <button
+                                type="submit"
+                                className="px-2.5 bg-[#6965db] hover:bg-[#5b57c6] text-white rounded-lg text-[10px] font-bold transition-all shrink-0 cursor-pointer"
+                              >
+                                Import
+                              </button>
+                            </div>
+                          </form>
+
+                          {/* Divider */}
+                          <div className="relative flex py-1 items-center">
+                            <div className="flex-grow border-t border-slate-200 dark:border-slate-700"></div>
+                            <span className="flex-shrink mx-2 text-[8px] text-slate-400 dark:text-slate-500 font-bold uppercase">or</span>
+                            <div className="flex-grow border-t border-slate-200 dark:border-slate-700"></div>
+                          </div>
+
+                          {/* Option B: Local File Upload */}
+                          <div className="space-y-1.5">
+                            <label className="text-[8px] font-bold uppercase text-slate-400 dark:text-slate-500 tracking-wider block">Option 2: Upload File</label>
+                            <div className="relative">
+                              <input
+                                type="file"
+                                accept=".excalidrawlib"
+                                onChange={handleLocalLibraryUpload}
+                                id="local-lib-file"
+                                className="hidden"
+                              />
+                              <label
+                                htmlFor="local-lib-file"
+                                className="w-full py-1.5 bg-white dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-700 rounded-lg text-[10px] text-slate-600 dark:text-slate-400 font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-all flex items-center justify-center gap-1 cursor-pointer"
+                              >
+                                <Upload className="h-3 w-3 text-[#6965db]" /> Choose .excalidrawlib file
+                              </label>
+                            </div>
                           </div>
                         </div>
-                      );
-                    })()}
-                  </div>
-                ) : (
-                  <div className="flex-1 flex flex-col min-h-0 gap-2">
-                    {/* Community Directory Search Bar */}
-                    <div className="relative shrink-0">
-                      <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
-                      <input
-                        type="text"
-                        placeholder="Search 100+ community libraries..."
-                        value={communitySearchQuery}
-                        onChange={(e) => setCommunitySearchQuery(e.target.value)}
-                        className="w-full pl-8 pr-7 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-blue-500/50 focus:border-blue-500/80 text-slate-800 font-medium"
-                      />
-                      {communitySearchQuery && (
-                        <button 
-                          type="button"
-                          onClick={() => setCommunitySearchQuery('')}
-                          className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 text-[10px] cursor-pointer"
-                        >
-                          ✕
-                        </button>
                       )}
-                    </div>
 
-                    {/* Community Directory List */}
-                    {fetchingCommunityDir && communityLibraries.length === 0 ? (
-                      <div className="flex-1 flex flex-col items-center justify-center text-center p-6">
-                        <Loader2 className="h-6 w-6 text-blue-500 animate-spin mb-2" />
-                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider animate-pulse">Loading Directory Catalog...</span>
+                      {/* Library Shapes Search */}
+                      <div className="relative shrink-0">
+                        <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="Search active library shapes..."
+                          value={librarySearchQuery}
+                          onChange={(e) => setLibrarySearchQuery(e.target.value)}
+                          className="w-full pl-8 pr-7 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#6965db]/50 focus:border-[#6965db]/80 text-slate-800 dark:text-slate-200 font-medium"
+                        />
+                        {librarySearchQuery && (
+                          <button 
+                            type="button"
+                            onClick={() => setLibrarySearchQuery('')}
+                            className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-[10px] cursor-pointer"
+                          >
+                            ✕
+                          </button>
+                        )}
                       </div>
-                    ) : (() => {
-                      // Filter community libraries based on search query
-                      const query = communitySearchQuery.toLowerCase();
-                      const filteredCommunity = communityLibraries.filter(lib => 
-                        lib.name.toLowerCase().includes(query) || 
-                        lib.description.toLowerCase().includes(query)
-                      );
 
-                      return (
-                        <div className="flex-1 overflow-y-auto pr-0.5 space-y-2 min-h-0">
-                          <div className="text-[8px] text-slate-400 font-extrabold uppercase tracking-wider px-1 flex items-center justify-between shrink-0 mb-1">
-                            <span>Available Libraries ({filteredCommunity.length})</span>
-                            <span className="flex items-center gap-0.5 text-[7px]"><Globe className="h-2 w-2" /> Live Registry</span>
-                          </div>
+                      {/* Library Shapes List */}
+                      {loadingLibrary === selectedLibraryId ? (
+                        <div className="flex-1 flex flex-col items-center justify-center text-center p-6 animate-pulse">
+                          <Loader2 className="h-6 w-6 text-[#6965db] animate-spin mb-2" />
+                          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Fetching Library Assets...</span>
+                        </div>
+                      ) : (() => {
+                        const currentLib = loadedLibraries.find(l => l.id === selectedLibraryId);
+                        if (!currentLib || !currentLib.items || currentLib.items.length === 0) {
+                          return (
+                            <div className="flex-1 flex flex-col items-center justify-center text-center p-6 border border-dashed border-slate-100 dark:border-slate-800 rounded-xl bg-slate-50/20 dark:bg-slate-800/10 mt-1">
+                              <BookOpen className="h-8 w-8 text-slate-300 dark:text-slate-600 animate-pulse mb-1.5" />
+                              <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">No Assets Loaded</span>
+                              <span className="text-[9px] text-slate-400 dark:text-slate-500 leading-normal max-w-[150px]">
+                                Select a library above or import one to see the software design assets.
+                              </span>
+                            </div>
+                          );
+                        }
 
-                          <div className="space-y-1.5">
-                            {filteredCommunity.slice(0, 50).map((lib: any) => {
-                              const authorName = lib.authors && lib.authors[0] ? lib.authors[0].name : "Unknown";
-                              const installId = `community_${lib.id}`;
-                              const isInstalled = customLibrariesList.some(cl => cl.id === installId);
-                              const isCurated = CURATED_LIBRARIES.some(cl => cl.id === lib.id || cl.id === lib.name.toLowerCase().replace(/\s+/g, '-'));
-                              const isAlreadyAvailable = isInstalled || isCurated;
-                              
-                              return (
-                                <div
-                                  key={lib.id}
-                                  className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex flex-col gap-1.5 text-left hover:border-slate-200 transition-colors"
+                        // Filter items based on search query
+                        const filteredItems = currentLib.items.filter((item: any, idx: number) => {
+                          const name = getItemName(item.elements, idx, currentLib.itemNames).toLowerCase();
+                          return name.includes(librarySearchQuery.toLowerCase());
+                        });
+
+                        return (
+                          <div className="flex-1 overflow-y-auto pr-0.5 space-y-1.5 min-h-0">
+                            <div className="text-[8px] text-slate-400 dark:text-slate-500 font-extrabold uppercase tracking-wider px-1 flex items-center justify-between shrink-0 mb-1">
+                              <span className="truncate max-w-[170px]">{currentLib.description}</span>
+                              {customLibrariesList.some(l => l.id === currentLib.id) && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteCustomLibraryUrl(currentLib.id, currentLib.name)}
+                                  className="text-slate-400 hover:text-rose-500 dark:text-slate-500 dark:hover:text-rose-400 transition-colors uppercase font-black cursor-pointer"
+                                  title="Remove Library"
                                 >
-                                  <div>
-                                    <div className="text-[10px] font-bold text-slate-800 flex items-center justify-between gap-1.5 leading-normal">
-                                      <span className="truncate max-w-[150px]">{lib.name}</span>
-                                      {isCurated && (
-                                        <span className="px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded text-[7px] font-black uppercase shrink-0">
-                                          Curated
-                                        </span>
+                                  Remove
+                                </button>
+                              )}
+                            </div>
+                            
+                            <div className="grid grid-cols-1 gap-1">
+                              {filteredItems.map((item: any, idx: number) => {
+                                const name = getItemName(item.elements, idx, currentLib.itemNames);
+                                const elementCount = item.elements.length;
+                                
+                                return (
+                                  <button
+                                    key={`${selectedLibraryId}_item_${idx}`}
+                                    type="button"
+                                    onClick={() => insertLibraryElements(item.elements)}
+                                    className="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-slate-800/40 hover:bg-[#6965db]/5 dark:hover:bg-[#6965db]/10 border border-slate-100 dark:border-slate-800 hover:border-[#6965db]/30 dark:hover:border-[#6965db]/50 transition-all active:scale-[0.98] group cursor-pointer text-left w-full"
+                                  >
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <div className="h-7 w-7 rounded-lg bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-700/50 flex items-center justify-center text-[#6965db] dark:text-[#8572e3] font-extrabold text-[10px] shrink-0 shadow-sm group-hover:bg-[#6965db]/5 dark:group-hover:bg-[#6965db]/10 transition-colors">
+                                        {name.substring(0, 2).toUpperCase()}
+                                      </div>
+                                      <div className="min-w-0">
+                                        <div className="text-[10px] font-bold text-slate-700 dark:text-slate-300 truncate group-hover:text-[#6965db] dark:group-hover:text-[#8572e3] max-w-[170px]">
+                                          {name}
+                                        </div>
+                                        <div className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                                          {elementCount === 1 ? '1 element' : `${elementCount} elements`}
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <Plus className="h-3.5 w-3.5 text-slate-300 dark:text-slate-600 group-hover:text-[#6965db] dark:group-hover:text-[#8572e3] shrink-0 transition-transform group-hover:scale-110" />
+                                  </button>
+                                );
+                              })}
+                              {filteredItems.length === 0 && (
+                                <div className="text-center p-4 text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase">
+                                  No matching shapes found
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  ) : (
+                    <div className="flex-1 flex flex-col min-h-0 gap-2">
+                      {/* Community Directory Search Bar */}
+                      <div className="relative shrink-0">
+                        <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="Search 100+ community libraries..."
+                          value={communitySearchQuery}
+                          onChange={(e) => setCommunitySearchQuery(e.target.value)}
+                          className="w-full pl-8 pr-7 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#6965db]/50 focus:border-[#6965db]/80 text-slate-800 dark:text-slate-200 font-medium"
+                        />
+                        {communitySearchQuery && (
+                          <button 
+                            type="button"
+                            onClick={() => setCommunitySearchQuery('')}
+                            className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-[10px] cursor-pointer"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Community Directory List */}
+                      {fetchingCommunityDir && communityLibraries.length === 0 ? (
+                        <div className="flex-1 flex flex-col items-center justify-center text-center p-6 animate-pulse">
+                          <Loader2 className="h-6 w-6 text-[#6965db] animate-spin mb-2" />
+                          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Loading Directory Catalog...</span>
+                        </div>
+                      ) : (() => {
+                        // Filter community libraries based on search query
+                        const query = communitySearchQuery.toLowerCase();
+                        const filteredCommunity = communityLibraries.filter(lib => 
+                          lib.name.toLowerCase().includes(query) || 
+                          lib.description.toLowerCase().includes(query)
+                        );
+
+                        return (
+                          <div className="flex-1 overflow-y-auto pr-0.5 space-y-2 min-h-0">
+                            <div className="text-[8px] text-slate-400 dark:text-slate-500 font-extrabold uppercase tracking-wider px-1 flex items-center justify-between shrink-0 mb-1">
+                              <span>Available Libraries ({filteredCommunity.length})</span>
+                              <span className="flex items-center gap-0.5 text-[7px] text-slate-400 dark:text-slate-500"><Globe className="h-2 w-2" /> Live Registry</span>
+                            </div>
+
+                            <div className="space-y-1.5">
+                              {filteredCommunity.slice(0, 50).map((lib: any) => {
+                                const authorName = lib.authors && lib.authors[0] ? lib.authors[0].name : "Unknown";
+                                const installId = `community_${lib.id}`;
+                                const isInstalled = customLibrariesList.some(cl => cl.id === installId);
+                                const isCurated = CURATED_LIBRARIES.some(cl => cl.id === lib.id || cl.id === lib.name.toLowerCase().replace(/\s+/g, '-'));
+                                const isAlreadyAvailable = isInstalled || isCurated;
+                                
+                                return (
+                                  <div
+                                    key={lib.id}
+                                    className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 flex flex-col gap-1.5 text-left hover:border-slate-200 dark:hover:border-slate-700 transition-colors"
+                                  >
+                                    <div>
+                                      <div className="text-[10px] font-bold text-slate-800 dark:text-slate-300 flex items-center justify-between gap-1.5 leading-normal">
+                                        <span className="truncate max-w-[150px]">{lib.name}</span>
+                                        {isCurated && (
+                                          <span className="px-1.5 py-0.5 bg-[#6965db]/10 text-[#6965db] rounded text-[7px] font-black uppercase shrink-0">
+                                            Curated
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className="text-[9px] text-slate-500 dark:text-slate-400 font-medium leading-normal mt-0.5 line-clamp-2">
+                                        {lib.description}
+                                      </p>
+                                      <div className="text-[8px] text-slate-400 dark:text-slate-500 font-bold uppercase mt-1">
+                                        by {authorName}
+                                      </div>
+                                    </div>
+
+                                    <div className="flex justify-end pt-1 border-t border-slate-100/60 dark:border-slate-800/60 mt-0.5">
+                                      {isAlreadyAvailable ? (
+                                        <div className="flex items-center gap-1 text-[8px] font-black uppercase text-emerald-600 dark:text-emerald-400 select-none bg-emerald-50/50 dark:bg-emerald-950/20 px-2 py-1 rounded-lg border border-emerald-100 dark:border-emerald-900/50">
+                                          <Check className="h-2.5 w-2.5" /> Installed
+                                        </div>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          disabled={loadingLibrary !== null}
+                                          onClick={() => handleInstallCommunityLibrary(lib)}
+                                          className="px-2.5 py-1 bg-[#6965db] hover:bg-[#5b57c6] text-white rounded-lg text-[9px] font-bold transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                                        >
+                                          {loadingLibrary === installId ? (
+                                            <>
+                                              <Loader2 className="h-2.5 w-2.5 animate-spin" /> Installing...
+                                            </>
+                                          ) : (
+                                            <>
+                                              <Download className="h-2.5 w-2.5" /> Install
+                                            </>
+                                          )}
+                                        </button>
                                       )}
                                     </div>
-                                    <p className="text-[9px] text-slate-500 font-medium leading-normal mt-0.5 line-clamp-2">
-                                      {lib.description}
-                                    </p>
-                                    <div className="text-[8px] text-slate-400 font-bold uppercase mt-1">
-                                      by {authorName}
-                                    </div>
                                   </div>
-
-                                  <div className="flex justify-end pt-1 border-t border-slate-100/60 mt-0.5">
-                                    {isAlreadyAvailable ? (
-                                      <div className="flex items-center gap-1 text-[8px] font-black uppercase text-emerald-600 select-none bg-emerald-50/50 px-2 py-1 rounded-lg border border-emerald-100">
-                                        <Check className="h-2.5 w-2.5" /> Installed
-                                      </div>
-                                    ) : (
-                                      <button
-                                        type="button"
-                                        disabled={loadingLibrary !== null}
-                                        onClick={() => handleInstallCommunityLibrary(lib)}
-                                        className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[9px] font-bold transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                                      >
-                                        {loadingLibrary === installId ? (
-                                          <>
-                                            <Loader2 className="h-2.5 w-2.5 animate-spin" /> Installing...
-                                          </>
-                                        ) : (
-                                          <>
-                                            <Download className="h-2.5 w-2.5" /> Install
-                                          </>
-                                        )}
-                                      </button>
-                                    )}
-                                  </div>
+                                );
+                              })}
+                              
+                              {filteredCommunity.length > 50 && (
+                                <div className="text-center py-2 text-[8px] text-slate-400 dark:text-slate-500 font-extrabold uppercase">
+                                  Showing first 50 results. Narrow search to find more.
                                 </div>
-                              );
-                            })}
-                            
-                            {filteredCommunity.length > 50 && (
-                              <div className="text-center py-2 text-[8px] text-slate-400 font-extrabold uppercase">
-                                Showing first 50 results. Narrow search to find more.
-                              </div>
-                            )}
+                              )}
 
-                            {filteredCommunity.length === 0 && (
-                              <div className="text-center p-6 border border-dashed border-slate-100 rounded-xl bg-slate-50/20">
-                                <BookOpen className="h-8 w-8 text-slate-300 mb-1.5 mx-auto animate-pulse" />
-                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">No matches found</span>
-                                <span className="text-[9px] text-slate-400 leading-normal max-w-[150px] mx-auto block text-center">
-                                  Try searching for "gcp", "docker", "c4", or other system terms.
-                                </span>
-                              </div>
-                            )}
+                              {filteredCommunity.length === 0 && (
+                                <div className="text-center p-6 border border-dashed border-slate-100 dark:border-slate-800 rounded-xl bg-slate-50/20 dark:bg-slate-800/10">
+                                  <BookOpen className="h-8 w-8 text-slate-300 dark:text-slate-600 mb-1.5 mx-auto animate-pulse" />
+                                  <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1 block">No matches found</span>
+                                  <span className="text-[9px] text-slate-400 dark:text-slate-500 leading-normal max-w-[150px] mx-auto block text-center">
+                                    Try searching for "gcp", "docker", "c4", or other system terms.
+                                  </span>
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                )}
+                        );
+                      })()}
+                    </div>
+                  )}
+                </div>
               </div>
-            )}
-
-          </div>
-        </div>
+            </Sidebar.Tab>
+          </DefaultSidebar>
+        </Excalidraw>
       )}
-
-   {fileData&& <Excalidraw 
-    theme='light'
-    excalidrawAPI={(api) => setExcalidrawAPI(api)}
-    initialData={{
-        elements:fileData?.whiteboard&&JSON.parse(fileData?.whiteboard)
-    }}
-    onChange={handleCanvasChange}
-    UIOptions={{
-        canvasActions:{
-            saveToActiveFile:false,
-            loadScene:false,
-            export:false,
-            toggleTheme:false
-
-        }
-    }}
-    >
-        <MainMenu>
-            <MainMenu.DefaultItems.ClearCanvas/>
-            <MainMenu.DefaultItems.SaveAsImage/>
-            <MainMenu.DefaultItems.ChangeCanvasBackground/>
-        </MainMenu>
-        <WelcomeScreen>
-            <WelcomeScreen.Hints.MenuHint/>
-            <WelcomeScreen.Hints.MenuHint/>
-            <WelcomeScreen.Hints.ToolbarHint/>
-            <WelcomeScreen.Center>
-                <WelcomeScreen.Center.MenuItemHelp/>
-            </WelcomeScreen.Center>
-        </WelcomeScreen>
-        </Excalidraw>}
-  </div>
+    </div>
   )
 }
 

@@ -205,9 +205,4 @@ h6.ce-header {
   display: none !important;
 }
 
-/* Hide Excalidraw's redundant built-in library triggers to favor our premium custom right-sidebar */
-.excalidraw .sidebar-trigger,
-.excalidraw button[data-testid="sidebar-trigger"],
-.excalidraw .layer-ui__wrapper button[data-testid="sidebar-trigger"] {
-  display: none !important;
-}
+/* Show Excalidraw's built-in library triggers to integrate our custom sidebar options seamlessly */
