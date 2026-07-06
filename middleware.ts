@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { getKindeServerSession } from "@/lib/kinde-mock/server";
+import { getServerSession } from "@/lib/session-auth/server";
 
 // This function can be marked `async` if using `await` inside
 export async function middleware(request: NextRequest) {
-    const { isAuthenticated } = getKindeServerSession();
+    const { isAuthenticated } = getServerSession();
     if(!await isAuthenticated())
     {
         return NextResponse.redirect(new URL('/login?post_login_redirect_url=/dashboard', request.url))

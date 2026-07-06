@@ -1,9 +1,8 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 
-interface KindeUser {
+interface SessionUser {
   id: string;
   email: string;
   given_name: string;
@@ -11,12 +10,12 @@ interface KindeUser {
 }
 
 const AuthContext = createContext<{
-  user: KindeUser | null;
+  user: SessionUser | null;
   isLoading: boolean;
 } | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<KindeUser | null>(null);
+  const [user, setUser] = useState<SessionUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -50,7 +49,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function useKindeBrowserClient() {
+export function useSessionAuth() {
   const context = useContext(AuthContext);
   if (!context) {
     return { user: null, isLoading: false, isAuthenticated: false };
@@ -86,3 +85,6 @@ export function LogoutLink({ children }: { children: React.ReactNode }) {
     </a>
   );
 }
+
+// Backward compatibility alias
+export { useSessionAuth as useKindeBrowserClient };

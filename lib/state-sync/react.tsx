@@ -34,7 +34,7 @@ const getPath = (ref: any): string | undefined => {
   return undefined;
 };
 
-// Proxy to simulate Convex API references (e.g. api.user.getUser)
+// Proxy to simulate API references (e.g. api.user.getUser)
 const makePathProxy = (path: string[] = []): any => {
   return new Proxy(() => {}, {
     get(target, prop: string) {
@@ -47,21 +47,15 @@ const makePathProxy = (path: string[] = []): any => {
   });
 };
 
-// Re-export api from our mock
+// Re-export api from our proxy
 export const api = makePathProxy([]);
 
-export function ConvexProvider({
-  client,
+export function StateSyncProvider({
   children,
 }: {
-  client: any;
   children: ReactNode;
 }) {
   return <>{children}</>;
-}
-
-export class ConvexReactClient {
-  constructor(url: string) {}
 }
 
 // Global cache to share active query results and prevent infinite re-fetches
@@ -85,7 +79,7 @@ export function useQuery(queryReference: any, args?: any) {
 
     async function fetchData() {
       try {
-        const res = await fetch("/api/convex", {
+        const res = await fetch("/api/state-sync", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ path: queryPath, args }),
@@ -98,13 +92,13 @@ export function useQuery(queryReference: any, args?: any) {
           }
         }
       } catch (err) {
-        console.error("Error fetching mock convex query:", err);
+        console.error("Error fetching state-sync query:", err);
       }
     }
 
     fetchData();
 
-    // Poll for changes (since we don't have standard websockets for Convex here)
+    // Poll for changes (since we don't have standard websockets for state sync here)
     const interval = setInterval(fetchData, 4000);
 
     return () => {
@@ -121,7 +115,7 @@ export function useMutation(mutationReference: any) {
     const mutationPath = getPath(mutationReference);
     if (!mutationPath) throw new Error("Invalid mutation reference passed to useMutation");
 
-    const res = await fetch("/api/convex", {
+    const res = await fetch("/api/state-sync", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: mutationPath, args }),
@@ -137,13 +131,13 @@ export function useMutation(mutationReference: any) {
   };
 }
 
-export function useConvex() {
+export function useSync() {
   return {
     query: async (queryReference: any, args?: any) => {
       const queryPath = getPath(queryReference);
-      if (!queryPath) throw new Error("Invalid query reference passed to convex.query");
+      if (!queryPath) throw new Error("Invalid query reference passed to sync.query");
 
-      const res = await fetch("/api/convex", {
+      const res = await fetch("/api/state-sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: queryPath, args }),
@@ -158,4 +152,11 @@ export function useConvex() {
       return json.data;
     }
   };
+}
+
+// Compatibility exports
+export { useSync as useConvex };
+export { StateSyncProvider as ConvexProvider };
+export class ConvexReactClient {
+  constructor(url: string) {}
 }

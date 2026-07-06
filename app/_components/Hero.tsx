@@ -171,9 +171,9 @@ function Hero() {
               <div className="font-mono text-[10px] text-zinc-400 space-y-2 select-none overflow-y-auto max-h-[290px] pr-1 scrollbar-thin">
                 <p className="text-zinc-500"># System Design Specs</p>
                 <p><span className="text-blue-400">## 1. Authentication</span></p>
-                <p className="leading-relaxed text-zinc-500">Using Kinde OSS + Convex data storage. Session persistence is configured statefully with zero timeout limits.</p>
+                <p className="leading-relaxed text-zinc-500">Using secure, stateful session cookie authentication backed directly by PostgreSQL database engine.</p>
                 <p><span className="text-purple-400">## 2. Whiteboard Sync</span></p>
-                <p className="leading-relaxed text-zinc-500">Dual-view editor with real-time websocket synchronization between whiteboard canvas and rich Markdown documents.</p>
+                <p className="leading-relaxed text-zinc-500">Dual-view editor with real-time database-driven state synchronization gateway between whiteboard canvas and rich Markdown documents.</p>
                 <p className="text-emerald-400 font-medium">// Autosaved snapshot v2.1</p>
               </div>
             </div>
@@ -191,14 +191,14 @@ function Hero() {
               <div className="absolute inset-0 flex items-center justify-center gap-6 p-6 z-0 scale-90 sm:scale-100">
                 <div className="w-24 h-14 rounded-xl border border-blue-500/30 bg-blue-500/5 flex flex-col items-center justify-center p-2 text-center shadow-lg shadow-blue-500/5">
                   <span className="text-[10px] font-bold text-blue-400">Auth Service</span>
-                  <span className="text-[8px] text-zinc-500">Kinde SDK</span>
+                  <span className="text-[8px] text-zinc-500">Session Cookie</span>
                 </div>
                 <div className="w-6 h-px bg-zinc-700 relative flex items-center justify-end shrink-0">
                   <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-ping absolute" />
                 </div>
                 <div className="w-24 h-14 rounded-xl border border-purple-500/30 bg-purple-500/5 flex flex-col items-center justify-center p-2 text-center shadow-lg shadow-purple-500/5">
-                  <span className="text-[10px] font-bold text-purple-400">Data Engine</span>
-                  <span className="text-[8px] text-zinc-500">Convex DB</span>
+                  <span className="text-[10px] font-bold text-purple-400">Sync Engine</span>
+                  <span className="text-[8px] text-zinc-500">Prisma + PG</span>
                 </div>
               </div>
 

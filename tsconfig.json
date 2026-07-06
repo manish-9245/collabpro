@@ -19,10 +19,13 @@
     ],
     "paths": {
       "@/*": ["./*"],
-      "@/convex/_generated/api": ["./lib/convex-mock/react.tsx"],
-      "convex/react": ["./lib/convex-mock/react.tsx"],
-      "@kinde-oss/kinde-auth-nextjs": ["./lib/kinde-mock/client.tsx"],
-      "@kinde-oss/kinde-auth-nextjs/server": ["./lib/kinde-mock/server.ts"]
+      "@/lib/state-sync/react": ["./lib/state-sync/react.tsx"],
+      "@/lib/session-auth/client": ["./lib/session-auth/client.tsx"],
+      "@/lib/session-auth/server": ["./lib/session-auth/server.ts"],
+      "@/convex/_generated/api": ["./lib/state-sync/react.tsx"],
+      "convex/react": ["./lib/state-sync/react.tsx"],
+      "@kinde-oss/kinde-auth-nextjs": ["./lib/session-auth/client.tsx"],
+      "@kinde-oss/kinde-auth-nextjs/server": ["./lib/session-auth/server.ts"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", "app/(routes)/dashboard/_components/SideNavTopSection.jsx"],

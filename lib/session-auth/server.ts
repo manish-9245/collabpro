@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 
-export function getKindeServerSession() {
+export function getServerSession() {
   return {
     isAuthenticated: async () => {
       const cookieStore = cookies();
@@ -25,3 +25,6 @@ export function getKindeServerSession() {
     }
   };
 }
+
+// Backward compatibility alias
+export { getServerSession as getKindeServerSession };

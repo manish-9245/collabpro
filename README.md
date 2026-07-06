@@ -1,21 +1,22 @@
 # 🚀 CollabPro
 
 [![Next.js Build](https://img.shields.io/badge/Next.js-14.1.0-blue?logo=nextdotjs&logoColor=white)](https://nextjs.org/)
-[![Convex DB](https://img.shields.io/badge/Convex-Reactive%20Sync-yellow?logo=conflux&logoColor=white)](https://convex.dev/)
-[![Prisma Database](https://img.shields.io/badge/Prisma-ORM-green?logo=prisma&logoColor=white)](https://prisma.io/)
-[![Kinde Auth](https://img.shields.io/badge/Kinde-Auth-purple?logo=auth0&logoColor=white)](https://kinde.com/)
+[![Database](https://img.shields.io/badge/PostgreSQL-Prisma-green?logo=postgresql&logoColor=white)](https://postgresql.org/)
+[![Auth](https://img.shields.io/badge/Auth-Native%20Session-purple?logo=security&logoColor=white)](https://github.com/manish-9245/collabpro)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
-CollabPro is a premium, open-source collaborative workspace and system design platform. It combines a real-time markdown document editor alongside an infinite collaborative engineering canvas equipped with standard flowchart elements and 800+ standard AWS service and resource SVG icons. Group files into nested directories, invite team members, accept org memberships with secure notification invites, restore state via version checkpoints, and map your system architecture with flawless drag-and-drop mechanics.
+CollabPro is a premium, open-source collaborative whiteboard and system design workspace. It combines a real-time Markdown document editor side-by-side with an infinite collaborative engineering canvas equipped with standard flowchart shapes and 800+ standard AWS service and resource SVG icons. Group files into nested directories, invite team members, accept org memberships with secure notification invites, restore states via version checkpoints, and map your system architecture with flawless drag-and-drop mechanics.
+
+CollabPro is engineered to be **completely self-contained with 100% zero external SaaS dependencies**. There is no need for third-party Convex DB, Clerk, or Kinde API keys. It runs entirely on your own database using a custom native state-sync gateway and session authentication engine, making it secure, ultra-fast, and ready for instant deployment.
 
 ---
 
 ## 🎨 Core Features
 
 ### 📝 1. Rich Collaborative Document Editor
-- **Lexical Engine**: Responsive real-time rich-text markdown writing.
+- **Lexical Engine**: Responsive real-time rich-text Markdown writing.
 - **Bi-directional Split Screen**: Work simultaneously with a live documents panel on the left and a system design canvas on the right.
-- **Syncing & Debounce**: State auto-saves dynamically with custom save intervals to prevent network collision.
+- **Syncing & Cache**: State auto-saves dynamically with custom save intervals and state caching to prevent network collisions.
 
 ### 📐 2. Infinite Collaborative Canvas
 - **Excalidraw Engine Integration**: Standard vector nodes, freehand sketching, colors, grouping, alignment, and export.
@@ -37,13 +38,13 @@ CollabPro is a premium, open-source collaborative workspace and system design pl
 
 ## 🏗️ System Architecture
 
-The following Mermaid diagram outlines the high-level request lifecycle, state replication, and data stores behind CollabPro:
+The following Mermaid diagram outlines the high-level request lifecycle, state replication, and database synchronization behind CollabPro's high-performance native architecture:
 
 ```mermaid
 graph TD
     %% Define Styles & Classes
     classDef client fill:#eff6ff,stroke:#2563eb,stroke-width:2px,color:#1e3a8a;
-    classDef mock fill:#faf5ff,stroke:#7c3aed,stroke-width:2px,color:#4c1d95;
+    classDef engine fill:#faf5ff,stroke:#7c3aed,stroke-width:2px,color:#4c1d95;
     classDef server fill:#fdf2f8,stroke:#db2777,stroke-width:2px,color:#831843;
     classDef db fill:#ecfdf5,stroke:#059669,stroke-width:2px,color:#064e3b;
     classDef storage fill:#fffbeb,stroke:#d97706,stroke-width:2px,color:#78350f;
@@ -54,41 +55,41 @@ graph TD
         CanvasComponent["System Design Canvas<br/>(Excalidraw Engine + AWS Icons)"]:::client
     end
 
-    subgraph EmulationLayer ["Local SDK Emulation Layer"]
-        KindeMock["Kinde Client Mock<br/>(Cookie-based Session Auth)"]:::mock
-        ConvexMock["Convex React Mock<br/>(React Hooks Proxy)"]:::mock
+    subgraph SyncLayer ["State & Auth Clients"]
+        SessionAuthClient["Session Auth Client<br/>(Cookie-based Hook Provider)"]:::engine
+        StateSyncClient["State-Sync Client Proxy<br/>(Query Cache & Polling)"]:::engine
     end
 
     subgraph ServerLayer ["Next.js Server (API Routing)"]
-        AuthMeAPI["/api/auth/me & login<br/>(Local Session Handlers)"]:::server
-        ConvexAPI["/api/convex REST Gateway<br/>(Sync Controller)"]:::server
+        AuthAPI["/api/auth/me, login, register<br/>(Session Handlers)"]:::server
+        SyncAPI["/api/state-sync REST Gateway<br/>(Sync Controller)"]:::server
     end
 
     subgraph DataLayer ["Stateful Databases & Storage"]
         PrismaORM["Prisma Client<br/>(Database Schema Engine)"]:::db
-        NeonDB["PostgreSQL Database<br/>(User, Team & Org Memberships)"]:::db
+        PostgresDB["PostgreSQL Database<br/>(Users, Teams, Files & Notifications)"]:::db
         AWS_Icons_List["jsDelivr CDN<br/>(800+ AWS SVG Assets)"]:::storage
     end
 
     %% Flow Connections
-    UI -->|Check auth / authenticate| KindeMock
-    KindeMock -->|Verify Session| AuthMeAPI
+    UI -->|Check auth / authenticate| SessionAuthClient
+    SessionAuthClient -->|Verify Session Cookie| AuthAPI
     
     UI -->|Render Rich Text| EditorComponent
     UI -->|Render Architecture| CanvasComponent
     
-    EditorComponent <-->|Queries & Mutations| ConvexMock
-    CanvasComponent <-->|Debounced Auto-save Sync| ConvexMock
+    EditorComponent <-->|Queries & Mutations| StateSyncClient
+    CanvasComponent <-->|Debounced Auto-save Sync| StateSyncClient
     CanvasComponent -->|Fetch AWS SVG Base64| AWS_Icons_List
 
-    ConvexMock <-->|REST POST Requests| ConvexAPI
-    ConvexAPI <-->|Read / Write State| PrismaORM
-    AuthMeAPI <-->|Query User Profiles| PrismaORM
-    PrismaORM <-->|Client Queries| NeonDB
+    StateSyncClient <-->|REST POST Requests| SyncAPI
+    SyncAPI <-->|Read / Write State| PrismaORM
+    AuthAPI <-->|Query & Write Profiles| PrismaORM
+    PrismaORM <-->|Database Connection Pool| PostgresDB
 
     %% Layout Links
     style ClientLayer fill:#f8fafc,stroke:#cbd5e1,stroke-dasharray: 5 5;
-    style EmulationLayer fill:#f8fafc,stroke:#cbd5e1,stroke-dasharray: 5 5;
+    style SyncLayer fill:#f8fafc,stroke:#cbd5e1,stroke-dasharray: 5 5;
     style ServerLayer fill:#f8fafc,stroke:#cbd5e1,stroke-dasharray: 5 5;
     style DataLayer fill:#f8fafc,stroke:#cbd5e1,stroke-dasharray: 5 5;
 ```
@@ -98,9 +99,9 @@ graph TD
 ## 🛠️ Technology Stack
 
 - **Frontend**: Next.js 14 (App Router), React 18, Tailwind CSS, Lucide icons, Framer Motion
-- **Database ORM**: Prisma Client (with PostgreSQL pool proxy)
-- **Real-Time Replication**: Convex reactive state engine (WebSockets replication)
-- **Authorization**: Kinde Auth API (secure session JWTs)
+- **Database ORM**: Prisma Client (with connection pool proxying)
+- **State Replication**: Custom high-performance State Synchronization Gateway
+- **Authorization**: Custom stateful session-cookie authentication engine
 - **Canvas Engine**: `@excalidraw/excalidraw`
 
 ---
@@ -120,7 +121,7 @@ npm install
 ```
 
 ### 🔑 2. Environment Setup
-Create a `.env.local` or `.env` file in the root directory and supply your PostgreSQL connection string:
+Create a `.env` or `.env.local` file in the root directory and supply your PostgreSQL connection string:
 
 ```env
 # Database Credentials
@@ -128,10 +129,10 @@ DATABASE_URL="postgresql://<user>:<password>@<host>:<port>/collabpro?schema=publ
 ```
 
 > [!NOTE]
-> CollabPro features a built-in local emulation layer for Kinde Authentication and Convex state sync. No third-party accounts or secrets are required for these systems.
+> CollabPro does not require any third-party auth provider (like Clerk or Kinde) or real Convex cloud databases. All functionalities are natively handled by PostgreSQL and your Next.js server!
 
-### 🗃️ 3. Initialize Prisma Database Schema
-Push the schema structure to your PostgreSQL database:
+### 🗃️ 3. Initialize Database Schema
+Push the schema structure directly to your PostgreSQL database:
 ```bash
 npx prisma db push
 ```
@@ -140,18 +141,19 @@ npx prisma db push
 ```bash
 npm run dev
 ```
-Open [http://localhost:3000](http://localhost:3000) to view the application in action.
+Open [http://localhost:3000](http://localhost:3000) to view your self-hosted CollabPro workspace in action.
 
 ---
 
 ## 🌐 Production Deployment
 
-### Vercel / Railway Deployment Rules
+### Railway Deployment Rules
 - Make sure the `DATABASE_URL` environment variable is defined in your deployment dashboard settings.
-- Do NOT run database migration triggers during build time as it might block. Run `npx prisma db push` beforehand or via custom runtime deployment hooks.
-- Deploy the production Next.js bundle:
+- Do NOT run database migration triggers during build time as it might block. Run `npx prisma db push` beforehand or let the start trigger handle it natively.
+- Build and run the production Next.js bundle:
 ```bash
 npm run build
+npm run start
 ```
 
 ---

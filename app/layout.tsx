@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, Outfit } from "next/font/google";
 import "./globals.css";
-import ConvexClientProvider from "./ConvexClientProvider";
+import StateSyncProvider from "./StateSyncProvider";
 import { Toaster } from "@/components/ui/sonner";
 import Head from "next/head";
 import Script from "next/script";
@@ -37,10 +37,10 @@ export default function RootLayout({
         />
       </Head>
       <body className={`${inter.variable} ${outfit.variable} antialiased`}>
-        <ConvexClientProvider>
+        <StateSyncProvider>
          {children}
          <Toaster />
-        </ConvexClientProvider>
+        </StateSyncProvider>
         </body>
     </html>
   );
