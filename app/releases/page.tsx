@@ -106,7 +106,7 @@ export default function ReleasesPage() {
         {/* Back link */}
         <div className="mb-6">
           <Link 
-            href="/#releases" 
+            href="/" 
             className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-slate-900 transition-colors bg-white px-3 py-1.5 rounded-lg border border-slate-200/60 shadow-sm"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
