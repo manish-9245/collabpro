@@ -205,4 +205,25 @@ h6.ce-header {
   display: none !important;
 }
 
-/* Show Excalidraw's built-in library triggers to integrate our custom sidebar options seamlessly */
+/* Completely hide Excalidraw's native sidebar, library triggers, and related panels */
+.excalidraw .sidebar-trigger,
+.excalidraw .sidebar-button,
+.excalidraw .layer-ui__wrapper .sidebar-trigger,
+.excalidraw .layer-ui__wrapper .sidebar-button,
+.excalidraw .ToolIcon__library,
+.excalidraw .library-button,
+.excalidraw .sidebar,
+.excalidraw .sidebar--library,
+.excalidraw .sidebar-wrapper,
+.excalidraw button[aria-label*="Library"],
+.excalidraw button[title*="Library"],
+.excalidraw button[aria-label*="library"],
+.excalidraw button[title*="library"],
+.excalidraw [aria-label*="Library"],
+.excalidraw [title*="Library"],
+.excalidraw [aria-label*="library"],
+.excalidraw [title*="library"],
+.excalidraw .layer-ui__wrapper .default-sidebar-trigger,
+.excalidraw .default-sidebar-trigger {
+  display: none !important;
+}
