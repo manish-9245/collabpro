@@ -23,9 +23,7 @@
       "@/lib/session-auth/client": ["./lib/session-auth/client.tsx"],
       "@/lib/session-auth/server": ["./lib/session-auth/server.ts"],
       "@/convex/_generated/api": ["./lib/state-sync/react.tsx"],
-      "convex/react": ["./lib/state-sync/react.tsx"],
-      "@kinde-oss/kinde-auth-nextjs": ["./lib/session-auth/client.tsx"],
-      "@kinde-oss/kinde-auth-nextjs/server": ["./lib/session-auth/server.ts"]
+      "convex/react": ["./lib/state-sync/react.tsx"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", "app/(routes)/dashboard/_components/SideNavTopSection.jsx"],

@@ -3,7 +3,7 @@
 import React, { useContext, useEffect, useState } from 'react'
 import Header from '../_components/Header'
 import { ActiveTeamContext } from '@/app/_context/ActiveTeamContext'
-import { useKindeBrowserClient } from '@kinde-oss/kinde-auth-nextjs'
+import { useSessionAuth } from '@/lib/session-auth/client'
 import { useQuery, useMutation, useConvex } from 'convex/react'
 import { api } from '@/convex/_generated/api'
 import { toast } from 'sonner'
@@ -11,7 +11,7 @@ import { Bell, Check, X, ShieldAlert, CheckCircle2, Inbox, Calendar, Mail, Loade
 import moment from 'moment'
 
 function NotificationsPage() {
-  const { user }: any = useKindeBrowserClient();
+  const { user }: any = useSessionAuth();
   const { setActiveTeam } = useContext(ActiveTeamContext);
   const convex = useConvex();
 

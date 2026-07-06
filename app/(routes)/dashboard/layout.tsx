@@ -1,6 +1,6 @@
 "use client"
 import { api } from '@/convex/_generated/api';
-import { useKindeBrowserClient } from '@kinde-oss/kinde-auth-nextjs';
+import { useSessionAuth } from '@/lib/session-auth/client';
 import { useConvex } from 'convex/react';
 import { useRouter } from 'next/navigation';
 import React, { useEffect, useState } from 'react'
@@ -17,7 +17,7 @@ function DashboardLayout(
       }>
 ) {
     const convex=useConvex();
-    const {user}:any=useKindeBrowserClient();
+    const {user}:any=useSessionAuth();
     const [fileList_,setFileList_]=useState();
     const [activeTeam,setActiveTeam]=useState<any>();
     const [activeTab,setActiveTab]=useState<string>('all');

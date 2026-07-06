@@ -9,7 +9,7 @@ import {
     PopoverContent,
     PopoverTrigger,
 } from "@/components/ui/popover"
-import { LogoutLink } from '@kinde-oss/kinde-auth-nextjs'
+import { LogoutLink } from '@/lib/session-auth/client'
 import { Separator } from '@/components/ui/separator'
 import { useConvex, useQuery, useMutation } from 'convex/react'
 import { api } from '@/convex/_generated/api'

@@ -7,7 +7,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { useMutation, useQuery } from 'convex/react'
 import { api } from '@/convex/_generated/api'
 import { toast } from 'sonner'
-import { useKindeBrowserClient } from '@kinde-oss/kinde-auth-nextjs'
+import { useSessionAuth } from '@/lib/session-auth/client'
 import moment from 'moment'
 import { Input } from '@/components/ui/input'
 import {
@@ -55,7 +55,7 @@ function WorkspaceHeader({
   const restoreVersion = useMutation(api.files.restoreVersion)
   const updateVersionNote = useMutation(api.files.updateVersionNote)
 
-  const { user } = useKindeBrowserClient()
+  const { user } = useSessionAuth()
   const [isHistoryOpen, setIsHistoryOpen] = useState(false)
   const [versionNote, setVersionNote] = useState('')
   const [isCreatingVersion, setIsCreatingVersion] = useState(false)

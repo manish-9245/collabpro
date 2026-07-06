@@ -2,7 +2,7 @@
 
 import React, { useContext, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { useKindeBrowserClient } from '@kinde-oss/kinde-auth-nextjs'
+import { useSessionAuth } from '@/lib/session-auth/client'
 import { Search, Send, Users, Shield, ShieldCheck, Mail, Loader2, UserPlus, CheckCircle2 } from 'lucide-react'
 import Image from 'next/image'
 import { ActiveTeamContext } from '@/app/_context/ActiveTeamContext'
@@ -21,7 +21,7 @@ import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
 
 function Header() {
-  const { user }: any = useKindeBrowserClient()
+  const { user }: any = useSessionAuth()
   const { activeTeam } = useContext(ActiveTeamContext)
   const { searchQuery, setSearchQuery } = useContext(FileListContext) || {}
   const [inviteEmail, setInviteEmail] = useState('')

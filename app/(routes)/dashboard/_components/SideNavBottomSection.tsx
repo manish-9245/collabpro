@@ -4,7 +4,7 @@ import React, { useState, useContext } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { useQuery } from 'convex/react'
 import { api } from '@/convex/_generated/api'
-import { useKindeBrowserClient } from '@kinde-oss/kinde-auth-nextjs'
+import { useSessionAuth } from '@/lib/session-auth/client'
 import {
   Dialog,
   DialogClose,
@@ -24,7 +24,7 @@ function SideNavBottomSection({onFileCreate,totalFiles}:any) {
   const { activeTab, setActiveTab, fileList_ } = useContext(FileListContext);
   const router = useRouter();
   const pathname = usePathname();
-  const { user }: any = useKindeBrowserClient();
+  const { user }: any = useSessionAuth();
 
   // Fetch pending invitations for this user
   const invitations = useQuery(api.notifications.getInvitations, user?.email ? { userEmail: user.email } : 'skip' as any);

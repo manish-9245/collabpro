@@ -1,5 +1,5 @@
 import { FileListContext } from '@/app/_context/FilesListContext'
-import { useKindeBrowserClient } from '@kinde-oss/kinde-auth-nextjs';
+import { useSessionAuth } from '@/lib/session-auth/client';
 import { Archive, MoreHorizontal, Edit2, FileText, ArrowLeftRight, Trash2, Folder } from 'lucide-react';
 import moment from 'moment';
 import Image from 'next/image';
@@ -43,7 +43,7 @@ export interface FILE {
 function FileList() {
   const { fileList_, setFileList_, activeTab, fileScope, setFileScope, searchQuery } = useContext(FileListContext);
   const { activeTeam } = useContext(ActiveTeamContext);
-  const { user }: any = useKindeBrowserClient();
+  const { user }: any = useSessionAuth();
   const router = useRouter();
   const convex = useConvex();
 

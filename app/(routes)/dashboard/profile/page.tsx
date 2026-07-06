@@ -3,7 +3,7 @@
 import React, { useContext, useEffect, useState } from 'react'
 import Header from '../_components/Header'
 import { ActiveTeamContext } from '@/app/_context/ActiveTeamContext'
-import { useKindeBrowserClient } from '@kinde-oss/kinde-auth-nextjs'
+import { useSessionAuth } from '@/lib/session-auth/client'
 import { useQuery, useMutation, useConvex } from 'convex/react'
 import { api } from '@/convex/_generated/api'
 import { toast } from 'sonner'
@@ -53,7 +53,7 @@ const ANIME_AVATARS = [
 ]
 
 function ProfilePage() {
-  const { user }: any = useKindeBrowserClient();
+  const { user }: any = useSessionAuth();
   const { activeTeam } = useContext(ActiveTeamContext);
   const convex = useConvex();
 

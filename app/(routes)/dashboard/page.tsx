@@ -1,7 +1,7 @@
 "use client"
 import { Button } from '@/components/ui/button'
 import { api } from '@/convex/_generated/api'
-import { useKindeBrowserClient } from '@kinde-oss/kinde-auth-nextjs'
+import { useSessionAuth } from '@/lib/session-auth/client'
 import { useConvex, useMutation, useQuery } from 'convex/react'
 import React, { useEffect, useContext } from 'react'
 import Header from './_components/Header'
@@ -13,7 +13,7 @@ import { Sparkles, FileText, Users, Award, ShieldAlert, Layers } from 'lucide-re
 
 function Dashboard() {
   const convex = useConvex();
-  const { user }: any = useKindeBrowserClient();
+  const { user }: any = useSessionAuth();
   const { fileList_ } = useContext(FileListContext);
   const { activeTeam } = useContext(ActiveTeamContext);
 

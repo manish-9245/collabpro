@@ -86,5 +86,4 @@ export function LogoutLink({ children }: { children: React.ReactNode }) {
   );
 }
 
-// Backward compatibility alias
-export { useSessionAuth as useKindeBrowserClient };
+// Session Auth exports

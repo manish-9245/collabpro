@@ -2,7 +2,7 @@ import { Archive, ChevronDown, Flag } from 'lucide-react'
 import Image from 'next/image'
 import React, { useContext, useEffect, useState } from 'react'
 import SideNavTopSection, { TEAM } from './SideNavTopSection'
-import { useKindeBrowserClient } from '@kinde-oss/kinde-auth-nextjs'
+import { useSessionAuth } from '@/lib/session-auth/client'
 import SideNavBottomSection from './SideNavBottomSection'
 import { useConvex, useMutation } from 'convex/react'
 import { api } from '@/convex/_generated/api'
@@ -12,7 +12,7 @@ import { ActiveTeamContext } from '@/app/_context/ActiveTeamContext'
 
 
 function SideNav() {
-  const {user}:any=useKindeBrowserClient();
+  const {user}:any=useSessionAuth();
   const createFile=useMutation(api.files.createFile);
   const {activeTeam,setActiveTeam}=useContext(ActiveTeamContext);
   const convex=useConvex();

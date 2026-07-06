@@ -1,11 +1,11 @@
 "use client"
 
-import { LoginLink, RegisterLink, useKindeBrowserClient } from '@kinde-oss/kinde-auth-nextjs'
+import { LoginLink, RegisterLink, useSessionAuth } from '@/lib/session-auth/client'
 import Image from 'next/image'
 import React from 'react'
 
 function Header() {
-  const { user, isLoading } = useKindeBrowserClient();
+  const { user, isLoading } = useSessionAuth();
 
   return (
     <header className="bg-white/80 backdrop-blur-md sticky top-0 z-50 border-b border-slate-100/80">

@@ -2,7 +2,7 @@
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { api } from '@/convex/_generated/api'
-import { useKindeBrowserClient } from '@kinde-oss/kinde-auth-nextjs'
+import { useSessionAuth } from '@/lib/session-auth/client'
 import { useMutation } from 'convex/react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
@@ -13,7 +13,7 @@ function CreateTeam() {
 
   const [teamName,setTeamName]=useState('');
   const createTeam=useMutation(api.teams.createTeam);
-  const {user}:any=useKindeBrowserClient();
+  const {user}:any=useSessionAuth();
   const router=useRouter();
   const createNewTeam=()=>{
     createTeam({
