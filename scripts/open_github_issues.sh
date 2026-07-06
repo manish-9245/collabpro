@@ -23,7 +23,7 @@ echo "=================================================================="
 echo "🛡️  CollabPro GitHub Feature Request Creator"
 echo "=================================================================="
 echo "Found Remote Repository: $REPO_URL"
-echo "This script will create 5 advanced feature request issues on your repository."
+echo "This script will create 6 advanced feature request issues on your repository."
 echo "Please make sure you are authenticated in this shell."
 echo "------------------------------------------------------------------"
 
@@ -140,6 +140,26 @@ M4: AI-Native MCP (Model Context Protocol) Server
 EOF
 
 create_issue "Feature: GitHub Action Integration for Automated PR Diagram Embeds" "$body_5" "enhancement"
+
+# Issue 6: Native Image Upload & Embed Support in Rich Documents
+read -r -d '' body_6 << 'EOF'
+### Description
+Allow team collaborators to upload, drag-and-drop, or paste images (PNG, JPG, SVG, GIF, WebP) directly inside the document rich text editor, rendering them alongside collaborative blocks with dynamic captions.
+
+### Core Deliverables
+- [ ] **Headless Media Upload API:** Build a secure API route `/api/files/upload` to receive multipart form-data and upload assets securely to Prisma-tracked storage.
+- [ ] **Editor.js Image Block Integration:** Configure the `@editorjs/image` block tool in the workspace editor interface.
+- [ ] **Interactive Drag & Drop & Paste Hooks:** Add window drag-over and window paste events to dynamically parse image clipboard items and trigger silent background uploads.
+- [ ] **Dynamic Layout Controls:** Enable full-width, centered, or side-by-side image positioning blocks with customizable caption edit layers.
+
+### Priority
+High
+
+### Milestone
+M1: Advanced Interactive Workspace & File Hierarchies
+EOF
+
+create_issue "Feature: Native Image Upload & Embed Support inside Rich Documents" "$body_6" "enhancement"
 
 echo "------------------------------------------------------------------"
 echo "🎉 Feature requests generation sequence completed!"
