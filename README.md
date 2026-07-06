@@ -53,7 +53,7 @@ graph TD
 
     subgraph ClientLayer ["CollabPro Client (Next.js & React)"]
         UI["CollabPro Responsive UI<br/>(Tailwind CSS + Lucide Icons)"]:::client
-        EditorComponent["Real-time Markdown Editor<br/>(Lexical Editor)"]:::client
+        EditorComponent["Block Document Editor<br/>(Editor.js Blocks)"]:::client
         CanvasComponent["System Design Canvas<br/>(Excalidraw Engine + AWS Icons)"]:::client
     end
 
@@ -100,11 +100,12 @@ graph TD
 
 ## 🛠️ Technology Stack
 
-- **Frontend**: Next.js 14 (App Router), React 18, Tailwind CSS, Lucide icons, Framer Motion
-- **Database ORM**: Prisma Client (with connection pool proxying)
-- **State Replication**: Custom high-performance State Synchronization Gateway
+- **Frontend**: Next.js 14 (App Router), React 18, Tailwind CSS, Lucide icons
+- **Database ORM**: Prisma Client (with PostgreSQL database driver)
+- **State Replication**: Local optimistic pooling state synchronization gateway
 - **Authorization**: Custom stateful session-cookie authentication engine
-- **Canvas Engine**: `@excalidraw/excalidraw`
+- **Document Engine**: Editor.js (Blocks-based nested plugins)
+- **Canvas Engine**: `@excalidraw/excalidraw` (Vector system design layout)
 
 ---
 
@@ -165,7 +166,7 @@ npm run start
 CollabPro is built on top of and made possible by several incredible open-source projects, and we owe them a special debt of gratitude:
 
 - **[Excalidraw](https://github.com/excalidraw/excalidraw)**: A massive thanks to the Excalidraw team for their outstanding, world-class virtual whiteboard library. Their robust vector graphics canvas engine enables the seamless, high-fidelity collaborative system diagramming experience that forms the core of CollabPro.
-- **[Lexical](https://github.com/facebook/lexical)**: For providing the highly reliable, extensible, and high-performance rich-text editor engine.
+- **[Editor.js](https://github.com/codex-team/editor.js)**: For providing the exceptional block-styled extensible editor engine which powers CollabPro's rich document editor experience.
 - **AWS Simple Icons**: For the comprehensive library of architecture and service icons that make technical system design smooth and professional.
 
 ---
