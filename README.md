@@ -14,7 +14,7 @@ CollabPro is engineered to be **completely self-contained with 100% zero externa
 ## 🎨 Core Features
 
 ### 📝 1. Rich Collaborative Document Editor
-- **Lexical Engine**: Responsive real-time rich-text Markdown writing.
+- **Editor.js Blocks**: Responsive block-based document editing featuring custom paragraphs, checklists, headers, and bullet lists.
 - **Bi-directional Split Screen**: Work simultaneously with a live documents panel on the left and a system design canvas on the right.
 - **Syncing & Cache**: State auto-saves dynamically with custom save intervals and state caching to prevent network collisions.
 
