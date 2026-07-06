@@ -1,34 +1,10 @@
 "use client"
 
-import React, { useState, useEffect } from 'react'
-import { Layers, FolderGit, Zap, History, Users2, ShieldCheck, Sparkles, ArrowRight, FolderOpen, Folder, FileText, CheckCircle2, ChevronRight, Milestone, Calendar, ArrowUpRight } from 'lucide-react'
+import React from 'react'
+import { Layers, FolderGit, Zap, History, Users2, ShieldCheck, Sparkles, ArrowRight, FolderOpen, Folder, FileText } from 'lucide-react'
 import { CHANGELOG } from '@/lib/changelog'
 
 function Hero() {
-  const [activeTab, setActiveTab] = useState<'blueprint' | 'releases'>('blueprint');
-
-  // Sync state switcher with navigation hash changes automatically
-  useEffect(() => {
-    const handleHashChange = () => {
-      const hash = window.location.hash;
-      if (hash === '#releases') {
-        setActiveTab('releases');
-        document.getElementById('blueprint-section-anchor')?.scrollIntoView({ behavior: 'smooth' });
-      } else if (hash === '#blueprint') {
-        setActiveTab('blueprint');
-        document.getElementById('blueprint-section-anchor')?.scrollIntoView({ behavior: 'smooth' });
-      }
-    };
-    
-    // Initial check on mount
-    if (window.location.hash) {
-      setTimeout(handleHashChange, 200);
-    }
-
-    window.addEventListener('hashchange', handleHashChange);
-    return () => window.removeEventListener('hashchange', handleHashChange);
-  }, []);
-
   // Programmatic UI layout upgrade based on latest major release settings
   const latestMajorRelease = CHANGELOG.find(r => r.type === 'major' && r.uiThemeUpgrade);
   const theme = latestMajorRelease?.uiThemeUpgrade || {
@@ -251,157 +227,39 @@ function Hero() {
         </div>
 
         {/* Section Anchor for navigation smooth scrolling */}
-        <div id="blueprint-section-anchor" className="scroll-mt-24 pt-20" />
+        <div id="blueprint" className="scroll-mt-24 pt-20" />
 
-        {/* Interactive Segmented Tab Controls (Segment Switcher) */}
-        <div className="max-w-xl mx-auto mb-12 flex flex-col items-center justify-center">
-          <div className="inline-flex bg-slate-100/90 dark:bg-zinc-900/60 p-1 rounded-xl border border-slate-200/50 shadow-inner">
-            <button
-              onClick={() => {
-                setActiveTab('blueprint');
-                window.location.hash = 'blueprint';
-              }}
-              className={`px-5 py-2.5 text-xs font-bold rounded-lg transition-all duration-200 flex items-center gap-2 ${
-                activeTab === 'blueprint'
-                  ? 'bg-white text-slate-900 shadow-md border border-slate-200/20'
-                  : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              <Layers className="h-4 w-4 text-blue-500" />
-              <span>Core Features Blueprint</span>
-            </button>
-            
-            <button
-              onClick={() => {
-                setActiveTab('releases');
-                window.location.hash = 'releases';
-              }}
-              className={`px-5 py-2.5 text-xs font-bold rounded-lg transition-all duration-200 flex items-center gap-2 ${
-                activeTab === 'releases'
-                  ? 'bg-white text-slate-900 shadow-md border border-slate-200/20'
-                  : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              <Milestone className="h-4 w-4 text-indigo-500 animate-pulse" />
-              <span>Releases & Changelog</span>
-              <span className="bg-blue-100 text-blue-700 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full uppercase leading-none">v3.0</span>
-            </button>
+        <div className="mt-12">
+          {/* Features Header */}
+          <div className="max-w-2xl mx-auto mb-10 text-center">
+            <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+              Engineered for high-performing squads
+            </h2>
+            <p className="text-slate-500 text-xs sm:text-sm mt-2 leading-relaxed max-w-lg mx-auto">
+              Every component is meticulously designed to provide sovereign, self-contained speed, clarity, and precision.
+            </p>
+          </div>
+
+          {/* Dynamic Responsive Features Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-screen-xl mx-auto text-left">
+            {features.map((feat, idx) => (
+              <div 
+                key={idx}
+                className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg hover:shadow-slate-200/50 group"
+              >
+                <div className="h-10 w-10 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                  <feat.icon className={`h-5 w-5 ${feat.color}`} />
+                </div>
+                <h3 className="text-sm font-bold text-slate-800 mb-2">
+                  {feat.title}
+                </h3>
+                <p className="text-slate-500 text-xs leading-relaxed">
+                  {feat.description}
+                </p>
+              </div>
+            ))}
           </div>
         </div>
-
-        {activeTab === 'blueprint' ? (
-          <div>
-            {/* Features Header */}
-            <div className="max-w-2xl mx-auto mb-10 text-center">
-              <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-                Engineered for high-performing squads
-              </h2>
-              <p className="text-slate-500 text-xs sm:text-sm mt-2 leading-relaxed max-w-lg mx-auto">
-                Every component is meticulously designed to provide sovereign, self-contained speed, clarity, and precision.
-              </p>
-            </div>
-
-            {/* Dynamic Responsive Features Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-screen-xl mx-auto text-left">
-              {features.map((feat, idx) => (
-                <div 
-                  key={idx}
-                  className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg hover:shadow-slate-200/50 group"
-                >
-                  <div className="h-10 w-10 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                    <feat.icon className={`h-5 w-5 ${feat.color}`} />
-                  </div>
-                  <h3 className="text-sm font-bold text-slate-800 mb-2">
-                    {feat.title}
-                  </h3>
-                  <p className="text-slate-500 text-xs leading-relaxed">
-                    {feat.description}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <div className="max-w-3xl mx-auto text-left">
-            {/* Changelog Header */}
-            <div className="text-center max-w-2xl mx-auto mb-12">
-              <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight flex items-center justify-center gap-2">
-                <Milestone className="h-7 w-7 text-indigo-500" />
-                Product Release History
-              </h2>
-              <p className="text-slate-500 text-xs sm:text-sm mt-2 leading-relaxed">
-                Stay updated with the latest evolutionary leaps, programmatic UI theme upgrades, and architecture milestones.
-              </p>
-            </div>
-
-            {/* Premium Releases Timeline */}
-            <div className="relative border-l border-slate-200 ml-4 md:ml-6 space-y-10 pb-4">
-              {CHANGELOG.map((release, idx) => {
-                const isMajor = release.type === 'major';
-                return (
-                  <div key={idx} className="relative pl-8 md:pl-10 group">
-                    {/* Glowing circular node on timeline */}
-                    <span className={`absolute -left-[11px] top-1.5 flex h-5 w-5 items-center justify-center rounded-full border bg-white shadow-sm transition-colors ${
-                      isMajor 
-                        ? 'border-indigo-500 ring-4 ring-indigo-50' 
-                        : 'border-slate-300 group-hover:border-blue-500'
-                    }`}>
-                      <div className={`h-2 w-2 rounded-full ${isMajor ? 'bg-indigo-600' : 'bg-slate-400 group-hover:bg-blue-500'}`} />
-                    </span>
-
-                    {/* Release Card */}
-                    <div className="bg-white border border-slate-100 rounded-2xl p-5 md:p-6 shadow-sm hover:shadow-md transition-all duration-200">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-50 mb-4">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2.5">
-                            <span className={`text-[10px] font-extrabold uppercase tracking-widest px-2.5 py-0.5 rounded-full ${
-                              isMajor 
-                                ? 'bg-indigo-50 text-indigo-700 border border-indigo-100' 
-                                : 'bg-blue-50 text-blue-700 border border-blue-100'
-                            }`}>
-                              v{release.version}
-                            </span>
-                            <h3 className="text-base font-extrabold text-slate-800 tracking-tight">{release.title}</h3>
-                          </div>
-                        </div>
-                        
-                        <div className="inline-flex items-center gap-1.5 text-xs text-slate-400 font-medium bg-slate-50 px-2.5 py-1 rounded-lg">
-                          <Calendar className="h-3.5 w-3.5 text-slate-400" />
-                          <span>{release.date}</span>
-                        </div>
-                      </div>
-
-                      <p className="text-xs text-slate-600 leading-relaxed mb-4">
-                        {release.description}
-                      </p>
-
-                      <div className="space-y-2.5">
-                        <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Key Capabilities & Features</h4>
-                        <ul className="space-y-2">
-                          {release.features.map((feature, fIdx) => (
-                            <li key={fIdx} className="flex items-start gap-2 text-xs text-slate-600">
-                              <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                              <span>{feature}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-
-                      {release.uiThemeUpgrade && (
-                        <div className="mt-5 p-3.5 bg-gradient-to-r from-blue-50/50 to-indigo-50/50 rounded-xl border border-blue-100/30 flex items-center gap-3">
-                          <Sparkles className="h-5 w-5 text-indigo-500 shrink-0 animate-bounce" />
-                          <div className="text-[11px] leading-relaxed">
-                            <span className="font-bold text-slate-800">Dynamic Landing Upgrade Active:</span> This release automatically upgrades the CollabPro landing page with a vibrant <span className="font-semibold text-indigo-600">neon-blue gradient styling</span>.
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )}
       </div>
     </section>
   )

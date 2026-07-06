@@ -23,11 +23,11 @@ function Header() {
           <nav aria-label="Global" className="hidden md:block">
             <ul className="flex items-center gap-8 text-sm">
               <li>
-                <a className="text-slate-600 hover:text-slate-950 transition font-semibold" href="#blueprint"> Core Features </a>
+                <a className="text-slate-600 hover:text-slate-950 transition font-semibold" href="/#blueprint"> Core Features </a>
               </li>
 
               <li>
-                <a className="relative text-slate-600 hover:text-slate-950 transition font-semibold flex items-center gap-1.5" href="#releases">
+                <a className="relative text-slate-600 hover:text-slate-950 transition font-semibold flex items-center gap-1.5" href="/releases">
                   Releases & Upgrades
                   <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
                 </a>
