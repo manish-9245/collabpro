@@ -17,6 +17,12 @@
   max-width: 680px; /* Matching standard professional document widths */
 }
 
+/* Reposition the Block Mover and Plus actions further to the left to prevent them from being too close to text */
+#editorjs .ce-toolbar__actions {
+  margin-right: 28px !important;
+}
+
+
 /* Headings: Inter/sans, slate-950/slate-900, perfectly proportional */
 #editorjs h1.ce-header,
 h1.ce-header {
