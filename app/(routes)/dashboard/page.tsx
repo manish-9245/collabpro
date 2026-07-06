@@ -1,8 +1,7 @@
 "use client"
 import { Button } from '@/components/ui/button'
-import { api } from '@/convex/_generated/api'
+import { api, useSync, useMutation, useQuery } from '@/lib/state-sync/react'
 import { useSessionAuth } from '@/lib/session-auth/client'
-import { useConvex, useMutation, useQuery } from 'convex/react'
 import React, { useEffect, useContext } from 'react'
 import Header from './_components/Header'
 import FileList from './_components/FileList'
@@ -12,7 +11,7 @@ import { ActiveTeamContext } from '@/app/_context/ActiveTeamContext'
 import { Sparkles, FileText, Users, Award, ShieldAlert, Layers } from 'lucide-react'
 
 function Dashboard() {
-  const convex = useConvex();
+  const sync = useSync();
   const { user }: any = useSessionAuth();
   const { fileList_ } = useContext(FileListContext);
   const { activeTeam } = useContext(ActiveTeamContext);
@@ -27,7 +26,7 @@ function Dashboard() {
   }, [user])
 
   const checkUser = async () => {
-    const result = await convex.query(api.user.getUser, { email: user?.email });
+    const result = await sync.query(api.user.getUser, { email: user?.email });
     if (!result?.length) {
       createUser({
         name: user.given_name,

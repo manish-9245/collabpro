@@ -26,5 +26,3 @@ export function getServerSession() {
   };
 }
 
-// Backward compatibility alias
-export { getServerSession as getKindeServerSession };

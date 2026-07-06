@@ -1,7 +1,6 @@
 "use client"
-import { api } from '@/convex/_generated/api';
+import { api, useSync } from '@/lib/state-sync/react';
 import { useSessionAuth } from '@/lib/session-auth/client';
-import { useConvex } from 'convex/react';
 import { useRouter } from 'next/navigation';
 import React, { useEffect, useState } from 'react'
 import SideNav from './_components/SideNav';
@@ -16,7 +15,7 @@ function DashboardLayout(
         children: React.ReactNode;
       }>
 ) {
-    const convex=useConvex();
+    const sync=useSync();
     const {user}:any=useSessionAuth();
     const [fileList_,setFileList_]=useState();
     const [activeTeam,setActiveTeam]=useState<any>();
@@ -29,7 +28,7 @@ function DashboardLayout(
     },[user])
 
     const checkTeam=async()=>{
-        const result=await convex.query(api.teams.getTeam,
+        const result=await sync.query(api.teams.getTeam,
             {email:user?.email});
 
         if(!result?.length)

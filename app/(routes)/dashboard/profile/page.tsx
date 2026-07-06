@@ -4,8 +4,7 @@ import React, { useContext, useEffect, useState } from 'react'
 import Header from '../_components/Header'
 import { ActiveTeamContext } from '@/app/_context/ActiveTeamContext'
 import { useSessionAuth } from '@/lib/session-auth/client'
-import { useQuery, useMutation, useConvex } from 'convex/react'
-import { api } from '@/convex/_generated/api'
+import { api, useSync, useQuery, useMutation } from '@/lib/state-sync/react'
 import { toast } from 'sonner'
 import { User, Shield, Globe, Github, Twitter, Linkedin, Briefcase, Sparkles, CheckCircle2, Lock, Loader2 } from 'lucide-react'
 
@@ -55,7 +54,7 @@ const ANIME_AVATARS = [
 function ProfilePage() {
   const { user }: any = useSessionAuth();
   const { activeTeam } = useContext(ActiveTeamContext);
-  const convex = useConvex();
+  const sync = useSync();
 
   const [activeSubTab, setActiveSubTab] = useState<'person' | 'team'>('person');
   
@@ -97,7 +96,7 @@ function ProfilePage() {
 
   const fetchUserProfile = async () => {
     try {
-      const data = await convex.query(api.user.getUserProfile, {
+      const data = await sync.query(api.user.getUserProfile, {
         email: user.email,
         requesterEmail: user.email
       });
@@ -118,7 +117,7 @@ function ProfilePage() {
 
   const fetchTeamProfile = async () => {
     try {
-      const data = await convex.query(api.teams.getTeamProfile, {
+      const data = await sync.query(api.teams.getTeamProfile, {
         teamId: activeTeam._id,
         requesterEmail: user?.email
       });
@@ -162,7 +161,7 @@ function ProfilePage() {
     if (!user?.email) return;
     try {
       // Find the database ID of the logged in user
-      const users = await convex.query(api.user.getUser, { email: user.email });
+      const users = await sync.query(api.user.getUser, { email: user.email });
       if (users && users.length > 0) {
         await updateUserImage({
           _id: users[0]._id,

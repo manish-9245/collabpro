@@ -1,8 +1,7 @@
 "use client"
 import React, { useEffect, useState } from 'react'
 import WorkspaceHeader from '../_components/WorkspaceHeader'
-import { useQuery } from 'convex/react';
-import { api } from '@/convex/_generated/api';
+import { api, useQuery } from '@/lib/state-sync/react';
 import { FILE } from '../../dashboard/_components/FileList';
 import { Loader2 } from 'lucide-react';
 import dynamic from 'next/dynamic';

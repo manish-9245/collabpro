@@ -11,8 +11,7 @@ import {
 } from "@/components/ui/popover"
 import { LogoutLink } from '@/lib/session-auth/client'
 import { Separator } from '@/components/ui/separator'
-import { useConvex, useQuery, useMutation } from 'convex/react'
-import { api } from '@/convex/_generated/api'
+import { api, useSync, useQuery, useMutation } from '@/lib/state-sync/react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { FileListContext } from '@/app/_context/FilesListContext'
@@ -55,7 +54,7 @@ const curatedAvatars = [
 
 function SideNavTopSection({ user, setActiveTeamInfo }: any) {
     const router = useRouter();
-    const convex = useConvex();
+    const sync = useSync();
     const context = useContext(FileListContext) || {};
     const { activeTab, setActiveTab, fileList_, setFileList_, fileScope } = context;
     
@@ -63,7 +62,7 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
     const [activeTeam, setActiveTeam] = useState<TEAM>();
     const [teamList, setTeamList] = useState<TEAM[]>();
     
-    // Fetch user and avatar state from Convex
+    // Fetch user and avatar state from state-sync engine
     const localUserList = useQuery(api.user.getUser, user?.email ? { email: user?.email } : 'skip' as any);
     const localUser = localUserList && localUserList.length > 0 ? localUserList[0] : null;
     const updateUserImage = useMutation(api.user.updateUserImage);
@@ -89,7 +88,7 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
     const [sidebarMoveInput, setSidebarMoveInput] = useState('');
     const [sidebarFileToMove, setSidebarFileToMove] = useState<any>(null);
 
-    // Use Convex real-time reactive query for sidebar files
+    // Use state-sync engine real-time reactive query for sidebar files
     const sidebarFiles = useQuery(
         api.files.getFiles, 
         activeTeam?._id ? { teamId: activeTeam._id as string } : 'skip' as any
@@ -207,7 +206,7 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
 
     const refreshFiles = async () => {
         if (activeTeam?._id && setFileList_) {
-            const result = await convex.query(api.files.getFiles, {
+            const result = await sync.query(api.files.getFiles, {
                 teamId: activeTeam._id as string,
                 userEmail: user?.email,
                 scope: fileScope
@@ -284,7 +283,7 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
     }, [activeTeam])
 
     const getTeamList = async () => {
-        const result = await convex.query(api.teams.getTeam, { email: user?.email })
+        const result = await sync.query(api.teams.getTeam, { email: user?.email })
         console.log("TeamList", result);
         setTeamList(result);
         setActiveTeam(result[0]);

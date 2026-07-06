@@ -7,8 +7,7 @@ import { Search, Send, Users, Shield, ShieldCheck, Mail, Loader2, UserPlus, Chec
 import Image from 'next/image'
 import { ActiveTeamContext } from '@/app/_context/ActiveTeamContext'
 import { FileListContext } from '@/app/_context/FilesListContext'
-import { useQuery, useMutation } from 'convex/react'
-import { api } from '@/convex/_generated/api'
+import { api, useQuery, useMutation } from '@/lib/state-sync/react'
 import {
     Dialog,
     DialogContent,

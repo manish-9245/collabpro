@@ -2,8 +2,7 @@ import { Button } from '@/components/ui/button'
 import { Archive, Flag, User, Settings, Bell, HelpCircle, Sparkles } from 'lucide-react'
 import React, { useState, useContext } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
-import { useQuery } from 'convex/react'
-import { api } from '@/convex/_generated/api'
+import { api, useQuery } from '@/lib/state-sync/react'
 import { useSessionAuth } from '@/lib/session-auth/client'
 import {
   Dialog,

@@ -4,8 +4,7 @@ import React, { useContext, useEffect, useState } from 'react'
 import Header from '../_components/Header'
 import { ActiveTeamContext } from '@/app/_context/ActiveTeamContext'
 import { useSessionAuth } from '@/lib/session-auth/client'
-import { useQuery, useMutation, useConvex } from 'convex/react'
-import { api } from '@/convex/_generated/api'
+import { api, useQuery, useMutation, useSync } from '@/lib/state-sync/react'
 import { toast } from 'sonner'
 import { Bell, Check, X, ShieldAlert, CheckCircle2, Inbox, Calendar, Mail, Loader2, Sparkles } from 'lucide-react'
 import moment from 'moment'
@@ -13,7 +12,7 @@ import moment from 'moment'
 function NotificationsPage() {
   const { user }: any = useSessionAuth();
   const { setActiveTeam } = useContext(ActiveTeamContext);
-  const convex = useConvex();
+  const sync = useSync();
 
   const [invitations, setInvitations] = useState<any[]>([]);
   const [notifications, setNotifications] = useState<any[]>([]);
@@ -32,8 +31,8 @@ function NotificationsPage() {
   const fetchNotificationsData = async () => {
     setLoading(true);
     try {
-      const invites = await convex.query(api.notifications.getInvitations, { userEmail: user.email });
-      const notifs = await convex.query(api.notifications.getNotifications, { userEmail: user.email });
+      const invites = await sync.query(api.notifications.getInvitations, { userEmail: user.email });
+      const notifs = await sync.query(api.notifications.getNotifications, { userEmail: user.email });
       setInvitations(invites || []);
       setNotifications(notifs || []);
     } catch (e) {

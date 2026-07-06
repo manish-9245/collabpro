@@ -11,8 +11,7 @@ import Checklist from '@editorjs/checklist'
 import Paragraph from '@editorjs/paragraph';
 // @ts-ignore
 import Warning from '@editorjs/warning';
-import { useMutation } from 'convex/react';
-import { api } from '@/convex/_generated/api';
+import { api, useMutation } from '@/lib/state-sync/react';
 import { toast } from 'sonner';
 import { FILE } from '../../dashboard/_components/FileList';
 

@@ -26,7 +26,7 @@ The landing page layout is now mapped to a modern, crisp, and responsive light t
    ```
 3. **Railway Synchronization:** Automatically pulled by Railway's deployment hooks to update the production service `collabpro`.
 4. **Visual Verification:** A high-resolution browser viewport snapshot has been captured and is stored in your workspace root at:
-   - [landing_light_mode.png](file:///Users/manishtiwari/Documents/erasor_clone/landing_light_mode.png)
+    - [landing_page_clean.png](file:///Users/manishtiwari/Documents/erasor_clone/public/landing_page_clean.png)
 
 ---
 

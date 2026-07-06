@@ -11,8 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useRouter } from 'next/navigation';
-import { useConvex, useMutation, useQuery } from 'convex/react';
-import { api } from '@/convex/_generated/api';
+import { api, useSync, useMutation, useQuery } from '@/lib/state-sync/react';
 import { ActiveTeamContext } from '@/app/_context/ActiveTeamContext';
 import { toast } from 'sonner';
 import {
@@ -45,7 +44,7 @@ function FileList() {
   const { activeTeam } = useContext(ActiveTeamContext);
   const { user }: any = useSessionAuth();
   const router = useRouter();
-  const convex = useConvex();
+  const sync = useSync();
 
   const archiveFile = useMutation(api.files.archiveFile);
   const updateFileName = useMutation(api.files.updateFileName);
@@ -98,7 +97,7 @@ function FileList() {
 
   const getFiles = async () => {
     if (activeTeam?._id) {
-      const result = await convex.query(api.files.getFiles, { 
+      const result = await sync.query(api.files.getFiles, { 
         teamId: activeTeam._id as string,
         userEmail: user?.email,
         scope: fileScope

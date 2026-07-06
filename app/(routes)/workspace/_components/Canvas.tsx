@@ -1,8 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { Excalidraw, MainMenu, WelcomeScreen } from "@excalidraw/excalidraw";
 import { FILE } from '../../dashboard/_components/FileList';
-import { useMutation } from 'convex/react';
-import { api } from '@/convex/_generated/api';
+import { api, useMutation } from '@/lib/state-sync/react';
 import { Sparkles, Cloud, Search, Loader2, ChevronLeft, ChevronRight, Plus, Trash2, Upload, BookOpen, Link, Check, Download, Info, Globe } from 'lucide-react';
 import { toast } from 'sonner';
 import { AWS_ICONS } from './aws_icons_list';

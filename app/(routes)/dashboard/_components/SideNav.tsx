@@ -4,8 +4,7 @@ import React, { useContext, useEffect, useState } from 'react'
 import SideNavTopSection, { TEAM } from './SideNavTopSection'
 import { useSessionAuth } from '@/lib/session-auth/client'
 import SideNavBottomSection from './SideNavBottomSection'
-import { useConvex, useMutation } from 'convex/react'
-import { api } from '@/convex/_generated/api'
+import { api, useSync, useMutation } from '@/lib/state-sync/react'
 import { toast } from 'sonner'
 import { FileListContext } from '@/app/_context/FilesListContext'
 import { ActiveTeamContext } from '@/app/_context/ActiveTeamContext'
@@ -15,7 +14,7 @@ function SideNav() {
   const {user}:any=useSessionAuth();
   const createFile=useMutation(api.files.createFile);
   const {activeTeam,setActiveTeam}=useContext(ActiveTeamContext);
-  const convex=useConvex();
+  const sync=useSync();
   const [totalFiles,setTotalFiles]=useState<Number>();
   const {fileList_,setFileList_,fileScope}=useContext(FileListContext);
   useEffect(()=>{
@@ -44,7 +43,7 @@ function SideNav() {
   }
 
   const getFiles=async()=>{
-    const result=await convex.query(api.files.getFiles,{
+    const result=await sync.query(api.files.getFiles,{
       teamId:activeTeam?._id,
       userEmail:user?.email,
       scope:fileScope

@@ -4,15 +4,14 @@ import React, { useContext, useEffect, useState } from 'react'
 import Header from '../_components/Header'
 import { ActiveTeamContext } from '@/app/_context/ActiveTeamContext'
 import { useSessionAuth } from '@/lib/session-auth/client'
-import { useQuery, useMutation, useConvex } from 'convex/react'
-import { api } from '@/convex/_generated/api'
+import { api, useSync, useQuery, useMutation } from '@/lib/state-sync/react'
 import { toast } from 'sonner'
 import { Settings, Users, LogOut, Trash2, Shield, ShieldCheck, Mail, ChevronDown, ChevronUp, Loader2 } from 'lucide-react'
 
 function SettingsPage() {
   const { user }: any = useSessionAuth();
   const { activeTeam, setActiveTeam } = useContext(ActiveTeamContext);
-  const convex = useConvex();
+  const sync = useSync();
 
   const [teams, setTeams] = useState<any[]>([]);
   const [loadingTeams, setLoadingTeams] = useState(false);
@@ -32,7 +31,7 @@ function SettingsPage() {
   const fetchTeams = async () => {
     setLoadingTeams(true);
     try {
-      const data = await convex.query(api.teams.getTeam, { email: user.email });
+      const data = await sync.query(api.teams.getTeam, { email: user.email });
       setTeams(data || []);
     } catch (e) {
       console.error(e);
@@ -45,7 +44,7 @@ function SettingsPage() {
   const fetchMembers = async (teamId: string) => {
     setLoadingMembers(prev => ({ ...prev, [teamId]: true }));
     try {
-      const membersList = await convex.query(api.teams.getTeamMembers, { teamId });
+      const membersList = await sync.query(api.teams.getTeamMembers, { teamId });
       setTeamMembersMap(prev => ({ ...prev, [teamId]: membersList || [] }));
     } catch (e) {
       console.error(e);

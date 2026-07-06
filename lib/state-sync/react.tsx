@@ -154,9 +154,3 @@ export function useSync() {
   };
 }
 
-// Compatibility exports
-export { useSync as useConvex };
-export { StateSyncProvider as ConvexProvider };
-export class ConvexReactClient {
-  constructor(url: string) {}
-}
