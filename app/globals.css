@@ -2,23 +2,114 @@
 @tailwind components;
 @tailwind utilities;
 
-h1.ce-header{
-  @apply text-3xl font-bold
+/* Premium Eraser-like Document Typography Overrides */
+#editorjs {
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif !important;
+  color: #334155; /* slate-700 */
 }
-h2.ce-header{
-  @apply text-2xl font-semibold
+
+/* Base styles for editor items */
+#editorjs .ce-block {
+  margin-bottom: 0.5rem;
 }
-h3.ce-header{
-  @apply text-xl font-semibold
+
+#editorjs .ce-block__content {
+  max-width: 680px; /* Matching standard professional document widths */
 }
-h4.ce-header{
-  @apply text-lg font-semibold
+
+/* Headings: Inter/sans, slate-950/slate-900, perfectly proportional */
+#editorjs h1.ce-header,
+h1.ce-header {
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif !important;
+  @apply text-[26px] font-extrabold text-slate-950 tracking-tight mb-4 mt-6 leading-tight !important;
 }
-h5.ce-header{
-  @apply text-base font-semibold
+
+#editorjs h2.ce-header,
+h2.ce-header {
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif !important;
+  @apply text-[20px] font-bold text-slate-900 tracking-tight mb-3 mt-5 leading-snug !important;
 }
-h6.ce-header{
-  @apply text-base font-semibold
+
+#editorjs h3.ce-header,
+h3.ce-header {
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif !important;
+  @apply text-[16.5px] font-bold text-slate-800 tracking-tight mb-2.5 mt-4 leading-snug !important;
+}
+
+#editorjs h4.ce-header,
+h4.ce-header {
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif !important;
+  @apply text-[14.5px] font-bold text-slate-800 tracking-tight mb-2 mt-3 leading-normal !important;
+}
+
+#editorjs h5.ce-header,
+h5.ce-header,
+#editorjs h6.ce-header,
+h6.ce-header {
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif !important;
+  @apply text-[12.5px] font-black text-slate-500 uppercase tracking-wider mb-2 mt-3 !important;
+}
+
+/* Paragraphs: compact, tech-styled, with perfect tracking and leading */
+#editorjs .ce-paragraph {
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif !important;
+  @apply text-[14.5px] font-normal text-slate-700 leading-[1.7] tracking-normal py-1 mb-2 !important;
+}
+
+/* Lists */
+#editorjs .cdx-list {
+  @apply pl-6 py-1 mb-2 !important;
+}
+
+#editorjs .cdx-list__item {
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif !important;
+  @apply text-[14.5px] text-slate-700 leading-[1.7] py-0.5 !important;
+}
+
+/* Checklist items */
+#editorjs .cdx-checklist__item {
+  @apply py-1 text-[14.5px] text-slate-700 leading-normal !important;
+}
+
+#editorjs .cdx-checklist__item-checkbox {
+  @apply text-blue-600 focus:ring-blue-500/50 rounded-md border-slate-300 !important;
+}
+
+#editorjs .cdx-checklist__item-text {
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif !important;
+  @apply text-slate-700 !important;
+}
+
+/* inline code styling in EditorJS elements */
+#editorjs code, 
+#editorjs .inline-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
+  @apply bg-slate-100/80 text-rose-500 px-1.5 py-0.5 rounded-md text-[13px] border border-slate-200/50 font-bold mx-0.5 !important;
+}
+
+/* Warnings and callouts */
+#editorjs .cdx-warning {
+  @apply bg-slate-50 border-l-4 border-blue-500 rounded-r-xl p-3 my-4 shadow-sm !important;
+}
+
+#editorjs .cdx-warning__title {
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif !important;
+  @apply text-[13px] font-extrabold text-blue-600 uppercase tracking-wider mb-1 !important;
+}
+
+#editorjs .cdx-warning__message {
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif !important;
+  @apply text-[13.5px] text-slate-600 leading-relaxed font-medium !important;
+}
+
+/* Editor Placeholder styling */
+#editorjs .codex-editor__redactor {
+  @apply pb-[150px] !important; /* give nice padding at the bottom of the document */
+}
+
+#editorjs .ce-paragraph[data-placeholder]:empty::before,
+#editorjs .ce-header[data-placeholder]:empty::before {
+  @apply text-slate-300 font-medium !important;
 }
  
 @layer base {
