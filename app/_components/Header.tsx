@@ -1,9 +1,12 @@
+"use client"
 
-import { LoginLink, RegisterLink } from '@kinde-oss/kinde-auth-nextjs'
+import { LoginLink, RegisterLink, useKindeBrowserClient } from '@kinde-oss/kinde-auth-nextjs'
 import Image from 'next/image'
 import React from 'react'
 
 function Header() {
+  const { user, isLoading } = useKindeBrowserClient();
+
   return (
     <header className="bg-white/80 backdrop-blur-md sticky top-0 z-50 border-b border-slate-100/80">
       <div className="mx-auto flex h-16 max-w-screen-xl items-center gap-8 px-4 sm:px-6 lg:px-8">
@@ -42,15 +45,30 @@ function Header() {
           </nav>
 
           <div className="flex items-center gap-4">
-            <div className="sm:flex sm:gap-4">
-              <div className="block rounded-md px-5 py-2.5 text-sm font-medium text-slate-600 hover:text-slate-950 transition cursor-pointer">
-                <LoginLink postLoginRedirectURL="/dashboard"> Login</LoginLink>
-              </div>
+            {!isLoading && (
+              user ? (
+                <a 
+                  href="/dashboard" 
+                  className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 text-sm font-semibold transition shadow-sm hover:shadow"
+                >
+                  Go to Dashboard
+                </a>
+              ) : (
+                <div className="sm:flex sm:gap-4">
+                  <div className="block rounded-md px-5 py-2.5 text-sm font-medium text-slate-600 hover:text-slate-950 transition cursor-pointer">
+                    <LoginLink postLoginRedirectURL="/dashboard"> Login</LoginLink>
+                  </div>
 
-              <div className="hidden rounded-xl bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 text-sm font-medium transition shadow-sm hover:shadow md:block">
-                <RegisterLink>Register</RegisterLink>  
-              </div>
-            </div>
+                  <div className="hidden rounded-xl bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 text-sm font-medium transition shadow-sm hover:shadow md:block">
+                    <RegisterLink>Register</RegisterLink>  
+                  </div>
+                </div>
+              )
+            )}
+
+            {isLoading && (
+              <div className="h-10 w-28 bg-slate-100 animate-pulse rounded-xl" />
+            )}
 
             <button
               className="block rounded bg-slate-100 p-2.5 text-slate-600 transition hover:text-slate-900 md:hidden"
