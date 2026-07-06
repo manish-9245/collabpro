@@ -52,6 +52,8 @@ Our core objectives are:
     *   [ ] **WebSocket Gateway Server:** Stand up a high-performance Socket.io or custom Node WebSocket server alongside Next.js to stream differential state updates.
     *   [ ] **Real-time Cursor Stream:** Track and render live floating multiplayer cursor elements with name bubbles across the board at 60fps.
     *   [ ] **Granular Access Control Sharing Modal:** Create the high-fidelity `ShareModal` overlay supporting passwords, link-expiration dates, and editor vs commenter roles.
+    *   [ ] **Drawing Full-Text Search Indexer:** Parse vector text elements inside Excalidraw scene JSON and index them in PostgreSQL to allow search query matching across all team drawings.
+    *   [ ] **Real-time Shared Asset Library:** Enable team members to publish custom drawing elements and `.excalidrawlib` packs to a shared team catalog syncing instantly across devices.
 
 ### 🎯 Milestone 3: Enterprise Administration, Compliance & Visual History
 *   **Target Timeline:** Weeks 6 - 8
@@ -60,6 +62,8 @@ Our core objectives are:
     *   [ ] **Interactive Version History Side-Drawer:** Add a vertical timeline sidebar to the workspace to preview, tag, and restore historical snapshots.
     *   [ ] **Organization Admin Settings:** Build member permission grids, active seats count indicators, and domain locking settings under `/dashboard/settings/admin`.
     *   [ ] **Compliance Audit Logging:** Create database models and hooks to log security-sensitive team actions (e.g., file deleted, link sharing toggled).
+    *   [ ] **PDF Import & Canvas Markup:** Allow uploading PDF files as backdrop nodes on the canvas, enabling freehand highlighting, drafting, and system diagram overlays.
+    *   [ ] **Unified Command Palette:** Implement a global command panel (`Cmd+K` / `Ctrl+K`) that allows keyboard-driven workspace search, quick file navigation, and membership transitions.
     *   [ ] **Docker Compose/Helm Packaging:** Pack the entire stack as a single-click orchestrator for enterprise single-tenant private cloud setups.
 
 ### 🎯 Milestone 4: AI-Native MCP (Model Context Protocol) Server
@@ -69,6 +73,9 @@ Our core objectives are:
     *   [ ] **CollabPro MCP Server Module:** Implement standard JSON-RPC 2.0 transport over Stdio/SSE.
     *   [ ] **File Inspection Tools (`collabpro_list_files`, `collabpro_get_file`):** Let agents read workspace structures and content.
     *   [ ] **Whiteboard & Document Generation Tools (`collabpro_update_whiteboard`, `collabpro_update_document`):** Let AI write complex specifications and sketch database ER or AWS architecture diagrams.
+    *   [ ] **GitHub Diagram PR Action:** Create a GitHub Action that dynamically updates architecture diagram embeds inside Markdown files or PR descriptions when vector canvases are modified.
+    *   [ ] **Animated Presenter Transitions:** Support slide-based viewport frames inside Excalidraw with premium animated slide-to-slide panning camera transitions for professional project pitches.
+
 
 ---
 
