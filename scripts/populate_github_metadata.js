@@ -184,7 +184,7 @@ Design and build a professional, premium-grade ShareModal supporting password pr
 ### Goals
 - Fully customizable sharing scopes.
 - Backed by secure database schema constraints for shared links.
-- Sleek and visual modern interface adhering to GrahakAI style rules.`,
+- Sleek and visual modern interface adhering to CollabPro design systems.`,
                 labels: ["frontend", "security"]
             },
 

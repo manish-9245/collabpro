@@ -60,7 +60,7 @@ function HelpPage() {
               <span>CollabPro Help Center</span>
             </div>
             <h1 className='text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight leading-none'>
-              Master the <span className='text-blue-600 dark:text-blue-400'>GrahakAI CollabPro</span> Suite
+              Master the <span className='text-blue-600 dark:text-blue-400'>CollabPro</span> Suite
             </h1>
             <p className='text-sm text-slate-500 dark:text-zinc-400 max-w-xl leading-relaxed'>
               Everything you need to know about navigating your premium design environment. Learn how to draft, model, and collaborate efficiently.

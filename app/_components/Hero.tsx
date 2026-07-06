@@ -111,7 +111,7 @@ function Hero() {
               <span className="w-3 h-3 rounded-full bg-rose-500/80" />
               <span className="w-3 h-3 rounded-full bg-amber-500/80" />
               <span className="w-3 h-3 rounded-full bg-emerald-500/80" />
-              <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase ml-3 hidden sm:inline-block">GrahakAI CollabPro - Simulated Workspace Sandbox</span>
+              <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase ml-3 hidden sm:inline-block">CollabPro - Simulated Workspace Sandbox</span>
             </div>
             {/* Active Collaborators */}
             <div className="flex items-center gap-1.5">
