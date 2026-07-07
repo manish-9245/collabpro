@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "prisma db push && next start",
     "lint": "next lint",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "resolve-issue": "node scripts/resolve-issue.js"
   },
   "dependencies": {
     "@editorjs/checklist": "^1.6.0",
