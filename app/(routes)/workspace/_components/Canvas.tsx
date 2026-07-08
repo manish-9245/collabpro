@@ -28,6 +28,25 @@ const fetchSVGAsBase64 = async (url: string): Promise<string> => {
     return `data:image/svg+xml;base64,${base64}`;
 };
 
+const dataURLtoFile = (dataurl: string, filename: string): File | null => {
+    try {
+        const arr = dataurl.split(',');
+        const mimeMatch = arr[0].match(/:(.*?);/);
+        if (!mimeMatch) return null;
+        const mime = mimeMatch[1];
+        const bstr = atob(arr[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) {
+            u8arr[n] = bstr.charCodeAt(n);
+        }
+        return new File([u8arr], filename, { type: mime });
+    } catch (e) {
+        console.error("Error converting dataURL to file:", e);
+        return null;
+    }
+};
+
 interface CanvasProps {
     onSaveTrigger: any;
     fileId: any;
@@ -342,6 +361,7 @@ function Canvas({
     );
     const saveTimeoutRef=useRef<NodeJS.Timeout|null>(null);
     const lastSavedDataRef=useRef<string>("");
+    const uploadingFilesRef = useRef<Set<string>>(new Set());
 
     const [activeTab, setActiveTab] = useState<'standard' | 'aws' | 'custom' | 'libraries'>('standard');
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -585,6 +605,58 @@ function Canvas({
         setWhiteBoardData(excalidrawElements);
         
         const filesObj = excalidrawAPI ? excalidrawAPI.getFiles() : {};
+        
+        // Background-upload raw base64 images to backend, replacing them with light relative URLs
+        let hasNewUploads = false;
+        if (excalidrawAPI) {
+            Object.values(filesObj).forEach((file: any) => {
+                if (file.dataURL && file.dataURL.startsWith('data:') && !uploadingFilesRef.current.has(file.id)) {
+                    uploadingFilesRef.current.add(file.id);
+                    hasNewUploads = true;
+                    
+                    // Trigger async upload without blocking standard user interactions or saving
+                    (async () => {
+                        try {
+                            const extension = file.mimeType?.split('/')?.[1] || 'png';
+                            const rawFile = dataURLtoFile(file.dataURL, `canvas_upload_${file.id}.${extension}`);
+                            if (!rawFile) return;
+
+                            const formData = new FormData();
+                            formData.append('file', rawFile);
+
+                            const res = await fetch('/api/upload', {
+                                method: 'POST',
+                                body: formData
+                            });
+                            const result = await res.json();
+                            
+                            if (result.success && result.file?.url) {
+                                // Register the uploaded lightweight URL back in Excalidraw cache
+                                excalidrawAPI.addFiles([{
+                                    ...file,
+                                    dataURL: result.file.url
+                                }]);
+                                
+                                // Explicitly update elements to force a refresh and trigger a save
+                                excalidrawAPI.updateScene({
+                                    elements: excalidrawAPI.getSceneElements()
+                                });
+                            }
+                        } catch (err) {
+                            console.error("[canvas image uploader] upload failed:", err);
+                        } finally {
+                            uploadingFilesRef.current.delete(file.id);
+                        }
+                    })();
+                }
+            });
+        }
+
+        // Avoid auto-saving if we have raw base64 uploads in progress to prevent saving massive base64 strings to DB
+        if (hasNewUploads) {
+            return;
+        }
+
         const stateToSave = {
             elements: excalidrawElements,
             files: filesObj
