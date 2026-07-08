@@ -27,35 +27,61 @@ if (connectionString && connectionString.startsWith('prisma+postgres://')) {
   }
 }
 
-if (globalForPrisma.prisma && globalForPrisma.pool) {
-  console.log("[db.ts] Reusing existing global PrismaClient instance");
-  prismaInstance = globalForPrisma.prisma;
-} else {
-  console.log("[db.ts] Creating a new Pool and PrismaClient...");
-  try {
-    const pool = new Pool({ connectionString });
-    
-    // Handle pool errors to clear stale global instances
-    pool.on('error', (err) => {
-      console.error("[db.ts] Unexpected error on idle client or pool:", err);
-      if (process.env.NODE_ENV !== "production") {
-        console.log("[db.ts] Clearing stale global PrismaClient and Pool instances...");
-        globalForPrisma.prisma = undefined as any;
-        globalForPrisma.pool = undefined as any;
-      }
-    });
+const isPostgres = connectionString && (
+  connectionString.startsWith("postgresql://") ||
+  connectionString.startsWith("postgres://") ||
+  connectionString.startsWith("prisma+postgres://")
+);
 
-    const adapter = new PrismaPg(pool);
-    prismaInstance = new PrismaClient({ adapter });
-    
-    if (process.env.NODE_ENV !== "production") {
-      globalForPrisma.prisma = prismaInstance;
-      globalForPrisma.pool = pool;
+if (isPostgres) {
+  if (globalForPrisma.prisma && globalForPrisma.pool) {
+    console.log("[db.ts] Reusing existing global PostgreSQL PrismaClient instance");
+    prismaInstance = globalForPrisma.prisma;
+  } else {
+    console.log("[db.ts] Creating a new PostgreSQL Pool and PrismaClient...");
+    try {
+      const pool = new Pool({ connectionString });
+      
+      // Handle pool errors to clear stale global instances
+      pool.on('error', (err) => {
+        console.error("[db.ts] Unexpected error on idle client or pool:", err);
+        if (process.env.NODE_ENV !== "production") {
+          console.log("[db.ts] Clearing stale global PrismaClient and Pool instances...");
+          globalForPrisma.prisma = undefined as any;
+          globalForPrisma.pool = undefined as any;
+        }
+      });
+
+      const adapter = new PrismaPg(pool);
+      prismaInstance = new PrismaClient({ adapter });
+      
+      if (process.env.NODE_ENV !== "production") {
+        globalForPrisma.prisma = prismaInstance;
+        globalForPrisma.pool = pool;
+      }
+      console.log("[db.ts] PostgreSQL PrismaClient created successfully");
+    } catch (err) {
+      console.error("[db.ts] Error constructing PostgreSQL PrismaClient with adapter:", err);
+      throw err;
     }
-    console.log("[db.ts] PrismaClient created successfully");
-  } catch (err) {
-    console.error("[db.ts] Error constructing PrismaClient with adapter:", err);
-    throw err;
+  }
+} else {
+  // Database-agnostic fallback (e.g., SQLite, MySQL, CockroachDB, etc.)
+  if (globalForPrisma.prisma) {
+    console.log("[db.ts] Reusing existing global database-agnostic PrismaClient instance");
+    prismaInstance = globalForPrisma.prisma;
+  } else {
+    console.log("[db.ts] Connection string is non-PostgreSQL. Instantiating standard database-agnostic PrismaClient...");
+    try {
+      prismaInstance = new PrismaClient();
+      if (process.env.NODE_ENV !== "production") {
+        globalForPrisma.prisma = prismaInstance;
+      }
+      console.log("[db.ts] Database-agnostic PrismaClient created successfully");
+    } catch (err) {
+      console.error("[db.ts] Error constructing database-agnostic PrismaClient:", err);
+      throw err;
+    }
   }
 }
 
