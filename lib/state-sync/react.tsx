@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from "react";
 
 // Robust helper to extract query path from any reference type (standard or mock)
 const getPath = (ref: any): string | undefined => {
@@ -275,9 +275,82 @@ class StateSyncWSClient {
 
 const wsClient = typeof window !== 'undefined' ? new StateSyncWSClient() : null;
 
+function useAdaptiveInterval(defaultInterval = 4000, backoffInterval = 15000, inactivityTimeout = 60000) {
+  const [intervalTime, setIntervalTime] = useState(defaultInterval);
+  const lastActivityRef = useRef(Date.now());
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+
+    let inactivityTimer: any = null;
+
+    const handleActivity = () => {
+      lastActivityRef.current = Date.now();
+      // If we were backed off, restore immediately
+      setIntervalTime((prev) => {
+        if (prev !== defaultInterval && document.visibilityState === "visible") {
+          return defaultInterval;
+        }
+        return prev;
+      });
+
+      // Reset inactivity check timer
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+      inactivityTimer = setTimeout(checkInactivity, inactivityTimeout);
+    };
+
+    const checkInactivity = () => {
+      const elapsed = Date.now() - lastActivityRef.current;
+      if (elapsed >= inactivityTimeout) {
+        setIntervalTime(backoffInterval);
+      } else {
+        // Schedule next check for remaining time
+        const remaining = inactivityTimeout - elapsed;
+        inactivityTimer = setTimeout(checkInactivity, remaining);
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        setIntervalTime(backoffInterval);
+      } else {
+        // Check if they are active before resetting to default
+        const elapsed = Date.now() - lastActivityRef.current;
+        if (elapsed < inactivityTimeout) {
+          setIntervalTime(defaultInterval);
+        } else {
+          setIntervalTime(backoffInterval);
+        }
+      }
+    };
+
+    // Listen to standard activity events
+    const activityEvents = ["mousemove", "keydown", "mousedown", "scroll", "click", "touchstart"];
+    activityEvents.forEach((event) => {
+      window.addEventListener(event, handleActivity, { passive: true });
+    });
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    // Initial inactivity scheduling
+    inactivityTimer = setTimeout(checkInactivity, inactivityTimeout);
+
+    return () => {
+      activityEvents.forEach((event) => {
+        window.removeEventListener(event, handleActivity);
+      });
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+    };
+  }, [defaultInterval, backoffInterval, inactivityTimeout]);
+
+  return intervalTime;
+}
+
 export function useQuery(queryReference: any, args?: any) {
   const queryPath = getPath(queryReference);
   const argsString = JSON.stringify(args || {});
+  const intervalTime = useAdaptiveInterval(4000, 15000, 60000);
 
   const [data, setData] = useState<any>(() => {
     if (!queryPath) return undefined;
@@ -299,6 +372,7 @@ export function useQuery(queryReference: any, args?: any) {
 
     const cacheKey = `${queryPath}:${argsString}`;
     let active = true;
+    let timerId: any = null;
 
     async function fetchData() {
       try {
@@ -331,15 +405,22 @@ export function useQuery(queryReference: any, args?: any) {
         unsubscribe();
       };
     } else {
+      // Setup dynamic interval polling via self-scheduling setTimeout loops
+      const poll = async () => {
+        if (!active) return;
+        await fetchData();
+        timerId = setTimeout(poll, intervalTime);
+      };
+
       fetchData();
-      const interval = setInterval(fetchData, 4000);
+      timerId = setTimeout(poll, intervalTime);
 
       return () => {
         active = false;
-        clearInterval(interval);
+        if (timerId) clearTimeout(timerId);
       };
     }
-  }, [queryPath, argsString, wsStatus]);
+  }, [queryPath, argsString, wsStatus, intervalTime]);
 
   return data;
 }
