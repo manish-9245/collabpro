@@ -83,6 +83,10 @@ function WorkspaceHeader({
 
   // Fetch previous checkpoints
   const versions = useQuery(api.files.getVersions, fileData?._id ? { fileId: fileData._id } : 'skip' as any) || []
+  const activeCollaborators = useQuery(
+    api.files.getActiveCollaborators,
+    fileData?._id ? { fileId: fileData._id, currentUserEmail: user?.email } : 'skip' as any
+  ) || []
 
   // Sync state with fileData when it loads or changes
   useEffect(() => {
@@ -320,6 +324,24 @@ function WorkspaceHeader({
     }
   }
 
+  const getInitials = (name: string, email: string) => {
+    const source = (name || email || 'C').trim()
+    const parts = source.split(/\s+/).filter(Boolean)
+    if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase()
+    if (parts[0].includes('@')) {
+      const emailName = parts[0].split('@')[0]
+      return emailName.slice(0, 2).toUpperCase()
+    }
+    return parts[0].slice(0, 2).toUpperCase()
+  }
+
+  const getStatusTone = (status: string) => {
+    const lower = status.toLowerCase()
+    if (lower.includes('canvas') || lower.includes('design')) return 'bg-violet-500'
+    if (lower.includes('document') || lower.includes('edit')) return 'bg-blue-500'
+    return 'bg-emerald-500'
+  }
+
   return (
     <div className='p-3 border-b flex justify-between items-center bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm gap-2 h-14 shrink-0'>
       {/* Left section */}
@@ -456,6 +478,46 @@ function WorkspaceHeader({
       
       {/* Right side buttons */}
       <div className='flex items-center gap-2 shrink-0 flex-1 justify-end'>
+        {/* Live Collaborator Presence Pile */}
+        <div className='flex items-center gap-2 mr-1'>
+          {activeCollaborators.length === 0 ? (
+            <span className='hidden lg:inline-flex text-[11px] font-medium text-slate-500 dark:text-slate-400 px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700'>
+              Just you
+            </span>
+          ) : (
+            <div className='flex items-center'>
+              <div className='flex items-center transition-all duration-300 ease-out'>
+                {activeCollaborators.slice(0, 3).map((collaborator: any, index: number) => (
+                  <div
+                    key={collaborator._id}
+                    className={`group relative h-8 w-8 rounded-full border-2 border-white dark:border-slate-900 shadow-md transition-all duration-300 hover:z-20 hover:scale-110 ${index !== 0 ? '-ml-2.5' : ''}`}
+                    style={{ backgroundColor: collaborator.userColor || '#6366f1' }}
+                  >
+                    {collaborator.userImage ? (
+                      <img src={collaborator.userImage} alt={collaborator.userName} className='h-full w-full rounded-full object-cover' />
+                    ) : (
+                      <div className='h-full w-full rounded-full flex items-center justify-center text-[10px] font-bold text-white uppercase tracking-wide'>
+                        {getInitials(collaborator.userName, collaborator.userEmail)}
+                      </div>
+                    )}
+                    <div className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border border-white dark:border-slate-900 ${getStatusTone(collaborator.workspaceStatus || '')}`} />
+
+                    <div className='pointer-events-none absolute top-10 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-lg border border-slate-200 dark:border-slate-700 bg-white/95 dark:bg-slate-900/95 px-2.5 py-1.5 shadow-xl opacity-0 group-hover:opacity-100 group-hover:translate-y-0 translate-y-1 transition-all duration-200'>
+                      <p className='text-[11px] font-semibold text-slate-800 dark:text-slate-100'>{collaborator.userName || collaborator.userEmail}</p>
+                      <p className='text-[10px] text-slate-500 dark:text-slate-400'>{collaborator.workspaceStatus || 'Active in workspace'}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {activeCollaborators.length > 3 && (
+                <div className='ml-1.5 px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-[10px] font-bold text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition-all duration-300'>
+                  +{activeCollaborators.length - 3}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Dynamic Realtime Saving Status Indicator */}
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-200/80 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs font-semibold shadow-inner min-w-[125px] justify-center transition-all duration-300">
           {savingStatus === 'saving' ? (

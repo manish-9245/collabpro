@@ -688,6 +688,9 @@ export async function POST(request: Request) {
         await prisma.fileVersion.deleteMany({
           where: { fileId: _id },
         });
+        await prisma.filePresence.deleteMany({
+          where: { fileId: _id },
+        });
         // Delete the file
         result = await prisma.file.delete({
           where: { id: _id },
@@ -756,6 +759,130 @@ export async function POST(request: Request) {
         result = await prisma.fileVersion.update({
           where: { id: versionId },
           data: { note },
+        });
+        break;
+      }
+      case 'sharedLibrary:getItems': {
+        const { teamId } = args || {};
+        if (!teamId) {
+          result = [];
+          break;
+        }
+        result = await prisma.sharedLibraryItem.findMany({
+          where: { teamId },
+          orderBy: { updatedAt: 'desc' },
+        });
+        break;
+      }
+      case 'sharedLibrary:upsertItem': {
+        const { id, teamId, name, description, sourceUrl, author, payload } = args || {};
+        if (!teamId) {
+          throw new Error("teamId is required.");
+        }
+        if (!name || typeof name !== "string") {
+          throw new Error("name is required.");
+        }
+        if (!payload || typeof payload !== "string") {
+          throw new Error("payload is required.");
+        }
+
+        const normalizedName = name.trim();
+        if (!normalizedName) {
+          throw new Error("name is required.");
+        }
+
+        let existing = null;
+        if (id) {
+          existing = await prisma.sharedLibraryItem.findFirst({
+            where: { id, teamId },
+          });
+        }
+        if (!existing) {
+          existing = await prisma.sharedLibraryItem.findFirst({
+            where: { teamId, name: normalizedName },
+          });
+        }
+
+        if (existing) {
+          result = await prisma.sharedLibraryItem.update({
+            where: { id: existing.id },
+            data: {
+              name: normalizedName,
+              description: description || "",
+              sourceUrl: sourceUrl || "",
+              author: author || "",
+              payload,
+            },
+          });
+        } else {
+          result = await prisma.sharedLibraryItem.create({
+            data: {
+              teamId,
+              name: normalizedName,
+              description: description || "",
+              sourceUrl: sourceUrl || "",
+              author: author || "",
+              payload,
+            },
+          });
+        }
+        break;
+      }
+      case 'files:upsertPresence': {
+        const { fileId, userEmail, userName, userImage, userColor, workspaceStatus } = args || {};
+        if (!fileId || !userEmail) {
+          throw new Error("fileId and userEmail are required for presence updates");
+        }
+        result = await prisma.filePresence.upsert({
+          where: {
+            fileId_userEmail: {
+              fileId,
+              userEmail,
+            },
+          },
+          create: {
+            fileId,
+            userEmail,
+            userName: userName || userEmail.split('@')[0] || "Collaborator",
+            userImage: userImage || "",
+            userColor: userColor || "#6366f1",
+            workspaceStatus: workspaceStatus || "Viewing workspace",
+          },
+          update: {
+            userName: userName || userEmail.split('@')[0] || "Collaborator",
+            userImage: userImage || "",
+            userColor: userColor || "#6366f1",
+            workspaceStatus: workspaceStatus || "Viewing workspace",
+            lastSeenAt: new Date(),
+          },
+        });
+        break;
+      }
+      case 'files:clearPresence': {
+        const { fileId, userEmail } = args || {};
+        if (!fileId || !userEmail) {
+          result = { success: false };
+          break;
+        }
+        result = await prisma.filePresence.deleteMany({
+          where: { fileId, userEmail },
+        });
+        break;
+      }
+      case 'files:getActiveCollaborators': {
+        const { fileId, currentUserEmail } = args || {};
+        if (!fileId) {
+          result = [];
+          break;
+        }
+        const activeSince = new Date(Date.now() - 15_000);
+        result = await prisma.filePresence.findMany({
+          where: {
+            fileId,
+            lastSeenAt: { gte: activeSince },
+            ...(currentUserEmail ? { userEmail: { not: currentUserEmail } } : {}),
+          },
+          orderBy: { lastSeenAt: 'desc' },
         });
         break;
       }

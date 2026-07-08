@@ -61,6 +61,196 @@ export function StateSyncProvider({
 // Global cache to share active query results and prevent infinite re-fetches
 const queryCache = new Map<string, any>();
 
+class StateSyncWSClient {
+  private ws: WebSocket | null = null;
+  private subscribers = new Map<string, Set<(data: any) => void>>();
+  private statusListeners = new Set<(status: 'connecting' | 'connected' | 'disconnected') => void>();
+  private reconnectTimeout: any = null;
+  private reconnectDelay = 1000;
+  private maxReconnectDelay = 30000;
+  private activeRoom: string | null = null;
+  private connectionStatus: 'connecting' | 'connected' | 'disconnected' = 'disconnected';
+
+  constructor() {
+    if (typeof window !== 'undefined') {
+      const match = window.location.pathname.match(/\/workspace\/([^/]+)/);
+      if (match && match[1]) {
+        this.activeRoom = match[1];
+        this.connect();
+      }
+    }
+  }
+
+  public getStatus() {
+    return this.connectionStatus;
+  }
+
+  public addStatusListener(listener: (status: any) => void) {
+    this.statusListeners.add(listener);
+    listener(this.connectionStatus);
+    return () => {
+      this.statusListeners.delete(listener);
+    };
+  }
+
+  private setStatus(status: 'connecting' | 'connected' | 'disconnected') {
+    this.connectionStatus = status;
+    this.statusListeners.forEach(l => l(status));
+  }
+
+  private getWsUrl() {
+    if (process.env.NEXT_PUBLIC_WS_URL) return process.env.NEXT_PUBLIC_WS_URL;
+    if (typeof window === 'undefined') return '';
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const hostname = window.location.hostname;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return `${protocol}//localhost:3001`;
+    }
+    return `${protocol}//ws-${hostname}`;
+  }
+
+  public connect() {
+    if (typeof window === 'undefined' || this.ws) return;
+
+    this.setStatus('connecting');
+    const url = this.getWsUrl();
+    console.log(`[GrahakAI WS CLIENT] Connecting to ${url}...`);
+
+    try {
+      this.ws = new WebSocket(url);
+
+      this.ws.onopen = () => {
+        console.log('[GrahakAI WS CLIENT] Connection established successfully!');
+        this.setStatus('connected');
+        this.reconnectDelay = 1000;
+
+        if (this.activeRoom) {
+          this.ws?.send(JSON.stringify({ type: 'join', fileId: this.activeRoom }));
+        }
+
+        this.subscribers.forEach((_, key) => {
+          const [path, argsStr] = key.split(/:(.+)/);
+          const args = JSON.parse(argsStr || '{}');
+          this.ws?.send(JSON.stringify({ type: 'subscribe', path, args }));
+        });
+      };
+
+      this.ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'query-update') {
+            const cacheKey = `${msg.path}:${JSON.stringify(msg.args || {})}`;
+            queryCache.set(cacheKey, msg.data);
+            const listeners = this.subscribers.get(cacheKey);
+            if (listeners) {
+              listeners.forEach(cb => cb(msg.data));
+            }
+          }
+        } catch (err) {
+          console.error('[GrahakAI WS CLIENT] Failed to parse socket message:', err);
+        }
+      };
+
+      this.ws.onclose = () => {
+        console.warn('[GrahakAI WS CLIENT] Connection closed.');
+        this.cleanup();
+        this.scheduleReconnect();
+      };
+
+      this.ws.onerror = (err) => {
+        console.error('[GrahakAI WS CLIENT] Socket error:', err);
+        this.cleanup();
+      };
+    } catch (err) {
+      console.error('[GrahakAI WS CLIENT] Connection initiation failed:', err);
+      this.scheduleReconnect();
+    }
+  }
+
+  private cleanup() {
+    this.ws = null;
+    this.setStatus('disconnected');
+  }
+
+  private scheduleReconnect() {
+    if (this.reconnectTimeout) return;
+    console.log(`[GrahakAI WS CLIENT] Scheduling reconnection in ${this.reconnectDelay}ms`);
+    this.reconnectTimeout = setTimeout(() => {
+      this.reconnectTimeout = null;
+      this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
+      this.connect();
+    }, this.reconnectDelay);
+  }
+
+  public subscribe(path: string, args: any, callback: (data: any) => void) {
+    const cacheKey = `${path}:${JSON.stringify(args || {})}`;
+    if (!this.subscribers.has(cacheKey)) {
+      this.subscribers.set(cacheKey, new Set());
+    }
+    this.subscribers.get(cacheKey)!.add(callback);
+
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'subscribe', path, args }));
+    }
+
+    return () => {
+      const listeners = this.subscribers.get(cacheKey);
+      if (listeners) {
+        listeners.delete(callback);
+        if (listeners.size === 0) {
+          this.subscribers.delete(cacheKey);
+          if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({ type: 'unsubscribe', path, args }));
+          }
+        }
+      }
+    };
+  }
+
+  public async mutation(path: string, args: any, fileId?: string): Promise<any> {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      return new Promise((resolve, reject) => {
+        const handler = (event: MessageEvent) => {
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === 'mutation-result' && msg.path === path) {
+              this.ws?.removeEventListener('message', handler);
+              if (msg.success) {
+                resolve(msg.data);
+              } else {
+                reject(new Error(msg.error || 'Mutation failed over WebSocket'));
+              }
+            }
+          } catch {}
+        };
+        this.ws!.addEventListener('message', handler);
+        this.ws!.send(JSON.stringify({ type: 'mutation', path, args, fileId }));
+
+        setTimeout(() => {
+          this.ws?.removeEventListener('message', handler);
+          reject(new Error('Mutation request timed out over WebSocket'));
+        }, 10000);
+      });
+    }
+
+    const res = await fetch("/api/state-sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path, args }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Mutation failed: ${errText}`);
+    }
+
+    const json = await res.json();
+    return json.data;
+  }
+}
+
+const wsClient = typeof window !== 'undefined' ? new StateSyncWSClient() : null;
+
 export function useQuery(queryReference: any, args?: any) {
   const queryPath = getPath(queryReference);
   const argsString = JSON.stringify(args || {});
@@ -71,11 +261,20 @@ export function useQuery(queryReference: any, args?: any) {
     return queryCache.get(cacheKey);
   });
 
+  const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'disconnected'>(() => {
+    return wsClient ? wsClient.getStatus() : 'disconnected';
+  });
+
+  useEffect(() => {
+    if (!wsClient) return;
+    return wsClient.addStatusListener(setWsStatus);
+  }, []);
+
   useEffect(() => {
     if (!queryPath) return;
 
-    let active = true;
     const cacheKey = `${queryPath}:${argsString}`;
+    let active = true;
 
     async function fetchData() {
       try {
@@ -96,16 +295,27 @@ export function useQuery(queryReference: any, args?: any) {
       }
     }
 
-    fetchData();
+    if (wsClient && wsStatus === 'connected') {
+      const unsubscribe = wsClient.subscribe(queryPath, args, (updatedData) => {
+        if (active) {
+          setData(updatedData);
+        }
+      });
 
-    // Poll for changes (since we don't have standard websockets for state sync here)
-    const interval = setInterval(fetchData, 4000);
+      return () => {
+        active = false;
+        unsubscribe();
+      };
+    } else {
+      fetchData();
+      const interval = setInterval(fetchData, 4000);
 
-    return () => {
-      active = false;
-      clearInterval(interval);
-    };
-  }, [queryPath, argsString]);
+      return () => {
+        active = false;
+        clearInterval(interval);
+      };
+    }
+  }, [queryPath, argsString, wsStatus]);
 
   return data;
 }
@@ -114,6 +324,16 @@ export function useMutation(mutationReference: any) {
   return async (args?: any) => {
     const mutationPath = getPath(mutationReference);
     if (!mutationPath) throw new Error("Invalid mutation reference passed to useMutation");
+
+    const fileId = args?._id || args?.fileId;
+
+    if (wsClient && wsClient.getStatus() === 'connected') {
+      try {
+        return await wsClient.mutation(mutationPath, args, fileId);
+      } catch (err) {
+        console.warn("[GrahakAI WS] Mutation via WS failed, falling back to HTTP:", err);
+      }
+    }
 
     const res = await fetch("/api/state-sync", {
       method: "POST",
