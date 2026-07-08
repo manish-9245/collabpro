@@ -16,6 +16,7 @@ import ImageTool from '@editorjs/image';
 import { api, useMutation } from '@/lib/state-sync/react';
 import { toast } from 'sonner';
 import { FILE } from '../../dashboard/_components/FileList';
+import { encodeCrdtState, decodeCrdtState } from '@/lib/crdt';
 
 const rawDocument={
     "time" : 1550476186479,
@@ -94,21 +95,20 @@ function Editor({
         if (!ref.current || !fileData?.document) return;
         
         try {
-            const serverDoc = JSON.parse(fileData.document);
-            const serverStr = JSON.stringify(serverDoc);
-            
-            // If server data matches what we last saved/rendered, do nothing (prevents feedback loop)
-            if (serverStr === lastSavedDataRef.current) {
+            // Check if server's CRDT update string matches what we last saved
+            if (fileData.document === lastSavedDataRef.current) {
                 return;
             }
+            
+            const serverDoc = decodeCrdtState(fileData.document, rawDocument);
             
             // Only overwrite if we are not currently typing or waiting on a debounced save
             if (saveTimeoutRef.current === null && !saveTimeoutRef.current) {
                 ref.current.render(serverDoc);
-                lastSavedDataRef.current = serverStr;
+                lastSavedDataRef.current = fileData.document;
                 
                 // Initialize/reset history stack to match this new server state
-                historyRef.current = [serverStr];
+                historyRef.current = [fileData.document];
                 historyIndexRef.current = 0;
                 if (onHistoryChange && activePanel === 'document') {
                     onHistoryChange(false, false);
@@ -168,7 +168,7 @@ function Editor({
             
             if (ref.current) {
                 ref.current.render(prevState);
-                lastSavedDataRef.current = prevStateStr;
+                lastSavedDataRef.current = encodeCrdtState(prevState);
                 if (onHistoryChange) {
                     onHistoryChange(historyIndexRef.current > 0, true);
                 }
@@ -187,7 +187,7 @@ function Editor({
             
             if (ref.current) {
                 ref.current.render(nextState);
-                lastSavedDataRef.current = nextStateStr;
+                lastSavedDataRef.current = encodeCrdtState(nextState);
                 if (onHistoryChange) {
                     onHistoryChange(true, historyIndexRef.current < historyRef.current.length - 1);
                 }
@@ -200,9 +200,11 @@ function Editor({
 
     const saveHistoryStateToDb = (stateStr: string) => {
         setSavingStatus('saving');
+        const crdtStr = encodeCrdtState(JSON.parse(stateStr));
+        lastSavedDataRef.current = crdtStr;
         updateDocument({
             _id: fileId,
-            document: stateStr
+            document: crdtStr
         }).then(() => {
             setSavingStatus('saved');
             setTimeout(() => setSavingStatus('idle'), 1000);
@@ -212,8 +214,10 @@ function Editor({
     };
 
     const initEditor=()=>{
-        const initialDocStr = fileData?.document || JSON.stringify(rawDocument);
-        lastSavedDataRef.current = initialDocStr;
+        const decodedDoc = fileData?.document ? decodeCrdtState(fileData.document, rawDocument) : rawDocument;
+        const initialDocStr = JSON.stringify(decodedDoc);
+        
+        lastSavedDataRef.current = fileData?.document || encodeCrdtState(decodedDoc);
         
         // Setup initial history
         historyRef.current = [initialDocStr];
@@ -256,7 +260,7 @@ function Editor({
             },
            
             holder: 'editorjs',
-            data: fileData?.document ? JSON.parse(fileData.document) : rawDocument,
+            data: decodedDoc,
             
             onChange: () => {
                 setSavingStatus('saving');
@@ -275,17 +279,18 @@ function Editor({
       {
         setSavingStatus('saving');
         ref.current.save().then((outputData) => {
-          const docStr = JSON.stringify(outputData);
-          lastSavedDataRef.current = docStr;
+          const rawDocStr = JSON.stringify(outputData);
+          const crdtStr = encodeCrdtState(outputData);
+          lastSavedDataRef.current = crdtStr;
 
-          // Maintain the undo/redo history stack
+          // Maintain the undo/redo history stack (stores raw standard JSON string)
           if (historyIndexRef.current < historyRef.current.length - 1) {
               // Truncate any forward history if editing from an undone state
               historyRef.current = historyRef.current.slice(0, historyIndexRef.current + 1);
           }
           
-          if (historyRef.current[historyIndexRef.current] !== docStr) {
-              historyRef.current.push(docStr);
+          if (historyRef.current[historyIndexRef.current] !== rawDocStr) {
+              historyRef.current.push(rawDocStr);
               // Max stack of 50
               if (historyRef.current.length > 50) historyRef.current.shift();
               historyIndexRef.current = historyRef.current.length - 1;
@@ -296,7 +301,7 @@ function Editor({
 
           updateDocument({
             _id:fileId,
-            document:docStr
+            document:crdtStr
           }).then(resp=>{
               setSavingStatus('saved');
               setTimeout(() => setSavingStatus('idle'), 2000);

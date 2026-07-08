@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react'
 import { Excalidraw, MainMenu, WelcomeScreen } from "@excalidraw/excalidraw";
 import { FILE } from '../../dashboard/_components/FileList';
 import { api, useMutation } from '@/lib/state-sync/react';
+import { encodeCrdtState, decodeCrdtState } from '@/lib/crdt';
 import { Sparkles, Cloud, Search, Loader2, ChevronLeft, ChevronRight, Plus, Trash2, Upload, BookOpen, Link, Check, Download, Info, Globe } from 'lucide-react';
 import { toast } from 'sonner';
 import { AWS_ICONS } from './aws_icons_list';
@@ -505,20 +506,19 @@ function Canvas({
         if (!excalidrawAPI || !fileData?.whiteboard) return;
         
         try {
-            const serverElements = JSON.parse(fileData.whiteboard);
-            const serverStr = JSON.stringify(serverElements);
-            
             // If server data matches what we last saved/rendered, do nothing (feedback loop protection)
-            if (serverStr === lastSavedDataRef.current) {
+            if (fileData.whiteboard === lastSavedDataRef.current) {
                 return;
             }
+            
+            const serverElements = decodeCrdtState(fileData.whiteboard, []);
             
             // Only overwrite if we are not currently drawing/saving (idle)
             if (saveTimeoutRef.current === null && !saveTimeoutRef.current) {
                 excalidrawAPI.updateScene({
                     elements: serverElements
                 });
-                lastSavedDataRef.current = serverStr;
+                lastSavedDataRef.current = fileData.whiteboard;
             }
         } catch (e) {
             console.error("Error updating canvas from realtime sync:", e);
@@ -545,9 +545,11 @@ function Canvas({
 
     const saveWhiteboard=()=>{
         setSavingStatus('saving');
+        const crdtStr = encodeCrdtState(whiteBoardData);
+        lastSavedDataRef.current = crdtStr;
         updateWhiteboard({
             _id:fileId,
-            whiteboard:JSON.stringify(whiteBoardData)
+            whiteboard:crdtStr
         }).then(resp=>{
             setSavingStatus('saved');
             setTimeout(() => setSavingStatus('idle'), 2000);
@@ -559,9 +561,9 @@ function Canvas({
     const handleCanvasChange = (excalidrawElements: any) => {
         setWhiteBoardData(excalidrawElements);
         
-        const currentDataStr = JSON.stringify(excalidrawElements);
+        const currentCrdtStr = encodeCrdtState(excalidrawElements);
         // Avoid auto-saving if elements didn't change (e.g. on simple pan/zoom view changes)
-        if (currentDataStr === lastSavedDataRef.current || !excalidrawElements || excalidrawElements.length === 0) {
+        if (currentCrdtStr === lastSavedDataRef.current || !excalidrawElements || excalidrawElements.length === 0) {
             return;
         }
 
@@ -570,9 +572,9 @@ function Canvas({
         saveTimeoutRef.current = setTimeout(() => {
             updateWhiteboard({
                 _id: fileId,
-                whiteboard: currentDataStr
+                whiteboard: currentCrdtStr
             }).then(() => {
-                lastSavedDataRef.current = currentDataStr;
+                lastSavedDataRef.current = currentCrdtStr;
                 setSavingStatus('saved');
                 setTimeout(() => setSavingStatus('idle'), 2000);
                 saveTimeoutRef.current = null;
@@ -1144,7 +1146,7 @@ function Canvas({
             theme="light"
             excalidrawAPI={(api) => setExcalidrawAPI(api)}
             initialData={{
-                elements: fileData?.whiteboard && JSON.parse(fileData?.whiteboard)
+                elements: fileData?.whiteboard ? decodeCrdtState(fileData.whiteboard, []) : []
             }}
             onChange={handleCanvasChange}
             UIOptions={{
