@@ -26,6 +26,92 @@ function mapConvexIds(obj: any): any {
   return obj;
 }
 
+type ConflictStrategy = 'reject' | 'merge' | 'overwrite';
+
+function asJsonString(value: unknown): string {
+  return JSON.stringify(value);
+}
+
+function parseJsonIfString(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function asEditorDocument(value: unknown): Record<string, any> {
+  const parsed = parseJsonIfString(value);
+  if (parsed && typeof parsed === 'object' && Array.isArray((parsed as any).blocks)) {
+    return parsed as Record<string, any>;
+  }
+
+  if (typeof parsed === 'string') {
+    const text = parsed.trim();
+    return {
+      time: Date.now(),
+      version: "2.8.1",
+      blocks: text ? [
+        {
+          id: crypto.randomUUID(),
+          type: 'paragraph',
+          data: { text }
+        }
+      ] : []
+    };
+  }
+
+  throw new Error("Invalid document payload. Expected Editor.js JSON or string content.");
+}
+
+function asWhiteboardElements(value: unknown): any[] {
+  const parsed = parseJsonIfString(value);
+  if (Array.isArray(parsed)) return parsed;
+  if (parsed && typeof parsed === 'object' && Array.isArray((parsed as any).elements)) {
+    return (parsed as any).elements;
+  }
+  throw new Error("Invalid whiteboard payload. Expected Excalidraw elements array or { elements }.");
+}
+
+function mergeDocumentBlocks(currentDoc: Record<string, any>, incomingDoc: Record<string, any>): Record<string, any> {
+  const currentBlocks = Array.isArray(currentDoc.blocks) ? currentDoc.blocks : [];
+  const incomingBlocks = Array.isArray(incomingDoc.blocks) ? incomingDoc.blocks : [];
+  return {
+    ...currentDoc,
+    ...incomingDoc,
+    time: Date.now(),
+    version: incomingDoc.version || currentDoc.version || "2.8.1",
+    blocks: [
+      ...currentBlocks,
+      ...incomingBlocks.map((block: any) =>
+        block && typeof block === 'object' && block.id ? block : { ...block, id: crypto.randomUUID() }
+      )
+    ]
+  };
+}
+
+function mergeWhiteboardById(currentElements: any[], incomingElements: any[]): any[] {
+  const merged = new Map<string, any>();
+  const ordered: any[] = [];
+
+  for (const element of currentElements) {
+    if (!element || typeof element !== 'object') continue;
+    const key = typeof element.id === 'string' && element.id.length > 0 ? element.id : crypto.randomUUID();
+    if (!merged.has(key)) ordered.push(key);
+    merged.set(key, element);
+  }
+
+  for (const element of incomingElements) {
+    if (!element || typeof element !== 'object') continue;
+    const key = typeof element.id === 'string' && element.id.length > 0 ? element.id : crypto.randomUUID();
+    if (!merged.has(key)) ordered.push(key);
+    merged.set(key, element);
+  }
+
+  return ordered.map((key) => merged.get(key)).filter(Boolean);
+}
+
 export async function POST(request: Request) {
   try {
     const { path, args } = await request.json();
@@ -418,6 +504,158 @@ export async function POST(request: Request) {
           where: { id: _id },
           data: { whiteboard },
         });
+        break;
+      }
+      case 'collabpro_update_document': {
+        const {
+          _id,
+          fileId,
+          document,
+          baseDocument,
+          conflictStrategy = 'merge',
+          append = false
+        } = args || {};
+        const targetFileId = _id || fileId;
+        if (!targetFileId) {
+          throw new Error("Missing file id. Pass `_id` or `fileId`.");
+        }
+        if (document === undefined || document === null) {
+          throw new Error("Missing `document` payload.");
+        }
+
+        const strategy: ConflictStrategy = ['reject', 'merge', 'overwrite'].includes(conflictStrategy) ? conflictStrategy : 'merge';
+        const hasBase = baseDocument !== undefined;
+        const normalizedIncomingDoc = asEditorDocument(document);
+        const incomingDocString = asJsonString(normalizedIncomingDoc);
+        const normalizedBaseString = hasBase ? asJsonString(asEditorDocument(baseDocument)) : undefined;
+
+        let attempts = 0;
+        while (attempts < 3) {
+          attempts += 1;
+          const file = await prisma.file.findUnique({
+            where: { id: targetFileId },
+            select: { id: true, document: true }
+          });
+
+          if (!file) {
+            throw new Error("File not found");
+          }
+
+          const currentDocString = file.document || asJsonString({ time: Date.now(), blocks: [], version: "2.8.1" });
+          const conflictDetected = normalizedBaseString !== undefined && currentDocString !== normalizedBaseString;
+          if (conflictDetected && strategy === 'reject') {
+            result = {
+              updated: false,
+              conflict: true,
+              tool: 'collabpro_update_document',
+              resolution: 'rejected',
+              currentDocument: parseJsonIfString(currentDocString)
+            };
+            break;
+          }
+
+          const currentDoc = asEditorDocument(currentDocString);
+          const nextDoc = append || (conflictDetected && strategy === 'merge')
+            ? mergeDocumentBlocks(currentDoc, normalizedIncomingDoc)
+            : normalizedIncomingDoc;
+          const nextDocString = asJsonString(nextDoc);
+
+          const updated = await prisma.file.updateMany({
+            where: { id: targetFileId, document: currentDocString },
+            data: { document: nextDocString }
+          });
+
+          if (updated.count === 1) {
+            result = {
+              updated: true,
+              conflict: conflictDetected,
+              tool: 'collabpro_update_document',
+              resolution: conflictDetected ? (strategy === 'merge' ? 'merged' : 'overwritten') : (append ? 'appended' : 'updated'),
+              document: nextDoc
+            };
+            break;
+          }
+        }
+
+        if (!result) {
+          throw new Error("Unable to update document due to concurrent updates. Please retry.");
+        }
+        break;
+      }
+      case 'collabpro_update_whiteboard': {
+        const {
+          _id,
+          fileId,
+          whiteboard,
+          baseWhiteboard,
+          conflictStrategy = 'merge',
+          merge = true
+        } = args || {};
+        const targetFileId = _id || fileId;
+        if (!targetFileId) {
+          throw new Error("Missing file id. Pass `_id` or `fileId`.");
+        }
+        if (whiteboard === undefined || whiteboard === null) {
+          throw new Error("Missing `whiteboard` payload.");
+        }
+
+        const strategy: ConflictStrategy = ['reject', 'merge', 'overwrite'].includes(conflictStrategy) ? conflictStrategy : 'merge';
+        const hasBase = baseWhiteboard !== undefined;
+        const normalizedIncomingElements = asWhiteboardElements(whiteboard);
+        const incomingWhiteboardString = asJsonString(normalizedIncomingElements);
+        const normalizedBaseString = hasBase ? asJsonString(asWhiteboardElements(baseWhiteboard)) : undefined;
+
+        let attempts = 0;
+        while (attempts < 3) {
+          attempts += 1;
+          const file = await prisma.file.findUnique({
+            where: { id: targetFileId },
+            select: { id: true, whiteboard: true }
+          });
+
+          if (!file) {
+            throw new Error("File not found");
+          }
+
+          const currentWhiteboardString = file.whiteboard || '[]';
+          const conflictDetected = normalizedBaseString !== undefined && currentWhiteboardString !== normalizedBaseString;
+          if (conflictDetected && strategy === 'reject') {
+            result = {
+              updated: false,
+              conflict: true,
+              tool: 'collabpro_update_whiteboard',
+              resolution: 'rejected',
+              currentWhiteboard: parseJsonIfString(currentWhiteboardString)
+            };
+            break;
+          }
+
+          const currentElements = asWhiteboardElements(currentWhiteboardString);
+          const nextElements = merge || (conflictDetected && strategy === 'merge')
+            ? mergeWhiteboardById(currentElements, normalizedIncomingElements)
+            : normalizedIncomingElements;
+          const nextWhiteboardString = asJsonString(nextElements);
+
+          const updated = await prisma.file.updateMany({
+            where: { id: targetFileId, whiteboard: currentWhiteboardString },
+            data: { whiteboard: nextWhiteboardString }
+          });
+
+          if (updated.count === 1) {
+            result = {
+              updated: true,
+              conflict: conflictDetected,
+              tool: 'collabpro_update_whiteboard',
+              resolution: conflictDetected ? (strategy === 'merge' ? 'merged' : 'overwritten') : (merge ? 'merged' : 'updated'),
+              whiteboard: nextElements
+            };
+            break;
+          }
+        }
+
+        if (!result) {
+          throw new Error("Unable to update whiteboard due to concurrent updates. Please retry.");
+        }
         break;
       }
       case 'files:updateFileName': {
