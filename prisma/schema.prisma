@@ -99,3 +99,16 @@ model Notification {
   createdAt  DateTime @default(now())
 }
 
+model SharedLibraryItem {
+  id          String   @id @default(uuid())
+  teamId      String
+  name        String
+  description String   @default("")
+  sourceUrl   String   @default("")
+  author      String   @default("")
+  payload     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([teamId, updatedAt])
+}
