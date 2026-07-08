@@ -110,6 +110,30 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
           break;
         }
 
+        case 'cursor': {
+          const { fileId, x, y, name, color, isCanvas } = message;
+          if (fileId) {
+            const broadcastPayload = JSON.stringify({
+              type: 'cursor-update',
+              fileId,
+              email: user.email,
+              name: name || user.name || user.email.split('@')[0],
+              color: color || '#2563eb',
+              x,
+              y,
+              isCanvas: !!isCanvas,
+              updatedAt: Date.now()
+            });
+
+            activeConnections.forEach((conn) => {
+              if (conn !== connection && conn.joinedRooms.has(fileId)) {
+                conn.ws.send(broadcastPayload);
+              }
+            });
+          }
+          break;
+        }
+
         case 'leave': {
           const { fileId } = message;
           if (fileId) {

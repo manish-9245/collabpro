@@ -17,6 +17,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import ShareModal from './ShareModal'
 
 interface WorkspaceHeaderProps {
   fileData: any
@@ -58,6 +59,7 @@ function WorkspaceHeader({
   const [isHistoryOpen, setIsHistoryOpen] = useState(false)
   const [versionNote, setVersionNote] = useState('')
   const [isCreatingVersion, setIsCreatingVersion] = useState(false)
+  const [isShareOpen, setIsShareOpen] = useState(false)
 
   const [editingVersionId, setEditingVersionId] = useState<string | null>(null)
   const [tempVersionNote, setTempVersionNote] = useState('')
@@ -147,10 +149,7 @@ function WorkspaceHeader({
   }
 
   const handleShare = () => {
-    if (typeof window !== 'undefined') {
-      navigator.clipboard.writeText(window.location.href)
-      toast.success('Workspace link copied to clipboard!')
-    }
+    setIsShareOpen(true)
   }
 
   const handleCreateVersion = async () => {
@@ -772,6 +771,13 @@ function WorkspaceHeader({
           </div>
         </div>
       )}
+      {/* Enterprise Share Settings Modal */}
+      <ShareModal
+        isOpen={isShareOpen}
+        onClose={() => setIsShareOpen(false)}
+        fileId={fileData?._id}
+        fileName={fileName}
+      />
     </div>
   )
 }

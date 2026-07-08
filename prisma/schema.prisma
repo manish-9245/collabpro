@@ -121,3 +121,15 @@ model ApiKey {
   expiresAt   DateTime?
   createdAt   DateTime  @default(now())
 }
+
+model SharedLink {
+  id           String    @id @default(uuid())
+  fileId       String
+  role         String    @default("viewer") // "viewer", "commenter", "editor"
+  passwordHash String?   // optional password protection
+  expiresAt    DateTime? // optional expiration date
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([fileId])
+}
