@@ -4,6 +4,21 @@ All official releases and user impacts are documented here in chronological orde
 
 ---
 
+## [3.1.0] - 2026-07-09
+### User Impact: New Capabilities
+- **Vector Canvas drawings Search Indexer**: Deployed a state-of-the-art server-side text-extraction background hook and a beautiful real-time search dashboard overlay in the canvas panel, allowing immediate full-text search across all drawings and diagrams in the workspace!
+- **Background Multi-Part Canvas Image Sync**: Added a background file uploader that intercepts raw canvas binary/base64 uploads, stores them securely in public storage, and updates Excalidraw references with relative URLs.
+
+### User Impact: Performance & UX
+- **Smart Active-Backoff Polling**: Integrated a custom co-presence and query-synchronization backoff system that dynamically scales polling down from 4s to 15s during browser tab-blur or 1+ minute of user inactivity, slashing database connection overhead.
+- **Zero-Latency Polling Resumption**: Guarantees instant synchronization and restores active 4s intervals the split-second a user interacts with the canvas or refocuses the browser.
+- **Document Image Loading Transitions**: Solved overlapping unstyled loader blocks with smooth, animated CSS spinners and configured automatic full-size block-level expansions for maximum visual clarity.
+
+### User Impact: Security & Simplification
+- **Base64 String Database Protection**: Defers active database writes while image uploads are in progress, ensuring not a single byte of massive raw base64 data ever touches or bloats the relational database.
+
+---
+
 ## [3.0.0] - 2026-07-07
 ### User Impact: New Capabilities
 - **Dedicated Release Center**: Implemented a standalone, ultra-premium Release Hub route `/releases` allowing prospective users and enterprise stakeholders to track the development roadmap.

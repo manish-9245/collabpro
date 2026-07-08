@@ -26,6 +26,8 @@ CollabPro is engineered to be **completely self-contained with 100% zero externa
 - **Drag-and-Drop Coordinate Mapping**: Drop AWS elements or standard flow nodes exactly where your cursor releases relative to viewport zoom and panning scroll states.
 - **Atomic Rendering**: Immediate, lag-free file-data loading so you never see blank or broken shapes.
 - **Collapsible Design Sidebar**: One-click collapsible panel header that hides the right-side library seamlessly to maximize focus and canvas real estate.
+- **Full-Text Vector Search**: Immediate full-text search across all drawings, text nodes, and diagrams in the workspace via a beautifully animated overlay search dashboard panel.
+- **Snappy Background Canvas Image Uploads**: Background uploader that converts raw canvas base64 images to multipart File payloads on the fly, replacing them in-memory with short relative URLs, eliminating database bloat completely!
 
 ### 📁 3. File & Nested Folder Tree Navigation
 - **Directory Hierarchy**: Create and map files into parent folders or deeply nested subfolders.
@@ -36,7 +38,12 @@ CollabPro is engineered to be **completely self-contained with 100% zero externa
 - **Settings Dashboard**: Switch seamlessly between active memberships and profile sections.
 - **Premium Avatars**: Select animated, popular premium avatars to personalize your collaborator workspace profile.
 
-### 🤖 5. MCP Automation Tools
+### ⚡ 5. State-Sync & Performance Foundation
+- **Smart Active-Backoff Polling**: Custom co-presence and query-synchronization backoff system that dynamically scales polling down from 4s to 15s during browser tab-blur or 1+ minute of user inactivity, slashing database connection overhead.
+- **Zero-Latency Polling Resumption**: Guarantees instant synchronization and restores active 4s intervals the split-second a user interacts with the canvas or refocuses the browser.
+- **Preloader Hides & Full-Size Image Layouts**: Beautiful, non-overlapping animated CSS spinner loaders inside document image tools with automatic full-size block expansions.
+
+### 🤖 6. MCP Automation Tools
 - **`collabpro_update_document`**: Agent-friendly document updates with optional optimistic conflict detection (`baseDocument`) and conflict resolution (`reject`, `merge`, `overwrite`).
 - **`collabpro_update_whiteboard`**: Agent-driven Excalidraw element updates with merge-by-id behavior for concurrent human-agent edits.
 - **Conflict-aware write flow**: Both tools use conditional updates and retries to avoid clobbering simultaneous edits.
