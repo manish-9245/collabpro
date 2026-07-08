@@ -36,6 +36,11 @@ CollabPro is engineered to be **completely self-contained with 100% zero externa
 - **Settings Dashboard**: Switch seamlessly between active memberships and profile sections.
 - **Premium Avatars**: Select animated, popular premium avatars to personalize your collaborator workspace profile.
 
+### 🤖 5. MCP Automation Tools
+- **`collabpro_update_document`**: Agent-friendly document updates with optional optimistic conflict detection (`baseDocument`) and conflict resolution (`reject`, `merge`, `overwrite`).
+- **`collabpro_update_whiteboard`**: Agent-driven Excalidraw element updates with merge-by-id behavior for concurrent human-agent edits.
+- **Conflict-aware write flow**: Both tools use conditional updates and retries to avoid clobbering simultaneous edits.
+
 ---
 
 ## 🏗️ System Architecture
@@ -173,4 +178,3 @@ CollabPro is built on top of and made possible by several incredible open-source
 
 ## 📄 License
 Distributed under the MIT License. See [LICENSE](LICENSE) for details.
-
