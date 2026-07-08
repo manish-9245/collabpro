@@ -233,3 +233,56 @@ h6.ce-header {
 .excalidraw .default-sidebar-trigger {
   display: none !important;
 }
+
+/* Polish EditorJS Image Tool to be absolutely stunning, premium, and fully visible */
+#editorjs .image-tool {
+  padding: 1.5rem 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+#editorjs .image-tool__image {
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(226, 232, 240, 0.8); /* slate-200 */
+  box-shadow: 0 10px 30px -3px rgba(0, 0, 0, 0.05), 0 4px 12px -2px rgba(0, 0, 0, 0.03);
+  background-color: #f8fafc; /* slate-50 */
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+#editorjs .image-tool__image:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 20px 40px -4px rgba(0, 0, 0, 0.08), 0 8px 16px -4px rgba(0, 0, 0, 0.04);
+  border-color: rgba(203, 213, 225, 1); /* slate-300 */
+}
+
+#editorjs .image-tool__image-picture {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+#editorjs .image-tool__caption {
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif !important;
+  font-size: 13px !important;
+  color: #64748b !important; /* slate-500 */
+  margin-top: 0.85rem !important;
+  text-align: center !important;
+  font-style: italic !important;
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  width: 100% !important;
+  outline: none !important;
+  font-weight: 500 !important;
+}
+
+#editorjs .image-tool__caption:empty::before {
+  content: "Add an optional image caption..." !important;
+  color: #cbd5e1 !important; /* slate-300 */
+}
