@@ -35,7 +35,7 @@ All official releases and user impacts are documented here in chronological orde
 
 ---
 
-## [2.5.0] - 2026-06-15
+## [2.5.0] - 2026-07-06
 ### User Impact: New Capabilities
 - **AWS Cloud Architecture Library**: Integrated 800+ standardized AWS cloud-design icons directly inside the whiteboard Canvas sidebar, enabling immediate, drag-and-drop system-design modeling.
 - **Collapsible Layout Controls**: Replaced rigid canvas elements with collapsible sidebar panels and dynamic chevrons, expanding active workspace drawing space.
@@ -46,7 +46,7 @@ All official releases and user impacts are documented here in chronological orde
 
 ---
 
-## [2.0.0] - 2026-05-18
+## [2.0.0] - 2026-07-05
 ### User Impact: New Capabilities
 - **Smart Folder Trees**: Rolled out nested file directories inside the active dashboard sidebar, permitting users to drag, drop, and group documents with infinite depth.
 - **Workspace Lifecycle Actions**: Enabled direct rename, duplicate, delete, and archive controls for files without navigating away from the workspace views.
@@ -57,7 +57,7 @@ All official releases and user impacts are documented here in chronological orde
 
 ---
 
-## [1.0.0] - 2026-04-10
+## [1.0.0] - 2026-07-05
 ### User Impact: New Capabilities
 - **Collaborative Split-Screen Canvas**: Built the core co-authoring workspace, integrating a rich Markdown editor synchronously with an infinite vector whiteboard canvas.
 - **Automated Version History**: Enabled real-time auto-saving with a dedicated Version History drawer. Engineers can create custom-named checkpoints and restore previous versions in one click.
