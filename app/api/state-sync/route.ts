@@ -1,6 +1,37 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getServerSession } from '@/lib/session-auth/server';
+import { decodeCrdtState } from '@/lib/crdt';
+
+function extractTextFromWhiteboard(whiteboard: string | null | undefined): string {
+  if (!whiteboard) return "";
+  try {
+    const decoded = decodeCrdtState(whiteboard, []);
+    let elements: any[] = [];
+    if (Array.isArray(decoded)) {
+      elements = decoded;
+    } else if (decoded && typeof decoded === 'object') {
+      if (Array.isArray((decoded as any).elements)) {
+        elements = (decoded as any).elements;
+      } else {
+        elements = Object.values(decoded);
+      }
+    }
+
+    const textParts: string[] = [];
+    for (const elem of elements) {
+      if (elem && typeof elem === 'object') {
+        if (elem.type === 'text' && typeof elem.text === 'string' && elem.text.trim()) {
+          textParts.push(elem.text.trim());
+        }
+      }
+    }
+    return textParts.join(" ");
+  } catch (error) {
+    console.error("[extractTextFromWhiteboard] error:", error);
+    return "";
+  }
+}
 
 function mapConvexIds(obj: any): any {
   if (!obj) return obj;
@@ -534,6 +565,7 @@ export async function POST(request: Request) {
             archive: archive ?? false,
             document: document ?? '',
             whiteboard: whiteboard ?? '',
+            whiteboardText: whiteboard ? extractTextFromWhiteboard(whiteboard) : '',
             folder: folder ?? null,
           },
         });
@@ -551,7 +583,10 @@ export async function POST(request: Request) {
         const { _id, whiteboard } = args || {};
         result = await prisma.file.update({
           where: { id: _id },
-          data: { whiteboard },
+          data: { 
+            whiteboard,
+            whiteboardText: extractTextFromWhiteboard(whiteboard),
+          },
         });
         break;
       }
@@ -684,10 +719,14 @@ export async function POST(request: Request) {
             ? mergeWhiteboardById(currentElements, normalizedIncomingElements)
             : normalizedIncomingElements;
           const nextWhiteboardString = asJsonString(nextElements);
+          const nextText = extractTextFromWhiteboard(nextWhiteboardString);
 
           const updated = await prisma.file.updateMany({
             where: { id: targetFileId, whiteboard: currentWhiteboardString },
-            data: { whiteboard: nextWhiteboardString }
+            data: { 
+              whiteboard: nextWhiteboardString,
+              whiteboardText: nextText
+            }
           });
 
           if (updated.count === 1) {
@@ -799,6 +838,7 @@ export async function POST(request: Request) {
           data: {
             document: version.document,
             whiteboard: version.whiteboard,
+            whiteboardText: extractTextFromWhiteboard(version.whiteboard),
           },
         });
         break;

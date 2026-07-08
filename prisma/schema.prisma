@@ -35,15 +35,16 @@ model Team {
 }
 
 model File {
-  id         String   @id @default(uuid())
-  fileName   String
-  teamId     String
-  createdBy  String
-  archive    Boolean  @default(false)
-  document   String   @default("")
-  whiteboard String   @default("")
-  folder     String?
-  createdAt  DateTime @default(now())
+  id             String   @id @default(uuid())
+  fileName       String
+  teamId         String
+  createdBy      String
+  archive        Boolean  @default(false)
+  document       String   @default("")
+  whiteboard     String   @default("")
+  whiteboardText String   @default("")
+  folder         String?
+  createdAt      DateTime @default(now())
 }
 
 model TeamMember {
