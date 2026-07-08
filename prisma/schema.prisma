@@ -112,3 +112,12 @@ model SharedLibraryItem {
 
   @@index([teamId, updatedAt])
 }
+
+model ApiKey {
+  id          String    @id @default(uuid())
+  userEmail   String
+  name        String
+  key         String    @unique
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+}
