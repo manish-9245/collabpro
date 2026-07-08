@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { getServerSession } from '@/lib/session-auth/server';
 
 function mapConvexIds(obj: any): any {
   if (!obj) return obj;
@@ -119,6 +120,44 @@ export async function POST(request: Request) {
 
     if (!path) {
       return NextResponse.json({ error: 'Path parameter required' }, { status: 400 });
+    }
+
+    // --- SECURITY & AUTHORIZATION CHECK ---
+    let authUserEmail: string | null = null;
+
+    // 1. Try Cookie Session Auth (Standard Web Client)
+    const session = getServerSession();
+    const sessionUser = await session.getUser();
+    if (sessionUser && sessionUser.email) {
+      authUserEmail = sessionUser.email;
+    }
+
+    // 2. Try API Key Auth (MCP Automation Tools & Programmatic Agents)
+    if (!authUserEmail) {
+      const authHeader = request.headers.get('authorization');
+      if (authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
+        const token = authHeader.substring(7).trim();
+        if (token.startsWith('collabpro_pat_')) {
+          const apiKeyRecord = await prisma.apiKey.findUnique({
+            where: { key: token }
+          });
+
+          if (apiKeyRecord) {
+            // Check expiry
+            if (apiKeyRecord.expiresAt && apiKeyRecord.expiresAt < new Date()) {
+              return NextResponse.json({ error: 'API key has expired' }, { status: 401 });
+            }
+            authUserEmail = apiKeyRecord.userEmail;
+          }
+        }
+      }
+    }
+
+    // 3. Fallback: Reject unauthenticated calls
+    if (!authUserEmail) {
+      return NextResponse.json({ 
+        error: 'Unauthorized: Valid cookie session or "Authorization: Bearer collabpro_pat_..." key required.' 
+      }, { status: 401 });
     }
 
     let result: any = null;

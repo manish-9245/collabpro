@@ -6,7 +6,7 @@ import { ActiveTeamContext } from '@/app/_context/ActiveTeamContext'
 import { useSessionAuth } from '@/lib/session-auth/client'
 import { api, useSync, useQuery, useMutation } from '@/lib/state-sync/react'
 import { toast } from 'sonner'
-import { Settings, Users, LogOut, Trash2, Shield, ShieldCheck, Mail, ChevronDown, ChevronUp, Loader2 } from 'lucide-react'
+import { Settings, Users, LogOut, Trash2, Shield, ShieldCheck, Mail, ChevronDown, ChevronUp, Loader2, Key, Copy, Check, Plus, AlertTriangle, Calendar } from 'lucide-react'
 
 function SettingsPage() {
   const { user }: any = useSessionAuth();
@@ -19,14 +19,98 @@ function SettingsPage() {
   const [teamMembersMap, setTeamMembersMap] = useState<{ [teamId: string]: any[] }>({});
   const [loadingMembers, setLoadingMembers] = useState<{ [teamId: string]: boolean }>({});
 
+  // API Keys state
+  const [apiKeys, setApiKeys] = useState<any[]>([]);
+  const [loadingKeys, setLoadingKeys] = useState(false);
+  const [newKeyName, setNewKeyName] = useState('');
+  const [expiresDays, setExpiresDays] = useState('30');
+  const [generatingKey, setGeneratingKey] = useState(false);
+  const [newlyCreatedKey, setNewlyCreatedKey] = useState<any | null>(null);
+  const [copied, setCopied] = useState(false);
+
   const leaveTeam = useMutation(api.teams.leaveTeam);
   const removeMember = useMutation(api.teams.removeMember);
 
   useEffect(() => {
     if (user?.email) {
       fetchTeams();
+      fetchApiKeys();
     }
   }, [user]);
+
+  const fetchApiKeys = async () => {
+    setLoadingKeys(true);
+    try {
+      const res = await fetch('/api/api-keys');
+      if (res.ok) {
+        const json = await res.json();
+        setApiKeys(json.apiKeys || []);
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to load API keys.");
+    } finally {
+      setLoadingKeys(false);
+    }
+  };
+
+  const handleCreateApiKey = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newKeyName.trim()) return;
+
+    setGeneratingKey(true);
+    try {
+      const res = await fetch('/api/api-keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newKeyName, expiresDays })
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setNewlyCreatedKey(json.apiKey);
+        setNewKeyName('');
+        fetchApiKeys();
+        toast.success("API Key successfully generated!");
+      } else {
+        const errJson = await res.json();
+        toast.error(errJson.error || "Failed to create API key.");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to generate API Key.");
+    } finally {
+      setGeneratingKey(false);
+    }
+  };
+
+  const handleRevokeApiKey = async (id: string, name: string) => {
+    const confirmed = confirm(`Are you sure you want to revoke API key "${name}"? It will immediately stop working.`);
+    if (!confirmed) return;
+
+    try {
+      const res = await fetch('/api/api-keys', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+      if (res.ok) {
+        toast.success(`Key "${name}" has been successfully revoked.`);
+        fetchApiKeys();
+      } else {
+        toast.error("Failed to revoke API key.");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to revoke API key.");
+    }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    toast.success("API Key copied to clipboard!");
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   const fetchTeams = async () => {
     setLoadingTeams(true);
@@ -252,6 +336,177 @@ function SettingsPage() {
             })}
           </div>
         )}
+      </div>
+
+      {/* --- PREMIUM API KEYS & PAT MANAGEMENT SECTION (MCP INTEGRATIONS) --- */}
+      <div className="mt-8 bg-white dark:bg-zinc-950 border border-slate-100 dark:border-zinc-900 rounded-2xl p-6 sm:p-8 shadow-sm max-w-3xl space-y-6">
+        <div>
+          <h3 className="text-base font-bold text-slate-800 dark:text-white flex items-center gap-2">
+            <Key className="h-5 w-5 text-blue-600" />
+            Personal Access Tokens (MCP API Keys)
+          </h3>
+          <p className="text-xs text-slate-400 dark:text-zinc-500 mt-1 max-w-xl">
+            Generate secure access keys to integrate CollabPro with Model Context Protocol (MCP) clients, autonomous AI agents (such as Claude Desktop, Gemini Code Assist, or cursor-agents), and programmatic webhooks.
+          </p>
+        </div>
+
+        {/* Newly Created Key Alert (Only shown once!) */}
+        {newlyCreatedKey && (
+          <div className="p-5 bg-blue-50/60 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/30 rounded-xl space-y-3 relative overflow-hidden animate-in fade-in slide-in-from-top duration-300">
+            <div className="absolute top-0 right-0 -mt-2 -mr-2 w-16 h-16 bg-blue-500/10 rounded-full blur-xl pointer-events-none" />
+            <div className="flex gap-2 text-blue-800 dark:text-blue-400">
+              <AlertTriangle className="h-5 w-5 text-blue-600 shrink-0" />
+              <div>
+                <span className="text-xs font-bold block">Important: Copy your Personal Access Token now!</span>
+                <span className="text-[11px] opacity-90 block">For security reasons, this token will not be displayed again once you reload or navigate away from this page.</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 bg-white dark:bg-zinc-900/50 p-3 rounded-lg border border-blue-200/50 dark:border-blue-900/20 shadow-inner">
+              <code className="text-xs font-mono font-bold select-all break-all text-slate-800 dark:text-zinc-200 flex-1">
+                {newlyCreatedKey.key}
+              </code>
+              <button
+                type="button"
+                onClick={() => copyToClipboard(newlyCreatedKey.key)}
+                className="p-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-1 transition-all"
+              >
+                {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                <span className="text-xs font-semibold">{copied ? 'Copied' : 'Copy'}</span>
+              </button>
+            </div>
+
+            {/* Premium Dynamic Claude/Cursor Integration Snippet */}
+            <div className="mt-4 p-4 bg-slate-900 text-zinc-100 rounded-xl border border-slate-800 space-y-3 font-medium">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-blue-400">Claude Desktop Integration Setup</span>
+                <span className="text-[10px] text-zinc-500">Append this config block to your local claude_desktop_config.json</span>
+              </div>
+              <pre className="text-[10px] font-mono overflow-x-auto p-3 bg-black/40 rounded-lg text-emerald-400 select-all border border-slate-800/60 leading-relaxed">
+{JSON.stringify({
+  mcpServers: {
+    collabpro: {
+      command: "npx",
+      args: ["-y", "collabpro-mcp"],
+      env: {
+        COLLABPRO_API_KEY: newlyCreatedKey.key,
+        COLLABPRO_BASE_URL: typeof window !== 'undefined' ? window.location.origin : "https://collabpro.buildwithmanish.com"
+      }
+    }
+  }
+}, null, 2)}
+              </pre>
+              <p className="text-[9px] text-zinc-400 leading-normal">
+                💡 **Pro Tip**: Use this configuration to empower Claude Desktop with the native ability to read, sync, edit, and orchestrate CollabPro team-shared documents and Excalidraw whiteboards programmatically!
+              </p>
+            </div>
+            
+            <button
+              type="button"
+              onClick={() => setNewlyCreatedKey(null)}
+              className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline font-bold"
+            >
+              Done, I have saved it securely
+            </button>
+          </div>
+        )}
+
+        {/* Create Key Form */}
+        <form onSubmit={handleCreateApiKey} className="p-4 bg-slate-50/50 dark:bg-zinc-900/20 rounded-xl border border-slate-100 dark:border-zinc-900 grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
+          <div className="sm:col-span-1 space-y-1.5">
+            <label className="text-xs font-bold text-slate-500 dark:text-zinc-400 block">Token Description</label>
+            <input
+              type="text"
+              placeholder="e.g. Gemini Code Assist, Claude Desktop"
+              value={newKeyName}
+              onChange={(e) => setNewKeyName(e.target.value)}
+              className="w-full text-xs px-3 py-2 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium"
+              required
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-slate-500 dark:text-zinc-400 block">Expiration</label>
+            <select
+              value={expiresDays}
+              onChange={(e) => setExpiresDays(e.target.value)}
+              className="w-full text-xs px-3 py-2 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium"
+            >
+              <option value="7">7 Days</option>
+              <option value="30">30 Days</option>
+              <option value="90">90 Days</option>
+              <option value="never">No Expiration (Never)</option>
+            </select>
+          </div>
+
+          <button
+            type="submit"
+            disabled={generatingKey || !newKeyName.trim()}
+            className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:hover:bg-blue-600 text-white text-xs font-bold py-2 px-4 rounded-lg flex items-center justify-center gap-1.5 shadow-sm transition-all"
+          >
+            {generatingKey ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Plus className="h-4 w-4" />
+            )}
+            <span>Generate Token</span>
+          </button>
+        </form>
+
+        {/* Existing Keys Table */}
+        <div className="space-y-3">
+          <h4 className="text-xs font-black text-slate-400 dark:text-zinc-500 uppercase tracking-widest pb-1 border-b border-slate-50 dark:border-zinc-900">
+            Active Tokens ({apiKeys.length})
+          </h4>
+
+          {loadingKeys ? (
+            <div className="flex justify-center items-center py-10 text-slate-400 gap-2">
+              <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+              <span className="text-xs">Loading personal tokens...</span>
+            </div>
+          ) : apiKeys.length === 0 ? (
+            <div className="text-center py-10 text-xs text-slate-400 border border-dashed border-slate-100 rounded-xl bg-white dark:bg-zinc-950">
+              No personal access tokens generated yet. Add one to integrate with MCP AI agents.
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-[300px] overflow-y-auto">
+              {apiKeys.map((key: any, idx: number) => (
+                <div
+                  key={idx}
+                  className="flex items-center justify-between p-3 rounded-lg bg-white border border-slate-100 hover:bg-slate-50/50 dark:bg-zinc-900/10 dark:border-zinc-900 flex-wrap gap-3 transition-all"
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-700 dark:text-zinc-300">{key.name}</span>
+                      <code className="text-[10px] font-mono font-medium text-slate-400 dark:text-zinc-500 px-1.5 py-0.5 bg-slate-50 dark:bg-zinc-900 rounded border border-slate-100 dark:border-zinc-800">
+                        {key.key}
+                      </code>
+                    </div>
+
+                    <div className="flex items-center gap-3 text-[10px] text-slate-400 dark:text-zinc-500 font-semibold">
+                      <span className="flex items-center gap-0.5">
+                        <Calendar className="h-3.5 w-3.5 text-slate-400" />
+                        Created: {new Date(key.createdAt).toLocaleDateString()}
+                      </span>
+                      <span>•</span>
+                      <span>
+                        Expires: {key.expiresAt ? new Date(key.expiresAt).toLocaleDateString() : 'Never'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => handleRevokeApiKey(key.id, key.name)}
+                    className="p-1 px-2.5 rounded-md text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20 text-xs font-bold flex items-center gap-1 transition-colors"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Revoke
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
