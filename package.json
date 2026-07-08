@@ -10,7 +10,8 @@
     "start": "prisma db push && next start",
     "lint": "next lint",
     "postinstall": "prisma generate",
-    "resolve-issue": "node scripts/resolve-issue.js"
+    "resolve-issue": "node scripts/resolve-issue.js",
+    "ws:start": "node scripts/db-prep.js && tsx ws-server/server.ts"
   },
   "dependencies": {
     "@editorjs/checklist": "^1.6.0",
@@ -40,16 +41,19 @@
     "react-dom": "^18",
     "sonner": "^1.4.0",
     "tailwind-merge": "^2.2.1",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwindcss-animate": "^1.0.7",
+    "ws": "^8.21.0"
   },
   "devDependencies": {
     "@types/node": "^20",
     "@types/pg": "^8.20.0",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "@types/ws": "^8.18.1",
     "autoprefixer": "^10.0.1",
     "postcss": "^8",
     "tailwindcss": "^3.3.0",
+    "tsx": "^4.23.0",
     "typescript": "^5"
   }
 }
