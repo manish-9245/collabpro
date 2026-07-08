@@ -160,6 +160,16 @@ export async function POST(request: Request) {
       }, { status: 401 });
     }
 
+    // Auto-default email arguments to the authenticated user's email if missing
+    if (args && typeof args === 'object') {
+      if (!args.userEmail) {
+        args.userEmail = authUserEmail;
+      }
+      if (!args.email) {
+        args.email = authUserEmail;
+      }
+    }
+
     let result: any = null;
 
     switch (path) {
