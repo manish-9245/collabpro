@@ -32,6 +32,7 @@ export interface FILE {
   fileName: string,
   teamId: string,
   whiteboard: string,
+  whiteboardText?: string,
   _id: string,
   _creationTime: number,
   creatorName?: string,
@@ -145,8 +146,13 @@ function FileList() {
 
   // Filter files based on whether activeTab is 'archive'
   const filteredFiles = fileList_?.filter((file: FILE) => {
-    if (searchQuery && !file.fileName.toLowerCase().includes(searchQuery.toLowerCase())) {
-      return false;
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      const matchName = file.fileName.toLowerCase().includes(q);
+      const matchWhiteboard = file.whiteboardText?.toLowerCase().includes(q) || false;
+      if (!matchName && !matchWhiteboard) {
+        return false;
+      }
     }
     if (activeTab === 'archive') {
       return file.archive === true;
@@ -198,6 +204,59 @@ function FileList() {
           Showing: <span className="text-blue-600 dark:text-blue-400 capitalize">{fileScope === 'org' ? 'All Org Teams' : fileScope === 'personal' ? 'My Files' : 'Team Files'}</span>
         </div>
       </div>
+      {/* Dedicated Whiteboard Vector Search Results Panel */}
+      {searchQuery && fileList_?.filter((f: FILE) => f.whiteboardText?.toLowerCase().includes(searchQuery.toLowerCase())).length > 0 && (
+        <div className="mb-8 space-y-4">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex p-1.5 bg-indigo-500/10 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 rounded-lg border border-indigo-500/20 shadow-sm">
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+              </svg>
+            </span>
+            <div>
+              <h2 className="text-sm font-bold text-slate-800 dark:text-zinc-200">Whiteboard Vector Drawing Matches</h2>
+              <p className="text-[10px] text-slate-400 dark:text-zinc-500 font-medium">Found text matching &ldquo;{searchQuery}&rdquo; directly inside active whiteboard element trees</p>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {fileList_?.filter((f: FILE) => f.whiteboardText?.toLowerCase().includes(searchQuery.toLowerCase())).map((file: FILE, idx: number) => {
+              const q = searchQuery.toLowerCase();
+              const text = file.whiteboardText || '';
+              const matchIdx = text.toLowerCase().indexOf(q);
+              const start = Math.max(0, matchIdx - 30);
+              const end = Math.min(text.length, matchIdx + q.length + 30);
+              const snippet = text.slice(start, end);
+              
+              return (
+                <div 
+                  key={idx}
+                  onClick={() => router.push('/workspace/' + file._id)}
+                  className="group bg-slate-50/40 hover:bg-white dark:bg-zinc-900/10 dark:hover:bg-zinc-900/40 border border-slate-200/50 hover:border-indigo-500/30 dark:border-zinc-800/50 dark:hover:border-indigo-400/40 p-4 rounded-xl shadow-inner hover:shadow transition-all duration-200 cursor-pointer"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1.5 min-w-0 flex-1">
+                      <h3 className="text-xs font-bold text-slate-800 dark:text-zinc-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors truncate">
+                        {file.fileName}
+                      </h3>
+                      <p className="text-[11px] text-slate-500 dark:text-zinc-400 leading-relaxed font-medium">
+                        &ldquo;&hellip;{snippet.slice(0, matchIdx - start)}
+                        <mark className="bg-yellow-100 dark:bg-yellow-950/80 text-yellow-800 dark:text-yellow-200 font-bold px-1 py-0.5 rounded border border-yellow-200/30">
+                          {snippet.slice(matchIdx - start, matchIdx - start + q.length)}
+                        </mark>
+                        {snippet.slice(matchIdx - start + q.length)}&hellip;&rdquo;
+                      </p>
+                    </div>
+                    <span className="text-[9px] font-bold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 px-2.5 py-1 rounded border border-indigo-100/30 shrink-0 self-start shadow-sm">
+                      Drawing Content
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="overflow-x-auto rounded-xl border border-slate-100 dark:border-zinc-800 shadow-sm">
         <table className="min-w-full divide-y divide-gray-100 dark:divide-zinc-800 bg-white dark:bg-zinc-950 text-sm">
