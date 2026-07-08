@@ -517,10 +517,22 @@ function Canvas({
                 return;
             }
             
-            const serverElements = decodeCrdtState(fileData.whiteboard, []);
+            const decodedState = decodeCrdtState(fileData.whiteboard, []);
+            let serverElements = [];
+            let serverFiles: any = {};
+            if (Array.isArray(decodedState)) {
+                serverElements = decodedState;
+            } else if (decodedState && typeof decodedState === 'object') {
+                serverElements = decodedState.elements || [];
+                serverFiles = decodedState.files || {};
+            }
             
             // Only overwrite if we are not currently drawing/saving (idle)
             if (saveTimeoutRef.current === null && !saveTimeoutRef.current) {
+                const filesArray = Object.values(serverFiles);
+                if (filesArray.length > 0) {
+                    excalidrawAPI.addFiles(filesArray);
+                }
                 excalidrawAPI.updateScene({
                     elements: serverElements
                 });
@@ -551,7 +563,12 @@ function Canvas({
 
     const saveWhiteboard=()=>{
         setSavingStatus('saving');
-        const crdtStr = encodeCrdtState(whiteBoardData);
+        const filesObj = excalidrawAPI ? excalidrawAPI.getFiles() : {};
+        const stateToSave = {
+            elements: whiteBoardData || [],
+            files: filesObj
+        };
+        const crdtStr = encodeCrdtState(stateToSave);
         lastSavedDataRef.current = crdtStr;
         updateWhiteboard({
             _id:fileId,
@@ -567,7 +584,12 @@ function Canvas({
     const handleCanvasChange = (excalidrawElements: any) => {
         setWhiteBoardData(excalidrawElements);
         
-        const currentCrdtStr = encodeCrdtState(excalidrawElements);
+        const filesObj = excalidrawAPI ? excalidrawAPI.getFiles() : {};
+        const stateToSave = {
+            elements: excalidrawElements,
+            files: filesObj
+        };
+        const currentCrdtStr = encodeCrdtState(stateToSave);
         // Avoid auto-saving if elements didn't change (e.g. on simple pan/zoom view changes)
         if (currentCrdtStr === lastSavedDataRef.current || !excalidrawElements || excalidrawElements.length === 0) {
             return;
@@ -1224,6 +1246,24 @@ function Canvas({
         return node.label.toLowerCase().includes(searchQuery.toLowerCase());
     });
 
+    const getInitialCanvasData = () => {
+        if (!fileData?.whiteboard) return { elements: [] };
+        try {
+            const decoded = decodeCrdtState(fileData.whiteboard, []);
+            if (Array.isArray(decoded)) {
+                return { elements: decoded };
+            } else if (decoded && typeof decoded === 'object') {
+                return {
+                    elements: decoded.elements || [],
+                    files: decoded.files || {}
+                };
+            }
+        } catch (e) {
+            console.error("Error decoding initial canvas data:", e);
+        }
+        return { elements: [] };
+    };
+
     return (
     <div 
       className="flex w-full h-full relative overflow-hidden"
@@ -1236,9 +1276,7 @@ function Canvas({
           <Excalidraw 
             theme="light"
             excalidrawAPI={(api) => setExcalidrawAPI(api)}
-            initialData={{
-                elements: fileData?.whiteboard ? decodeCrdtState(fileData.whiteboard, []) : []
-            }}
+            initialData={getInitialCanvasData()}
             onChange={handleCanvasChange}
             UIOptions={{
                 canvasActions: {
