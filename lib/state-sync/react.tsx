@@ -65,6 +65,7 @@ class StateSyncWSClient {
   private ws: WebSocket | null = null;
   private subscribers = new Map<string, Set<(data: any) => void>>();
   private statusListeners = new Set<(status: 'connecting' | 'connected' | 'disconnected') => void>();
+  private cursorListeners = new Set<(cursor: any) => void>();
   private reconnectTimeout: any = null;
   private reconnectDelay = 1000;
   private maxReconnectDelay = 30000;
@@ -91,6 +92,27 @@ class StateSyncWSClient {
     return () => {
       this.statusListeners.delete(listener);
     };
+  }
+
+  public addCursorListener(listener: (cursor: any) => void) {
+    this.cursorListeners.add(listener);
+    return () => {
+      this.cursorListeners.delete(listener);
+    };
+  }
+
+  public sendCursor(x: number, y: number, name: string, color: string, isCanvas: boolean) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN && this.activeRoom) {
+      this.ws.send(JSON.stringify({
+        type: 'cursor',
+        fileId: this.activeRoom,
+        x,
+        y,
+        name,
+        color,
+        isCanvas
+      }));
+    }
   }
 
   private setStatus(status: 'connecting' | 'connected' | 'disconnected') {
@@ -145,6 +167,8 @@ class StateSyncWSClient {
             if (listeners) {
               listeners.forEach(cb => cb(msg.data));
             }
+          } else if (msg.type === 'cursor-update') {
+            this.cursorListeners.forEach(cb => cb(msg));
           }
         } catch (err) {
           console.error('[GrahakAI WS CLIENT] Failed to parse socket message:', err);
@@ -372,5 +396,49 @@ export function useSync() {
       return json.data;
     }
   };
+}
+
+export function useCursors() {
+  const [cursors, setCursors] = useState<Record<string, { email: string; name: string; color: string; x: number; y: number; isCanvas: boolean; updatedAt: number }>>({});
+
+  useEffect(() => {
+    if (!wsClient) return;
+
+    const cleanup = wsClient.addCursorListener((update) => {
+      setCursors((prev) => ({
+        ...prev,
+        [update.email]: update
+      }));
+    });
+
+    // Cleanup stale cursors every 2 seconds
+    const interval = setInterval(() => {
+      const now = Date.now();
+      setCursors((prev) => {
+        const next = { ...prev };
+        let changed = false;
+        Object.keys(next).forEach((email) => {
+          if (now - next[email].updatedAt > 5000) { // 5-second timeout for inactivity
+            delete next[email];
+            changed = true;
+          }
+        });
+        return changed ? next : prev;
+      });
+    }, 2000);
+
+    return () => {
+      cleanup();
+      clearInterval(interval);
+    };
+  }, []);
+
+  const broadcastCursor = (x: number, y: number, name: string, color: string, isCanvas: boolean) => {
+    if (wsClient) {
+      wsClient.sendCursor(x, y, name, color, isCanvas);
+    }
+  };
+
+  return { cursors, broadcastCursor };
 }
 

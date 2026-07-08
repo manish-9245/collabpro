@@ -1,7 +1,7 @@
 "use client"
 import React, { useEffect, useState } from 'react'
 import WorkspaceHeader from '../_components/WorkspaceHeader'
-import { api, useMutation, useQuery } from '@/lib/state-sync/react';
+import { api, useMutation, useQuery, useCursors } from '@/lib/state-sync/react';
 import { FILE } from '../../dashboard/_components/FileList';
 import { Loader2 } from 'lucide-react';
 import dynamic from 'next/dynamic';
@@ -23,6 +23,8 @@ function Workspace({params}:any) {
    const [undoTrigger, setUndoTrigger] = useState(0);
    const [redoTrigger, setRedoTrigger] = useState(0);
    const { user } = useSessionAuth();
+   const { cursors, broadcastCursor } = useCursors();
+   
    const upsertPresence = useMutation(api.files.upsertPresence);
    const clearPresence = useMutation(api.files.clearPresence);
 
@@ -39,6 +41,20 @@ function Workspace({params}:any) {
     const palette = ['#2563eb', '#7c3aed', '#0ea5e9', '#14b8a6', '#f97316', '#ec4899', '#10b981', '#f59e0b'];
     const hash = email.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
     return palette[hash % palette.length];
+   };
+
+   const handlePointerMove = (e: React.PointerEvent) => {
+     if (!user?.email) return;
+     const rect = e.currentTarget.getBoundingClientRect();
+     const x = ((e.clientX - rect.left) / rect.width) * 100;
+     const y = ((e.clientY - rect.top) / rect.height) * 100;
+     broadcastCursor(
+       x,
+       y,
+       user.given_name || user.email.split('@')[0] || 'Collaborator',
+       getPresenceColor(user.email),
+       activePanel === 'canvas'
+     );
    };
 
    useEffect(() => {
@@ -124,73 +140,110 @@ function Workspace({params}:any) {
          canRedo={canRedo}
        />
 
-       {/* Workspace Layout */}
-       <div className="flex-1 flex overflow-hidden w-full relative">
-         {/* Document Panel */}
-         <div 
-           style={{ 
-             width: viewMode === 'both' ? `${splitPct}%` : viewMode === 'document' ? '100%' : '0%',
-             display: viewMode === 'canvas' ? 'none' : 'block'
-           }}
-           className="h-full overflow-y-auto"
-           onMouseDownCapture={() => setActivePanel('document')}
-         >
-           <Editor 
-             onSaveTrigger={triggerSave}
-             fileId={params.fileId}
-             fileData={fileData}
-             setSavingStatus={setSavingStatus}
-             undoTrigger={undoTrigger}
-             redoTrigger={redoTrigger}
-             onHistoryChange={handleEditorHistoryChange}
-             activePanel={activePanel}
-           />
-         </div>
+        {/* Workspace Layout */}
+        <div 
+          className="flex-1 flex overflow-hidden w-full relative"
+          onPointerMove={handlePointerMove}
+        >
+          {/* Multiplayer Cursor Layers */}
+          {Object.values(cursors).map((cursor) => {
+            if (cursor.email === user?.email) return null; // Don't render own cursor
+            return (
+              <div
+                key={cursor.email}
+                style={{
+                  left: `${cursor.x}%`,
+                  top: `${cursor.y}%`,
+                  transition: 'all 0.08s cubic-bezier(0.25, 1, 0.5, 1)', // Smooth animation easing
+                }}
+                className="absolute pointer-events-none z-[9999] flex flex-col items-start gap-1"
+              >
+                {/* Sleek SVG Mouse Cursor Arrow */}
+                <svg
+                  className="w-5 h-5 drop-shadow-md"
+                  viewBox="0 0 24 24"
+                  fill={cursor.color}
+                  stroke="white"
+                  strokeWidth="2"
+                >
+                  <path d="M5.653 2.5a.75.75 0 00-.73 1.05l7.5 18a.75.75 0 001.378-.057l3.076-7.382 7.042-2.113a.75.75 0 00-.02-1.428l-17.5-8a.75.75 0 00-.746-.07z" />
+                </svg>
+                {/* Sleek Cursor Name Tag */}
+                <div
+                  style={{ backgroundColor: cursor.color }}
+                  className="px-2 py-0.5 rounded-full text-[10px] text-white font-semibold shadow-md whitespace-nowrap animate-in zoom-in-50 duration-200"
+                >
+                  {cursor.name} {cursor.isCanvas ? '🎨' : '📝'}
+                </div>
+              </div>
+            );
+          })}
 
-         {/* Draggable Divider (Only in "both" view mode) */}
-         {viewMode === 'both' && (
-           <div
-             className="w-1.5 h-full bg-slate-200 hover:bg-blue-500 cursor-col-resize transition-all duration-150 flex-shrink-0 relative z-50 flex items-center justify-center dark:bg-zinc-800 dark:hover:bg-blue-600"
-             onMouseDown={(e) => {
-               e.preventDefault();
-               const handleMouseMove = (moveEvent: MouseEvent) => {
-                 const newPct = (moveEvent.clientX / window.innerWidth) * 100;
-                 if (newPct > 15 && newPct < 85) {
-                   setSplitPct(newPct);
-                 }
-               };
-               const handleMouseUp = () => {
-                 window.removeEventListener('mousemove', handleMouseMove);
-                 window.removeEventListener('mouseup', handleMouseUp);
-               };
-               window.addEventListener('mousemove', handleMouseMove);
-               window.addEventListener('mouseup', handleMouseUp);
-             }}
-           >
-             <div className="w-[2px] h-8 rounded-full bg-slate-400 dark:bg-zinc-500" />
-           </div>
-         )}
+          {/* Document Panel */}
+          <div 
+            style={{ 
+              width: viewMode === 'both' ? `${splitPct}%` : viewMode === 'document' ? '100%' : '0%',
+              display: viewMode === 'canvas' ? 'none' : 'block'
+            }}
+            className="h-full overflow-y-auto"
+            onMouseDownCapture={() => setActivePanel('document')}
+          >
+            <Editor 
+              onSaveTrigger={triggerSave}
+              fileId={params.fileId}
+              fileData={fileData}
+              setSavingStatus={setSavingStatus}
+              undoTrigger={undoTrigger}
+              redoTrigger={redoTrigger}
+              onHistoryChange={handleEditorHistoryChange}
+              activePanel={activePanel}
+            />
+          </div>
 
-         {/* Whiteboard/Canvas Panel */}
-         <div 
-           style={{ 
-             width: viewMode === 'both' ? `${100 - splitPct}%` : viewMode === 'canvas' ? '100%' : '0%',
-             display: viewMode === 'document' ? 'none' : 'block'
-           }}
-           className="h-full border-l border-slate-200 dark:border-slate-800"
-           onMouseDownCapture={() => setActivePanel('canvas')}
-         >
-           <Canvas
-             onSaveTrigger={triggerSave}
-             fileId={params.fileId}
-             fileData={fileData}
-             setSavingStatus={setSavingStatus}
-             undoTrigger={undoTrigger}
-             redoTrigger={redoTrigger}
-             activePanel={activePanel}
-           />
-         </div>
-       </div>
+          {/* Draggable Divider (Only in "both" view mode) */}
+          {viewMode === 'both' && (
+            <div
+              className="w-1.5 h-full bg-slate-200 hover:bg-blue-500 cursor-col-resize transition-all duration-150 flex-shrink-0 relative z-50 flex items-center justify-center dark:bg-zinc-800 dark:hover:bg-blue-600"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                const handleMouseMove = (moveEvent: MouseEvent) => {
+                  const newPct = (moveEvent.clientX / window.innerWidth) * 100;
+                  if (newPct > 15 && newPct < 85) {
+                    setSplitPct(newPct);
+                  }
+                };
+                const handleMouseUp = () => {
+                  window.removeEventListener('mousemove', handleMouseMove);
+                  window.removeEventListener('mouseup', handleMouseUp);
+                };
+                window.addEventListener('mousemove', handleMouseMove);
+                window.addEventListener('mouseup', handleMouseUp);
+              }}
+            >
+              <div className="w-[2px] h-8 rounded-full bg-slate-400 dark:bg-zinc-500" />
+            </div>
+          )}
+
+          {/* Whiteboard/Canvas Panel */}
+          <div 
+            style={{ 
+              width: viewMode === 'both' ? `${100 - splitPct}%` : viewMode === 'canvas' ? '100%' : '0%',
+              display: viewMode === 'document' ? 'none' : 'block'
+            }}
+            className="h-full border-l border-slate-200 dark:border-slate-800"
+            onMouseDownCapture={() => setActivePanel('canvas')}
+          >
+            <Canvas
+              onSaveTrigger={triggerSave}
+              fileId={params.fileId}
+              fileData={fileData}
+              setSavingStatus={setSavingStatus}
+              undoTrigger={undoTrigger}
+              redoTrigger={redoTrigger}
+              activePanel={activePanel}
+            />
+          </div>
+        </div>
 
      </div>
    )
