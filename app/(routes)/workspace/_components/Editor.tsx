@@ -11,6 +11,8 @@ import Checklist from '@editorjs/checklist'
 import Paragraph from '@editorjs/paragraph';
 // @ts-ignore
 import Warning from '@editorjs/warning';
+// @ts-ignore
+import ImageTool from '@editorjs/image';
 import { api, useMutation } from '@/lib/state-sync/react';
 import { toast } from 'sonner';
 import { FILE } from '../../dashboard/_components/FileList';
@@ -242,6 +244,15 @@ function Editor({
                   },
                   paragraph: Paragraph,
                   warning: Warning,
+                  image: {
+                    class: ImageTool as any,
+                    config: {
+                      endpoints: {
+                        byFile: '/api/upload',
+                        byUrl: '/api/upload',
+                      }
+                    }
+                  },
             },
            
             holder: 'editorjs',
