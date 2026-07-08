@@ -450,6 +450,9 @@ export async function POST(request: Request) {
         await prisma.fileVersion.deleteMany({
           where: { fileId: _id },
         });
+        await prisma.filePresence.deleteMany({
+          where: { fileId: _id },
+        });
         // Delete the file
         result = await prisma.file.delete({
           where: { id: _id },
@@ -518,6 +521,64 @@ export async function POST(request: Request) {
         result = await prisma.fileVersion.update({
           where: { id: versionId },
           data: { note },
+        });
+        break;
+      }
+      case 'files:upsertPresence': {
+        const { fileId, userEmail, userName, userImage, userColor, workspaceStatus } = args || {};
+        if (!fileId || !userEmail) {
+          throw new Error("fileId and userEmail are required for presence updates");
+        }
+        result = await prisma.filePresence.upsert({
+          where: {
+            fileId_userEmail: {
+              fileId,
+              userEmail,
+            },
+          },
+          create: {
+            fileId,
+            userEmail,
+            userName: userName || userEmail.split('@')[0] || "Collaborator",
+            userImage: userImage || "",
+            userColor: userColor || "#6366f1",
+            workspaceStatus: workspaceStatus || "Viewing workspace",
+          },
+          update: {
+            userName: userName || userEmail.split('@')[0] || "Collaborator",
+            userImage: userImage || "",
+            userColor: userColor || "#6366f1",
+            workspaceStatus: workspaceStatus || "Viewing workspace",
+            lastSeenAt: new Date(),
+          },
+        });
+        break;
+      }
+      case 'files:clearPresence': {
+        const { fileId, userEmail } = args || {};
+        if (!fileId || !userEmail) {
+          result = { success: false };
+          break;
+        }
+        result = await prisma.filePresence.deleteMany({
+          where: { fileId, userEmail },
+        });
+        break;
+      }
+      case 'files:getActiveCollaborators': {
+        const { fileId, currentUserEmail } = args || {};
+        if (!fileId) {
+          result = [];
+          break;
+        }
+        const activeSince = new Date(Date.now() - 15_000);
+        result = await prisma.filePresence.findMany({
+          where: {
+            fileId,
+            lastSeenAt: { gte: activeSince },
+            ...(currentUserEmail ? { userEmail: { not: currentUserEmail } } : {}),
+          },
+          orderBy: { lastSeenAt: 'desc' },
         });
         break;
       }
