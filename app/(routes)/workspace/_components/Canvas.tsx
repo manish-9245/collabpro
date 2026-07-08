@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { Excalidraw, MainMenu, WelcomeScreen } from "@excalidraw/excalidraw";
 import { FILE } from '../../dashboard/_components/FileList';
-import { api, useMutation } from '@/lib/state-sync/react';
+import { api, useMutation, useQuery } from '@/lib/state-sync/react';
 import { Sparkles, Cloud, Search, Loader2, ChevronLeft, ChevronRight, Plus, Trash2, Upload, BookOpen, Link, Check, Download, Info, Globe } from 'lucide-react';
 import { toast } from 'sonner';
 import { AWS_ICONS } from './aws_icons_list';
@@ -334,6 +334,11 @@ function Canvas({
     const [whiteBoardData,setWhiteBoardData]=useState<any>();
     const [excalidrawAPI, setExcalidrawAPI] = useState<any>(null);
     const updateWhiteboard=useMutation(api.files.updateWhiteboard)
+    const upsertSharedLibraryItem = useMutation(api.sharedLibrary.upsertItem);
+    const sharedLibraryItems = useQuery(
+      api.sharedLibrary.getItems,
+      fileData?.teamId ? { teamId: fileData.teamId } : 'skip' as any
+    );
     const saveTimeoutRef=useRef<NodeJS.Timeout|null>(null);
     const lastSavedDataRef=useRef<string>("");
 
@@ -361,10 +366,11 @@ function Canvas({
     const [customLibraryUrl, setCustomLibraryUrl] = useState('');
     const [isAddLibFormOpen, setIsAddLibFormOpen] = useState(false);
     const [customLibrariesList, setCustomLibrariesList] = useState<any[]>([]);
+    const [publishingSharedLibrary, setPublishingSharedLibrary] = useState(false);
 
     // Community Catalog Browse State
     const [communityLibraries, setCommunityLibraries] = useState<any[]>([]);
-    const [libSubTab, setLibSubTab] = useState<'active' | 'browse'>('active');
+    const [libSubTab, setLibSubTab] = useState<'active' | 'browse' | 'shared'>('active');
     const [communitySearchQuery, setCommunitySearchQuery] = useState('');
     const [fetchingCommunityDir, setFetchingCommunityDir] = useState(false);
 
@@ -958,6 +964,91 @@ function Canvas({
             setSelectedLibraryId('software-architecture');
         }
         toast.success(`Removed library "${name}"`);
+    };
+
+    useEffect(() => {
+        if (!Array.isArray(sharedLibraryItems)) return;
+
+        const parsedSharedLibraries = sharedLibraryItems.reduce((acc: any[], item: any) => {
+            try {
+                const parsed = JSON.parse(item.payload || "{}");
+                const parsedItems = parsed.library
+                    ? parsed.library.map((elements: any[], index: number) => ({ elements, id: index }))
+                    : (parsed.libraryItems || []).map((entry: any, index: number) => ({
+                        elements: entry.elements,
+                        id: entry.id || index
+                    }));
+
+                if (!parsedItems.length) return acc;
+
+                acc.push({
+                    id: `shared_${item.id}`,
+                    name: item.name,
+                    description: item.description || "Shared team library",
+                    items: parsedItems,
+                    url: item.sourceUrl || "shared",
+                    author: item.author || "Team",
+                    itemNames: parsed.itemNames
+                });
+            } catch (err) {
+                console.error("Failed to parse shared library payload:", err);
+            }
+            return acc;
+        }, []);
+
+        setLoadedLibraries(prev => {
+            const withoutShared = prev.filter(lib => !String(lib.id).startsWith('shared_'));
+            return [...withoutShared, ...parsedSharedLibraries];
+        });
+    }, [sharedLibraryItems]);
+
+    const handlePublishToSharedCatalog = async () => {
+        if (!fileData?.teamId) {
+            toast.error("Team context is missing for shared library publishing.");
+            return;
+        }
+
+        const currentLib = loadedLibraries.find(l => l.id === selectedLibraryId);
+        if (!currentLib?.items?.length) {
+            toast.error("Load a library before publishing to shared catalog.");
+            return;
+        }
+
+        setPublishingSharedLibrary(true);
+        try {
+            const payload = JSON.stringify({
+                type: "excalidrawlib",
+                libraryItems: currentLib.items.map((item: any, index: number) => ({
+                    id: item.id || index,
+                    elements: item.elements
+                })),
+                itemNames: currentLib.itemNames || []
+            });
+
+            const sharedId = currentLib.id?.startsWith('shared_')
+                ? currentLib.id.replace('shared_', '')
+                : undefined;
+
+            const saved = await upsertSharedLibraryItem({
+                id: sharedId,
+                teamId: fileData.teamId,
+                name: currentLib.name,
+                description: currentLib.description || "Shared team library",
+                sourceUrl: currentLib.url || "",
+                author: currentLib.author || "Team",
+                payload
+            });
+
+            if (saved?.id) {
+                setSelectedLibraryId(`shared_${saved.id}`);
+            }
+            toast.success(`Published "${currentLib.name}" to your shared team catalog.`);
+        } catch (err) {
+            console.error(err);
+            toast.error("Failed to publish shared library.");
+        } finally {
+            setPublishingSharedLibrary(false);
+        }
     };
 
     const handleLocalLibraryUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1654,7 +1745,14 @@ function Canvas({
                     onClick={() => setLibSubTab('browse')}
                     className={`flex-1 py-1 rounded-lg transition-all text-center cursor-pointer ${libSubTab === 'browse' ? 'bg-white dark:bg-slate-700 text-[#6965db] dark:text-[#8572e3] shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'}`}
                   >
-                    Community Directory
+                    Curated Packs
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLibSubTab('shared')}
+                    className={`flex-1 py-1 rounded-lg transition-all text-center cursor-pointer ${libSubTab === 'shared' ? 'bg-white dark:bg-slate-700 text-[#6965db] dark:text-[#8572e3] shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'}`}
+                  >
+                    Shared Catalog
                   </button>
                 </div>
 
@@ -1664,13 +1762,24 @@ function Canvas({
                     <div className="space-y-1.5 shrink-0">
                       <div className="flex items-center justify-between">
                         <label className="text-[9px] font-black uppercase text-slate-500 dark:text-slate-400 tracking-wider">Select Library</label>
-                        <button
-                          type="button"
-                          onClick={() => setIsAddLibFormOpen(!isAddLibFormOpen)}
-                          className="text-[9px] font-extrabold text-[#6965db] hover:text-[#5b57c6] dark:text-[#8572e3] dark:hover:text-[#8572e3]/80 flex items-center gap-0.5 cursor-pointer"
-                        >
-                          <Plus className="h-2.5 w-2.5" /> Import Custom
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={publishingSharedLibrary}
+                            onClick={handlePublishToSharedCatalog}
+                            className="text-[9px] font-extrabold text-emerald-600 hover:text-emerald-500 dark:text-emerald-400 dark:hover:text-emerald-300 flex items-center gap-0.5 cursor-pointer disabled:opacity-60"
+                          >
+                            {publishingSharedLibrary ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Cloud className="h-2.5 w-2.5" />}
+                            Publish
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setIsAddLibFormOpen(!isAddLibFormOpen)}
+                            className="text-[9px] font-extrabold text-[#6965db] hover:text-[#5b57c6] dark:text-[#8572e3] dark:hover:text-[#8572e3]/80 flex items-center gap-0.5 cursor-pointer"
+                          >
+                            <Plus className="h-2.5 w-2.5" /> Import Custom
+                          </button>
+                        </div>
                       </div>
                       <select
                         value={selectedLibraryId}
@@ -1686,6 +1795,13 @@ function Canvas({
                           <optgroup label="Imported & Community Libraries" className="dark:bg-slate-900">
                             {customLibrariesList.map(lib => (
                               <option key={lib.id} value={lib.id}>{lib.name}</option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {Array.isArray(sharedLibraryItems) && sharedLibraryItems.length > 0 && (
+                          <optgroup label="Shared Team Catalog" className="dark:bg-slate-900">
+                            {sharedLibraryItems.map((lib: any) => (
+                              <option key={lib.id} value={`shared_${lib.id}`}>{lib.name}</option>
                             ))}
                           </optgroup>
                         )}
@@ -1858,7 +1974,7 @@ function Canvas({
                       );
                     })()}
                   </div>
-                ) : (
+                ) : libSubTab === 'browse' ? (
                   <div className="flex-1 flex flex-col min-h-0 gap-2">
                     {/* Community Directory Search Bar */}
                     <div className="relative shrink-0">
@@ -1979,6 +2095,44 @@ function Canvas({
                         </div>
                       );
                     })()}
+                  </div>
+                ) : (
+                  <div className="flex-1 flex flex-col min-h-0 gap-2">
+                    <div className="text-[8px] text-slate-400 dark:text-slate-500 font-extrabold uppercase tracking-wider px-1 flex items-center justify-between shrink-0 mb-1">
+                      <span>Shared Team Libraries ({Array.isArray(sharedLibraryItems) ? sharedLibraryItems.length : 0})</span>
+                      <span className="flex items-center gap-0.5 text-[7px] text-slate-400 dark:text-slate-500"><Cloud className="h-2 w-2" /> Syncing</span>
+                    </div>
+                    <div className="flex-1 overflow-y-auto pr-0.5 space-y-1.5 min-h-0">
+                      {!Array.isArray(sharedLibraryItems) || sharedLibraryItems.length === 0 ? (
+                        <div className="text-center p-6 border border-dashed border-slate-100 dark:border-slate-800 rounded-xl bg-slate-50/20 dark:bg-slate-800/10">
+                          <BookOpen className="h-8 w-8 text-slate-300 dark:text-slate-600 mb-1.5 mx-auto animate-pulse" />
+                          <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1 block">No shared libraries yet</span>
+                          <span className="text-[9px] text-slate-400 dark:text-slate-500 leading-normal max-w-[170px] mx-auto block text-center">
+                            Open a library in Active Libraries and click Publish to share it with your workspace.
+                          </span>
+                        </div>
+                      ) : (
+                        sharedLibraryItems.map((lib: any) => (
+                          <button
+                            key={lib.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedLibraryId(`shared_${lib.id}`);
+                              setLibSubTab('active');
+                            }}
+                            className="w-full text-left p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 hover:border-slate-200 dark:hover:border-slate-700 transition-colors cursor-pointer"
+                          >
+                            <div className="text-[10px] font-bold text-slate-800 dark:text-slate-300 leading-normal truncate">{lib.name}</div>
+                            <p className="text-[9px] text-slate-500 dark:text-slate-400 font-medium leading-normal mt-0.5 line-clamp-2">
+                              {lib.description || "Shared team library"}
+                            </p>
+                            <div className="text-[8px] text-slate-400 dark:text-slate-500 font-bold uppercase mt-1">
+                              by {lib.author || "Team"}
+                            </div>
+                          </button>
+                        ))
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

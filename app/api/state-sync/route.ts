@@ -521,6 +521,72 @@ export async function POST(request: Request) {
         });
         break;
       }
+      case 'sharedLibrary:getItems': {
+        const { teamId } = args || {};
+        if (!teamId) {
+          result = [];
+          break;
+        }
+        result = await prisma.sharedLibraryItem.findMany({
+          where: { teamId },
+          orderBy: { updatedAt: 'desc' },
+        });
+        break;
+      }
+      case 'sharedLibrary:upsertItem': {
+        const { id, teamId, name, description, sourceUrl, author, payload } = args || {};
+        if (!teamId) {
+          throw new Error("teamId is required.");
+        }
+        if (!name || typeof name !== "string") {
+          throw new Error("name is required.");
+        }
+        if (!payload || typeof payload !== "string") {
+          throw new Error("payload is required.");
+        }
+
+        const normalizedName = name.trim();
+        if (!normalizedName) {
+          throw new Error("name is required.");
+        }
+
+        let existing = null;
+        if (id) {
+          existing = await prisma.sharedLibraryItem.findFirst({
+            where: { id, teamId },
+          });
+        }
+        if (!existing) {
+          existing = await prisma.sharedLibraryItem.findFirst({
+            where: { teamId, name: normalizedName },
+          });
+        }
+
+        if (existing) {
+          result = await prisma.sharedLibraryItem.update({
+            where: { id: existing.id },
+            data: {
+              name: normalizedName,
+              description: description || "",
+              sourceUrl: sourceUrl || "",
+              author: author || "",
+              payload,
+            },
+          });
+        } else {
+          result = await prisma.sharedLibraryItem.create({
+            data: {
+              teamId,
+              name: normalizedName,
+              description: description || "",
+              sourceUrl: sourceUrl || "",
+              author: author || "",
+              payload,
+            },
+          });
+        }
+        break;
+      }
       case 'notifications:getNotifications': {
         const { userEmail } = args || {};
         result = await prisma.notification.findMany({
