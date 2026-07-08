@@ -42,7 +42,8 @@
     "sonner": "^1.4.0",
     "tailwind-merge": "^2.2.1",
     "tailwindcss-animate": "^1.0.7",
-    "ws": "^8.21.0"
+    "ws": "^8.21.0",
+    "yjs": "^13.6.31"
   },
   "devDependencies": {
     "@types/node": "^20",
