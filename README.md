@@ -52,20 +52,11 @@ CollabPro is engineered to be **completely self-contained with 100% zero externa
 
 ## 🏗️ System Architecture & Synchronization Engine
 
-CollabPro features a state-of-the-art **Hybrid Real-Time State-Sync Engine**. The workspace operates under a dual-mode communication model to deliver zero-latency updates while maintaining complete offline resiliency:
+CollabPro is engineered with a **dual-channel, stateful real-time synchronization framework** to guarantee zero-latency collaboration and complete offline resiliency. The platform operates on a **WebSocket-First** topology with an automatic **HTTP Adaptive Polling** fallback.
 
-1. **⚡ Standalone WebSocket Gateway (`ws-server`)**:
-   - Runs as a secondary high-performance gateway on Port `3001` (or customized `PORT` / `WS_PORT`).
-   - Automatically intercepts request upgrades, extracts standard browser cookies/query token variables, and authenticates the connection natively against the active session.
-   - Manages granular room subscription maps. Whenever collaborators edit documents or whiteboards, the engine fires ultra-low-latency JSON broadcasts to all active room subscribers.
-   - Supports live collaborative mouse cursor tracking on both the rich text editor and the infinite system design canvas.
-   
-2. **🔄 Adaptive Smart-Backoff Polling**:
-   - Serves as the immediate reliable fallback system if WebSocket connections are closed, blocked, or firewalled.
-   - Automatically adjusts polling frequencies from **4s (active)** to **15s (inactive)** when the browser tab is hidden/blurred or if the user is completely idle for over 1 minute (60s).
-   - Instantly resumes active 4s intervals the millisecond user activity (clicks, scrolls, typing, or mouse movement) is detected.
+---
 
-The following architecture diagram details the request lifecycles, authentication handshakes, and synchronization pathways:
+### 1. Architectural Topology Overview
 
 ```mermaid
 graph TD
@@ -112,8 +103,8 @@ graph TD
     CanvasComponent -->|Fetch AWS SVG Base64| AWS_Icons_List
 
     %% Hybrid State Sync routing
-    StateSyncClient <-->|1. Try WebSockets (Real-time)| WSGateway
-    StateSyncClient <-->|2. Fallback to HTTP Polling| SyncAPI
+    StateSyncClient <-->|"1. Try WebSockets (Real-time)"| WSGateway
+    StateSyncClient <-->|"2. Fallback to HTTP Polling"| SyncAPI
 
     WSGateway -->|Cookie / Token Handshake Auth| AuthAPI
     WSGateway <-->|Direct SQL Mutations| PrismaORM
@@ -127,6 +118,57 @@ graph TD
     style GatewayLayer fill:#f8fafc,stroke:#cbd5e1,stroke-dasharray: 5 5;
     style DataLayer fill:#f8fafc,stroke:#cbd5e1,stroke-dasharray: 5 5;
 ```
+
+---
+
+### 2. Deep-Dive: Standing Standalone WebSocket Gateway (`ws-server/`)
+
+The standalone WebSockets system (`server.ts`) is designed to run asynchronously on Port `3001`, handling low-overhead message routing independent of Next.js’s serverless or server-side routing loops:
+
+* **Secure Upgrade & Token Handshake**:
+  Upon connection upgrade (`upgrade` event), the gateway parses standard session identifiers from either the incoming `Cookie` header (`session_token`) or connection query parameters (`?token=...`). If authentication parsing fails or no matching session exists, the HTTP socket is aborted early (`401 Unauthorized`), protecting system resources against DDoS or spamming.
+* **Granular Multi-Room Multiplexing**:
+  Connected sockets are registered as `ClientConnection` models containing their parsed user profiles, active channel subscriptions (`subscriptions` map), and active workspace scopes (`joinedRooms` set). When a client joins or switches workspaces, a `join` action is emitted, isolating broad cursor/update packets to that specific `fileId` channel.
+* **Direct Database Write Flow & Room Broadcasts**:
+  To eliminate HTTP API layer overhead, standard mutations (`files:updateDocument`, `files:updateWhiteboard`) received over a socket are directly executed via the globally instanced `Prisma Client` pool. Once successfully written, the server triggers `broadcastQueryUpdateToRoom`, pulling the updated data from PostgreSQL/SQLite and broadcasting a synchronized payload back to all active subscribers in that workspace.
+* **Liveness Heartbeats**:
+  An internal heartbeat scheduler pings all active connections every 30s. Connections failing to respond to a `pong` before the next interval are automatically flagged and terminated, preventing memory bloat from dead TCP sockets.
+
+---
+
+### 3. Deep-Dive: Smart Adaptive-Backoff Polling
+
+When WebSockets are blocked (due to firewalls, VPNs, or proxy rules), the `StateSyncClient` automatically falls back to an intelligent HTTP-polling controller:
+
+```
+[Active Tab / Interaction] ────────► 4s Polling Frequency
+      │
+      ├─► Tab Blurs / Hidden ─────────► 15s Polling Frequency (Saves Network)
+      │
+      └─► User Inactive > 60s ────────► 15s Polling Frequency (Saves DB Pool)
+            │
+            └─► Real-Time Input ──────► Resumes Instantly to 4s (Zero-Latency)
+```
+
+* **Dynamic Backoff Polling Triggers**:
+  * **Default State (Active)**: Polling runs at a tight **4-second interval** to mirror near-real-time synchronization during active writing or drawing.
+  * **Tab Blur (Visibility State)**: If a user minimizes the window or navigates to a different browser tab, the controller instantly triggers a backoff to **15 seconds** to prevent unnecessary network and server-load.
+  * **Inactivity Timer**: If a tab remains visible but receives zero user interactions (mouse moves, scrolling, keyboard triggers, touch events) for more than **60 seconds**, polling shifts down to **15 seconds**.
+* **Zero-Latency Polling Resumption**:
+  The absolute split-second any local event (e.g., cursor hover, clicking, scrolling, or editing) is captured, the controller kills the active 15s timer and instantly forces a sync fetch, restoring the 4-second frequency loop.
+
+---
+
+### 4. Cache & Subscription Topology
+
+To avoid redundant server hits and network race conditions, the client relies on a global, shared state cache (`queryCache`):
+
+* **Shared Cached Map**:
+  When queries are resolved (either via WebSocket broadcast or HTTP fallback), they are keyed by their absolute reference and stringified arguments inside a global `Map`. If multiple components subscribe to the same data block, they pull from the single source-of-truth cache.
+* **Dual-Mode Sync Controller**:
+  When executing a state change (`useMutation` / `useQuery`), the client proxy first verifies WebSocket liveness. If connected, the transaction is run over a WebSocket and returned as a Promise wrapped in a local event listener (timed out after 10s if the server fails to respond). If disconnected, the transaction seamlessly routes as a standard POST payload to the server's `/api/state-sync` REST gateway.
+
+---
 
 ---
 
