@@ -1,10 +1,11 @@
 "use client"
 import React, { useEffect, useState } from 'react'
 import WorkspaceHeader from '../_components/WorkspaceHeader'
-import { api, useQuery } from '@/lib/state-sync/react';
+import { api, useMutation, useQuery } from '@/lib/state-sync/react';
 import { FILE } from '../../dashboard/_components/FileList';
 import { Loader2 } from 'lucide-react';
 import dynamic from 'next/dynamic';
+import { useSessionAuth } from '@/lib/session-auth/client';
 
 const Editor = dynamic(() => import('../_components/Editor'), { ssr: false });
 const Canvas = dynamic(() => import('../_components/Canvas'), { ssr: false });
@@ -21,9 +22,65 @@ function Workspace({params}:any) {
    const [canRedo, setCanRedo] = useState(false);
    const [undoTrigger, setUndoTrigger] = useState(0);
    const [redoTrigger, setRedoTrigger] = useState(0);
+   const { user } = useSessionAuth();
+   const upsertPresence = useMutation(api.files.upsertPresence);
+   const clearPresence = useMutation(api.files.clearPresence);
 
    // Subscribe to file updates in real-time (polls behind the scenes in mock client)
    const fileData = useQuery(api.files.getFileById, params?.fileId ? { _id: params.fileId } : 'skip' as any);
+
+   const getPresenceStatus = (): string => {
+    if (viewMode === 'document') return 'Editing document';
+    if (viewMode === 'canvas') return 'Designing canvas';
+    return activePanel === 'canvas' ? 'Collaborating on canvas' : 'Collaborating on document';
+   };
+
+   const getPresenceColor = (email: string): string => {
+    const palette = ['#2563eb', '#7c3aed', '#0ea5e9', '#14b8a6', '#f97316', '#ec4899', '#10b981', '#f59e0b'];
+    const hash = email.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    return palette[hash % palette.length];
+   };
+
+   useEffect(() => {
+    if (!params?.fileId || !user?.email) return;
+
+    const heartbeat = async () => {
+      try {
+        await upsertPresence({
+          fileId: params.fileId,
+          userEmail: user.email,
+          userName: user.given_name || user.email.split('@')[0] || 'Collaborator',
+          userImage: user.picture || '',
+          userColor: getPresenceColor(user.email),
+          workspaceStatus: getPresenceStatus(),
+        });
+      } catch (error) {
+        console.error('Failed to update presence heartbeat:', error);
+      }
+    };
+
+    heartbeat();
+    const interval = setInterval(heartbeat, 5000);
+
+    return () => {
+      clearInterval(interval);
+    };
+   }, [params?.fileId, user?.email, user?.given_name, user?.picture, viewMode, activePanel]);
+
+   useEffect(() => {
+    if (!params?.fileId || !user?.email) return;
+
+    const clearOnExit = () => {
+      clearPresence({ fileId: params.fileId, userEmail: user.email }).catch(() => {});
+    };
+
+    window.addEventListener('beforeunload', clearOnExit);
+
+    return () => {
+      window.removeEventListener('beforeunload', clearOnExit);
+      clearOnExit();
+    };
+   }, [params?.fileId, user?.email]);
 
    useEffect(() => {
      if (activePanel === 'canvas') {

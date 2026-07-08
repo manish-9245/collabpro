@@ -66,6 +66,19 @@ model FileVersion {
   createdAt      DateTime @default(now())
 }
 
+model FilePresence {
+  id              String   @id @default(uuid())
+  fileId          String
+  userEmail       String
+  userName        String
+  userImage       String   @default("")
+  userColor       String   @default("#6366f1")
+  workspaceStatus String   @default("Viewing workspace")
+  lastSeenAt      DateTime @updatedAt
+
+  @@unique([fileId, userEmail])
+}
+
 model Invitation {
   id           String   @id @default(uuid())
   teamId       String
@@ -99,4 +112,3 @@ model SharedLibraryItem {
 
   @@index([teamId, updatedAt])
 }
-
