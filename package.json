@@ -12,6 +12,8 @@
     "postinstall": "prisma generate",
     "resolve-issue": "node scripts/resolve-issue.js",
     "ws:start": "node scripts/db-prep.js && tsx ws-server/server.ts",
+    "test:showcase": "playwright test tests/showcase.spec.ts",
+    "test:showcase:ui": "playwright test tests/showcase.spec.ts --ui",
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
@@ -47,8 +49,12 @@
     "yjs": "^13.6.31"
   },
   "devDependencies": {
+<<<<<<< HEAD
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
+=======
+    "@playwright/test": "^1.61.1",
+>>>>>>> main
     "@types/node": "^20",
     "@types/pg": "^8.20.0",
     "@types/react": "^18",
