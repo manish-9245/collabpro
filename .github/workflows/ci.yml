@@ -81,21 +81,18 @@ jobs:
           path: test-results/showcase.webm
           retention-days: 7
 
-      # 9. Upload E2E Cinematic Tour Video to YouTube (Optional but highly recommended)
+      # 9. Upload E2E Cinematic Tour Video to YouTube (Robust Google APIs Script)
       - name: 🎥 Upload Cinematic Tour Video to YouTube
         id: upload_youtube
         if: success()
-        uses: fujirebio/upload-to-youtube-action@v1.1.0
-        continue-on-error: true # Continues gracefully if client credentials or refresh tokens are not set up yet
-        with:
-          client-id: ${{ secrets.YOUTUBE_CLIENT_ID }}
-          client-secret: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
-          refresh-token: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-          file: test-results/showcase.webm
-          title: "CollabPro Cinematic E2E Tour - Branch: ${{ github.ref_name }}"
-          description: "Automated E2E feature demonstration walk. Branch: ${{ github.ref_name }} | Triggered by Commit: ${{ github.sha }} - Build automated by GrahakAI"
-          privacy: "unlisted"
-          category: "28" # Science & Technology
+        continue-on-error: true # Continues gracefully if credentials or refresh tokens are not set up yet
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: node scripts/upload-youtube.js
 
       # 9.5. Run Unit Tests & Generate Coverage Report
       - name: 📈 Run Unit Tests with Coverage
