@@ -11,7 +11,8 @@
     "lint": "next lint",
     "postinstall": "prisma generate",
     "resolve-issue": "node scripts/resolve-issue.js",
-    "ws:start": "node scripts/db-prep.js && tsx ws-server/server.ts"
+    "ws:start": "node scripts/db-prep.js && tsx ws-server/server.ts",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@editorjs/checklist": "^1.6.0",
@@ -46,15 +47,21 @@
     "yjs": "^13.6.31"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^20",
     "@types/pg": "^8.20.0",
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^6.0.3",
+    "@vitest/coverage-v8": "^4.1.10",
     "autoprefixer": "^10.0.1",
+    "jsdom": "^29.1.1",
     "postcss": "^8",
     "tailwindcss": "^3.3.0",
     "tsx": "^4.23.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   }
 }

@@ -97,6 +97,10 @@ jobs:
           privacy: "unlisted"
           category: "28" # Science & Technology
 
+      # 9.5. Run Unit Tests & Generate Coverage Report
+      - name: 📈 Run Unit Tests with Coverage
+        run: npm run test:coverage
+
       # 10. SonarCloud Analysis Scan
       - name: 📡 Run SonarCloud Static Code Check
         uses: SonarSource/sonarcloud-github-action@master
