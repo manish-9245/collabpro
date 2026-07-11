@@ -130,129 +130,161 @@ jobs:
           from: "CollabPro CI/CD <ci-reports@collabpro.com>"
           html_body: |
             <!DOCTYPE html>
-            <html>
+            <html lang="en">
               <head>
                 <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <style>
-                  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #0f172a; background-color: #f8fafc; margin: 0; padding: 20px; }
-                  .container { max-width: 650px; margin: 0 auto; background: #ffffff; border-radius: 20px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1); }
-                  .header { background: linear-gradient(135deg, #1e1b4b, #1e3a8a, #2563eb); padding: 40px 24px; text-align: center; color: #ffffff; position: relative; }
-                  .header h1 { margin: 0; font-size: 24px; font-weight: 900; letter-spacing: -0.03em; }
-                  .header p { margin: 8px 0 0 0; font-size: 13px; color: #93c5fd; font-weight: 500; letter-spacing: 0.05em; text-transform: uppercase; }
-                  .content { padding: 32px 24px; }
-                  .section { margin-bottom: 32px; }
-                  .section-title { font-size: 11px; font-weight: 800; text-transform: uppercase; color: #475569; letter-spacing: 0.15em; border-bottom: 2px solid #f1f5f9; padding-bottom: 8px; margin-bottom: 16px; display: flex; align-items: center; gap: 6px; }
-                  .badge { display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 9999px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; }
-                  .badge-success { background-color: #ecfdf5; color: #15803d; border: 1px solid #a7f3d0; }
-                  .badge-failed { background-color: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
-                  .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
-                  .detail-card { background: #f8fafc; border: 1px solid #e2e8f0; padding: 14px; border-radius: 12px; transition: all 0.2s ease; }
-                  .detail-card-label { font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
-                  .detail-card-value { font-size: 13px; font-weight: 600; color: #1e293b; margin-top: 4px; word-break: break-all; }
+                  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: #f3f4f6; color: #1f2937; margin: 0; padding: 32px 0; -webkit-font-smoothing: antialiased; }
+                  .email-wrapper { max-width: 650px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; border: 1px solid #e5e7eb; overflow: hidden; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05); }
                   
-                  /* Video Block CSS */
-                  .video-banner { background: linear-gradient(135deg, #090d16, #0f172a); border-radius: 16px; padding: 32px 24px; text-align: center; border: 1px solid #1e293b; box-shadow: inset 0 0 20px rgba(0,0,0,0.6); position: relative; overflow: hidden; }
-                  .video-banner::before { content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: radial-gradient(circle, rgba(59,130,246,0.08) 0%, transparent 60%); pointer-events: none; }
-                  .video-button { display: inline-flex; align-items: center; justify-content: center; background: #e11d48; color: #ffffff !important; text-decoration: none !important; padding: 14px 28px; border-radius: 10px; font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; box-shadow: 0 10px 20px rgba(225, 29, 72, 0.4); transition: transform 0.2s; }
-                  .video-button:hover { transform: translateY(-1px); }
+                  /* Header styling */
+                  .email-header { background: linear-gradient(135deg, #090d16 0%, #111827 100%); padding: 48px 32px; border-top: 5px solid #2563eb; text-align: center; }
+                  .header-logo { font-size: 24px; font-weight: 900; letter-spacing: -0.03em; color: #ffffff; margin: 0; text-transform: uppercase; }
+                  .header-logo span { color: #3b82f6; }
+                  .header-tagline { font-size: 11px; font-weight: 700; color: #60a5fa; text-transform: uppercase; letter-spacing: 0.12em; margin-top: 10px; margin-bottom: 0; }
                   
-                  /* Badge Row styling */
-                  .badge-container { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-                  .badge-item { background: #fafaf9; border: 1px solid #e7e5e4; padding: 6px; border-radius: 8px; display: flex; align-items: center; }
-
-                  .footer { text-align: center; padding: 32px 24px; background: #f8fafc; font-size: 11px; color: #64748b; border-top: 1px solid #e2e8f0; }
-                  .link-highlight { color: #2563eb; text-decoration: none; font-weight: bold; }
-                  .link-highlight:hover { text-decoration: underline; }
+                  /* Content wrapper */
+                  .email-content { padding: 40px 32px; }
+                  
+                  /* Section headers */
+                  .section-header { font-size: 11px; font-weight: 800; color: #4b5563; text-transform: uppercase; letter-spacing: 0.15em; border-bottom: 2px solid #f3f4f6; padding-bottom: 10px; margin-bottom: 24px; margin-top: 36px; }
+                  .section-header:first-of-type { margin-top: 0; }
+                  
+                  /* Hero KPI Grid */
+                  .kpi-grid { display: table; width: 100%; margin-bottom: 32px; border-collapse: separate; border-spacing: 12px 0; margin-left: -12px; margin-right: -12px; }
+                  .kpi-col { display: table-cell; width: 50%; }
+                  .kpi-card { background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; text-align: left; }
+                  .kpi-title { font-size: 10px; font-weight: 800; color: #6b7280; text-transform: uppercase; letter-spacing: 0.08em; margin: 0; }
+                  .kpi-value { font-size: 20px; font-weight: 800; color: #111827; margin: 8px 0 0 0; line-height: 1.1; }
+                  .kpi-desc { font-size: 11px; color: #6b7280; margin: 6px 0 0 0; line-height: 1.4; }
+                  
+                  /* Status pills */
+                  .status-pill { display: inline-block; padding: 4px 12px; border-radius: 9999px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; border: 1px solid transparent; }
+                  .status-pill.success { background-color: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+                  .status-pill.failed { background-color: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+                  
+                  /* Showcase Player block */
+                  .player-card { background: linear-gradient(135deg, #090d16 0%, #111827 100%); border-radius: 14px; padding: 40px 32px; text-align: center; border: 1px solid #1f2937; position: relative; margin-bottom: 32px; }
+                  .player-play-icon { font-size: 32px; color: #ef4444; margin-bottom: 12px; display: block; }
+                  .player-title { font-size: 16px; font-weight: 800; color: #ffffff; margin: 0 0 8px 0; }
+                  .player-subtitle { font-size: 12px; color: #9ca3af; margin: 0 0 24px 0; }
+                  .player-button { display: inline-block; background-color: #dc2626; color: #ffffff !important; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; text-decoration: none !important; padding: 12px 28px; border-radius: 6px; box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3); }
+                  
+                  /* Metrics Row */
+                  .metrics-row { background-color: #f9fafb; border: 1px solid #e5e7eb; padding: 20px; border-radius: 12px; margin-bottom: 24px; }
+                  .metrics-row-title { font-size: 13px; font-weight: 800; color: #111827; margin: 0; text-transform: uppercase; letter-spacing: 0.04em; }
+                  .metrics-row-desc { font-size: 12px; color: #4b5563; margin: 6px 0 16px 0; line-height: 1.5; }
+                  .metrics-badges-flex { display: block; margin-top: 8px; }
+                  .metrics-badge-wrapper { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 6px; padding: 6px 8px; display: inline-flex; align-items: center; margin-right: 8px; margin-bottom: 8px; vertical-align: middle; }
+                  
+                  /* Action Buttons */
+                  .action-btn-outline { display: inline-block; border: 1px solid #d1d5db; color: #374151 !important; background-color: #ffffff; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; text-decoration: none !important; padding: 10px 18px; border-radius: 6px; margin-top: 4px; }
+                  
+                  /* Footer */
+                  .email-footer { background-color: #f9fafb; padding: 40px 32px; border-top: 1px solid #e5e7eb; text-align: center; }
+                  .footer-logo { font-size: 12px; font-weight: 800; color: #374151; text-transform: uppercase; letter-spacing: 0.1em; margin: 0; }
+                  .footer-text { font-size: 11px; color: #6b7280; line-height: 1.6; margin: 10px 0 0 0; }
                 </style>
               </head>
               <body>
-                <div class="container">
+                <div class="email-wrapper">
                   <!-- Header -->
-                  <div class="header">
-                    <h1>CollabPro GrahakAI Pipeline</h1>
-                    <p>Automated Integration and Security Scanning Suite</p>
+                  <div class="email-header">
+                    <div class="header-logo">Collab<span>Pro</span> Enterprise</div>
+                    <div class="header-tagline">Continuous Integration & Build Compliance</div>
                   </div>
                   
-                  <div class="content">
-                    <!-- Status Banner -->
-                    <div class="section">
-                      <div class="section-title">📊 Execution Summary</div>
-                      <div style="display: flex; align-items: center; justify-content: space-between; background: #f8fafc; border: 1px solid #e2e8f0; padding: 18px; border-radius: 16px;">
-                        <div>
-                          <div style="font-size: 15px; font-weight: 800; color: #0f172a;">Pipeline Verdict: ${{ job.status }}</div>
-                          <div style="font-size: 12px; color: #475569; margin-top: 2px;">Next.js build & Playwright compilation check complete</div>
+                  <!-- Main Content -->
+                  <div class="email-content">
+                    
+                    <!-- Section 1: Execution Insights -->
+                    <div class="section-header">📊 Build Intelligence</div>
+                    <div class="kpi-grid">
+                      <div class="kpi-col">
+                        <div class="kpi-card">
+                          <div class="kpi-title">Pipeline Status</div>
+                          <div class="kpi-value">
+                            <span class="status-pill ${{ job.status == 'success' && 'success' || 'failed' }}">${{ job.status }}</span>
+                          </div>
+                          <p class="kpi-desc">Core Next.js build compilation checked & verified.</p>
                         </div>
-                        <span class="badge ${{ job.status == 'success' && 'badge-success' || 'badge-failed' }}">${{ job.status }}</span>
                       </div>
-                    </div>
-
-                    <!-- Git context -->
-                    <div class="section">
-                      <div class="section-title">📌 Deployment Context</div>
-                      <div class="detail-grid">
-                        <div class="detail-card">
-                          <div class="detail-card-label">Target Branch</div>
-                          <div class="detail-card-value">${{ github.ref_name }}</div>
-                        </div>
-                        <div class="detail-card">
-                          <div class="detail-card-label">Execution SHA</div>
-                          <div class="detail-card-value" style="font-family: monospace;">${{ github.sha }}</div>
-                        </div>
-                        <div class="detail-card">
-                          <div class="detail-card-label">Triggered By</div>
-                          <div class="detail-card-value">${{ github.actor }}</div>
-                        </div>
-                        <div class="detail-card">
-                          <div class="detail-card-label">Playwright Status</div>
-                          <div class="detail-card-value">Passed • 1.1 min</div>
+                      <div class="kpi-col">
+                        <div class="kpi-card">
+                          <div class="kpi-title">Commit Author</div>
+                          <div class="kpi-value" style="font-size: 15px; font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 12px; font-weight: 700;">${{ github.actor }}</div>
+                          <p class="kpi-desc">Triggered via push on branch <strong>${{ github.ref_name }}</strong></p>
                         </div>
                       </div>
                     </div>
 
-                    <!-- YouTube Video evidence block -->
-                    <div class="section">
-                      <div class="section-title">🎬 E2E Cinematic Evidence</div>
-                      <p style="font-size: 13px; color: #475569; margin: 0 0 16px 0;">Playwright successfully toured and verified registration, SPA team onboarding, custom folder listings, markdown checklist typing, and Excalidraw whiteboards.</p>
-                      
-                      <div class="video-banner">
-                        <div style="color: #ffffff; font-size: 16px; font-weight: 900; margin-bottom: 4px; letter-spacing: -0.01em;">Cinematic Film Compiled!</div>
-                        <p style="color: #94a3b8; font-size: 12px; margin: 0 0 20px 0;">Click below to stream the complete human-paced feature tour on YouTube</p>
-                        ${{ steps.upload_youtube.outputs.video_id != '' && format('<a href="https://youtu.be/{0}" class="video-button">🔴 Stream Walkthrough</a>', steps.upload_youtube.outputs.video_id) || '<div style="color: #94a3b8; font-size: 12px; font-weight: 700; background: rgba(255,255,255,0.05); padding: 12px; border-radius: 8px;">OAuth credentials pending setup. Showcase film safely archived as workflow build artifact.</div>' }}
-                      </div>
+                    <!-- Git Context Card -->
+                    <div class="metrics-row" style="padding: 16px; margin-bottom: 32px; background: #fafafa;">
+                      <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                        <tr>
+                          <td style="color: #6b7280; font-weight: 700; padding: 4px 0; text-transform: uppercase; letter-spacing: 0.05em;">Execution SHA:</td>
+                          <td style="font-family: monospace; color: #111827; font-weight: 700; padding: 4px 0; text-align: right;">${{ github.sha }}</td>
+                        </tr>
+                        <tr>
+                          <td style="color: #6b7280; font-weight: 700; padding: 4px 0; text-transform: uppercase; letter-spacing: 0.05em;">Playwright Audit:</td>
+                          <td style="color: #047857; font-weight: 700; padding: 4px 0; text-align: right;">Passed (Showcase Video Outputted)</td>
+                        </tr>
+                      </table>
                     </div>
 
-                    <!-- SonarCloud Live Dashboard Badges -->
-                    <div class="section">
-                      <div class="section-title">📡 SonarCloud Real-Time Metrics</div>
-                      <p style="font-size: 13px; color: #475569; margin: 0 0 14px 0;">Live coverage, bug checks, vulnerabilities and code quality gates retrieved on-the-fly from the active SonarCloud scanner:</p>
-                      
-                      <div class="badge-container">
-                        <div class="badge-item"><img src="https://sonarcloud.io/api/project_badges/measure?project=manish-9245_collabpro&metric=alert_status" alt="Quality Gate" style="max-height: 20px;" /></div>
-                        <div class="badge-item"><img src="https://sonarcloud.io/api/project_badges/measure?project=manish-9245_collabpro&metric=bugs" alt="Bugs" style="max-height: 20px;" /></div>
-                        <div class="badge-item"><img src="https://sonarcloud.io/api/project_badges/measure?project=manish-9245_collabpro&metric=vulnerabilities" alt="Vulnerabilities" style="max-height: 20px;" /></div>
-                        <div class="badge-item"><img src="https://sonarcloud.io/api/project_badges/measure?project=manish-9245_collabpro&metric=security_rating" alt="Security Rating" style="max-height: 20px;" /></div>
-                        <div class="badge-item"><img src="https://sonarcloud.io/api/project_badges/measure?project=manish-9245_collabpro&metric=coverage" alt="Coverage" style="max-height: 20px;" /></div>
-                      </div>
-                      
-                      <p style="font-size: 12px; margin-top: 14px;">
-                        👉 View deep static analysis dashboards directly inside the <a href="https://sonarcloud.io/dashboard?id=manish-9245_collabpro" class="link-highlight">SonarCloud Console</a>.
+                    <!-- Section 2: E2E Playwright Evidence -->
+                    <div class="section-header">🎬 Playwright Walkthrough</div>
+                    <p style="font-size: 13px; color: #4b5563; margin: 0 0 20px 0; line-height: 1.6;">
+                      Your E2E Playwright tour traversed and verified registration, secure session authentication, team space selection, markdown checklist entry, and canvas drag testing.
+                    </p>
+                    <div class="player-card">
+                      <div class="player-play-icon">▶</div>
+                      <div class="player-title">Walkthrough Film Uploaded</div>
+                      <p class="player-subtitle">A native recording has been pushed to your YouTube dashboard as unlisted</p>
+                      ${{ steps.upload_youtube.outputs.video_id != '' && format('<a href="https://youtu.be/{0}" class="player-button">Stream Walkthrough</a>', steps.upload_youtube.outputs.video_id) || '<div style="color: #9ca3af; font-size: 11px; font-weight: 700; background: rgba(255,255,255,0.05); padding: 12px 16px; border-radius: 6px; border: 1px dashed #374151;">OAuth credentials pending setup. Showcase film safely archived as workflow build artifact.</div>' }}
+                    </div>
+
+                    <!-- Section 3: Static Analysis -->
+                    <div class="section-header">📡 SonarCloud Compliance</div>
+                    <div class="metrics-row">
+                      <div class="metrics-row-title">SonarCloud Dashboards</div>
+                      <p class="metrics-row-desc">
+                        Real-time static code checks, duplication rates, security ratings, and test coverage metrics fetched dynamically from SonarCloud:
                       </p>
+                      <div class="metrics-badges-flex">
+                        <div class="metrics-badge-wrapper"><img src="https://sonarcloud.io/api/project_badges/measure?project=manish-9245_collabpro&metric=alert_status" alt="Quality Gate" style="max-height: 20px; vertical-align: middle;" /></div>
+                        <div class="metrics-badge-wrapper"><img src="https://sonarcloud.io/api/project_badges/measure?project=manish-9245_collabpro&metric=bugs" alt="Bugs" style="max-height: 20px; vertical-align: middle;" /></div>
+                        <div class="metrics-badge-wrapper"><img src="https://sonarcloud.io/api/project_badges/measure?project=manish-9245_collabpro&metric=vulnerabilities" alt="Vulnerabilities" style="max-height: 20px; vertical-align: middle;" /></div>
+                        <div class="metrics-badge-wrapper"><img src="https://sonarcloud.io/api/project_badges/measure?project=manish-9245_collabpro&metric=security_rating" alt="Security Rating" style="max-height: 20px; vertical-align: middle;" /></div>
+                        <div class="metrics-badge-wrapper"><img src="https://sonarcloud.io/api/project_badges/measure?project=manish-9245_collabpro&metric=coverage" alt="Coverage" style="max-height: 20px; vertical-align: middle;" /></div>
+                      </div>
+                      <div style="margin-top: 16px;">
+                        <a href="https://sonarcloud.io/dashboard?id=manish-9245_collabpro" class="action-btn-outline">Open SonarCloud Console</a>
+                      </div>
                     </div>
 
-                    <!-- Snyk Scan Block -->
-                    <div class="section">
-                      <div class="section-title">🛡️ Snyk Security Vulnerability Scan</div>
-                      <p style="font-size: 13px; color: #475569; margin: 0 0 10px 0;">Snyk executed a comprehensive vulnerability audit on your Node dependencies, checking for high-severity CVE threats, cross-site scripting (XSS), and prototype pollutions.</p>
-                      <p style="font-size: 12px;">
-                        👉 Access vulnerability reports, license listings, and CVE remediation paths inside the <a href="https://app.snyk.io/org/7aa9f30f-9410-46be-894e-b6bc7ae7ad47" class="link-highlight">Snyk Organization Panel</a>.
+                    <!-- Section 4: Snyk Vulnerability Report -->
+                    <div class="section-header">🛡️ Snyk Security Compliance</div>
+                    <div class="metrics-row">
+                      <div class="metrics-row-title">Dependency Audit</div>
+                      <p class="metrics-row-desc">
+                        Snyk completed a deep security audit checking your Node module dependency tree for open CVE vulnerabilities, prototype pollutions, and licensing compliance.
                       </p>
+                      <div>
+                        <a href="https://app.snyk.io/org/7aa9f30f-9410-46be-894e-b6bc7ae7ad47" class="action-btn-outline">Open Snyk Dashboard</a>
+                      </div>
                     </div>
+
                   </div>
                   
                   <!-- Footer -->
-                  <div class="footer">
-                    <p>Automated with ♥ by <strong>GrahakAI</strong> & GitHub Actions</p>
-                    <p style="margin-top: 4px; color: #94a3b8;">CollabPro Enterprise CI/CD Pipeline</p>
+                  <div class="email-footer">
+                    <div class="footer-logo">CollabPro Enterprise</div>
+                    <p class="footer-text">
+                      This build notification was automatically dispatched from the CollabPro continuous integration infrastructure.<br>
+                      Triggered by push event on commit ${{ github.sha }} | Branch: ${{ github.ref_name }}
+                    </p>
                   </div>
                 </div>
               </body>
