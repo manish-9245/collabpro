@@ -108,12 +108,19 @@ jobs:
 
       # 11. Snyk Security Vulnerability Scan
       - name: 🛡️ Run Snyk Security Scan
-        uses: snyk/actions/node@master
         continue-on-error: true # Avoid blocking the notify pipeline for non-blocking security alerts
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        with:
-          args: --severity-threshold=high --org=${{ secrets.SNYK_ORG_ID }}
+        run: npx snyk test --json --severity-threshold=high --org=${{ secrets.SNYK_ORG_ID }} > snyk_report.json || true
+
+      # 11.5. Parse Discovered Insights from Sonar and Snyk
+      - name: 🔍 Parse Discovered Scan Insights
+        id: parse_insights
+        if: always()
+        continue-on-error: true
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: node scripts/parse-insights.js
 
       # 12. Send well-formatted testing summary email to user
       - name: ✉️ Send Testing Evidence Summary Email
@@ -247,34 +254,11 @@ jobs:
 
                     <!-- Section 3: Static Analysis -->
                     <div class="section-header">📡 SonarCloud Compliance</div>
-                    <div class="metrics-row">
-                      <div class="metrics-row-title">SonarCloud Dashboards</div>
-                      <p class="metrics-row-desc">
-                        Real-time static code checks, duplication rates, security ratings, and test coverage metrics fetched dynamically from SonarCloud:
-                      </p>
-                      <div class="metrics-badges-flex">
-                        <div class="metrics-badge-wrapper"><img src="https://sonarcloud.io/api/project_badges/measure?project=manish-9245_collabpro&metric=alert_status" alt="Quality Gate" style="max-height: 20px; vertical-align: middle;" /></div>
-                        <div class="metrics-badge-wrapper"><img src="https://sonarcloud.io/api/project_badges/measure?project=manish-9245_collabpro&metric=bugs" alt="Bugs" style="max-height: 20px; vertical-align: middle;" /></div>
-                        <div class="metrics-badge-wrapper"><img src="https://sonarcloud.io/api/project_badges/measure?project=manish-9245_collabpro&metric=vulnerabilities" alt="Vulnerabilities" style="max-height: 20px; vertical-align: middle;" /></div>
-                        <div class="metrics-badge-wrapper"><img src="https://sonarcloud.io/api/project_badges/measure?project=manish-9245_collabpro&metric=security_rating" alt="Security Rating" style="max-height: 20px; vertical-align: middle;" /></div>
-                        <div class="metrics-badge-wrapper"><img src="https://sonarcloud.io/api/project_badges/measure?project=manish-9245_collabpro&metric=coverage" alt="Coverage" style="max-height: 20px; vertical-align: middle;" /></div>
-                      </div>
-                      <div style="margin-top: 16px;">
-                        <a href="https://sonarcloud.io/dashboard?id=manish-9245_collabpro" class="action-btn-outline">Open SonarCloud Console</a>
-                      </div>
-                    </div>
+                    ${{ steps.parse_insights.outputs.sonar_insights }}
 
                     <!-- Section 4: Snyk Vulnerability Report -->
                     <div class="section-header">🛡️ Snyk Security Compliance</div>
-                    <div class="metrics-row">
-                      <div class="metrics-row-title">Dependency Audit</div>
-                      <p class="metrics-row-desc">
-                        Snyk completed a deep security audit checking your Node module dependency tree for open CVE vulnerabilities, prototype pollutions, and licensing compliance.
-                      </p>
-                      <div>
-                        <a href="https://app.snyk.io/org/7aa9f30f-9410-46be-894e-b6bc7ae7ad47" class="action-btn-outline">Open Snyk Dashboard</a>
-                      </div>
-                    </div>
+                    ${{ steps.parse_insights.outputs.snyk_insights }}
 
                   </div>
                   
