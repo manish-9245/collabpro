@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { getServerSession } from '@/lib/session-auth/server';
 import { decodeCrdtState } from '@/lib/crdt';
 import { verifyApiKey } from '@/lib/api-key-middleware';
+import { validateAndSanitizeWhiteboardElements } from '@/lib/canvas-validation';
 
 function extractTextFromWhiteboard(whiteboard: string | null | undefined): string {
   if (!whiteboard) return "";
@@ -144,6 +145,8 @@ function mergeWhiteboardById(currentElements: any[], incomingElements: any[]): a
 
   return ordered.map((key) => merged.get(key)).filter(Boolean);
 }
+
+
 
 export async function POST(request: Request) {
   try {
@@ -677,7 +680,7 @@ export async function POST(request: Request) {
 
         const strategy: ConflictStrategy = ['reject', 'merge', 'overwrite'].includes(conflictStrategy) ? conflictStrategy : 'merge';
         const hasBase = baseWhiteboard !== undefined;
-        const normalizedIncomingElements = asWhiteboardElements(whiteboard);
+        const normalizedIncomingElements = validateAndSanitizeWhiteboardElements(asWhiteboardElements(whiteboard));
         const incomingWhiteboardString = asJsonString(normalizedIncomingElements);
         const normalizedBaseString = hasBase ? asJsonString(asWhiteboardElements(baseWhiteboard)) : undefined;
 
