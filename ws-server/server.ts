@@ -1,8 +1,10 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer } from 'http';
 import { prisma } from '../lib/db';
+import Redis from 'ioredis';
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : (process.env.WS_PORT ? parseInt(process.env.WS_PORT, 10) : 3001);
+const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 
 interface ClientConnection {
   ws: WebSocket;
@@ -19,6 +21,116 @@ interface ClientConnection {
 
 const activeConnections = new Set<ClientConnection>();
 
+// Setup horizontal scaling via Resilient Redis Pub/Sub
+let pubClient: Redis | null = null;
+let subClient: Redis | null = null;
+let isRedisAvailable = false;
+
+try {
+  pubClient = new Redis(REDIS_URL, {
+    maxRetriesPerRequest: 1,
+    connectTimeout: 1000,
+    lazyConnect: true,
+  });
+
+  subClient = new Redis(REDIS_URL, {
+    maxRetriesPerRequest: 1,
+    connectTimeout: 1000,
+    lazyConnect: true,
+  });
+
+  // Gracefully handle connection offline states to prevent crashing or performance bottlenecks
+  pubClient.on('error', (err) => {
+    isRedisAvailable = false;
+  });
+  subClient.on('error', (err) => {
+    isRedisAvailable = false;
+  });
+
+  pubClient.on('connect', () => {
+    isRedisAvailable = true;
+    console.log('📡 [Redis Pub/Sub] Pub client connected successfully');
+  });
+
+  subClient.on('connect', () => {
+    console.log('📡 [Redis Pub/Sub] Sub client connected successfully');
+    subClient?.subscribe('collabpro:channel:canvas').catch(() => {});
+  });
+
+  subClient.on('message', (channel, messageStr) => {
+    if (channel === 'collabpro:channel:canvas') {
+      try {
+        const parsed = JSON.parse(messageStr);
+        const { type, fileId, senderEmail, payload } = parsed;
+
+        activeConnections.forEach((conn) => {
+          if (conn.user.email !== senderEmail && conn.joinedRooms.has(fileId)) {
+            conn.ws.send(JSON.stringify(payload));
+          }
+        });
+      } catch (err: any) {
+        // Silent catch
+      }
+    }
+  });
+
+  // Trigger lazy connections
+  pubClient.connect().catch(() => { isRedisAvailable = false; });
+  subClient.connect().catch(() => {});
+
+} catch (err: any) {
+  console.warn('⚠️ [Redis Pub/Sub Warning] Operating in standalone memory mode:', err.message);
+}
+
+// Keep track of pending database writes in memory (Write-Back Cache Layer)
+interface PendingWrite {
+  timer: NodeJS.Timeout;
+  document?: string;
+  whiteboard?: string;
+  fileName?: string;
+}
+const pendingWrites = new Map<string, PendingWrite>();
+
+// Debounced database write-back commit queue helper
+function queueDbWrite(fileId: string, type: 'document' | 'whiteboard' | 'fileName', value: string, executeSave: () => Promise<any>) {
+  if (pendingWrites.has(fileId)) {
+    const existing = pendingWrites.get(fileId)!;
+    clearTimeout(existing.timer);
+
+    if (type === 'document') existing.document = value;
+    if (type === 'whiteboard') existing.whiteboard = value;
+    if (type === 'fileName') existing.fileName = value;
+
+    existing.timer = setTimeout(async () => {
+      try {
+        await executeSave();
+        pendingWrites.delete(fileId);
+        console.log(`💾 [Debounced DB Commit] Batched changes flushed to PostgreSQL for file: ${fileId}`);
+      } catch (err: any) {
+        console.error(`❌ [Debounced DB Commit Error] Failed flushing updates for file ${fileId}:`, err.message);
+      }
+    }, 2000); // 2-second throttle delay
+  } else {
+    const writeRecord: PendingWrite = {
+      timer: setTimeout(async () => {
+        try {
+          await executeSave();
+          pendingWrites.delete(fileId);
+          console.log(`💾 [Debounced DB Commit] Batched changes flushed to PostgreSQL for file: ${fileId}`);
+        } catch (err: any) {
+          console.error(`❌ [Debounced DB Commit Error] Failed flushing updates for file ${fileId}:`, err.message);
+        }
+      }, 2000)
+    };
+
+    if (type === 'document') writeRecord.document = value;
+    if (type === 'whiteboard') writeRecord.whiteboard = value;
+    if (type === 'fileName') writeRecord.fileName = value;
+
+    pendingWrites.set(fileId, writeRecord);
+  }
+}
+
 const server = createServer((req, res) => {
   if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -34,7 +146,6 @@ const wss = new WebSocketServer({ noServer: true });
 // Handle standard cookie and query parameter parsing for secure auth
 function authenticateRequest(req: any): any {
   try {
-    // 1. Check query parameters
     const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
     const tokenQuery = url.searchParams.get('token');
     if (tokenQuery) {
@@ -42,7 +153,6 @@ function authenticateRequest(req: any): any {
       return JSON.parse(decoded);
     }
 
-    // 2. Check Cookie header
     const cookieHeader = req.headers.cookie || '';
     const cookies: Record<string, string> = {};
     cookieHeader.split(';').forEach((cookieStr: string) => {
@@ -113,7 +223,7 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
         case 'cursor': {
           const { fileId, x, y, name, color, isCanvas } = message;
           if (fileId) {
-            const broadcastPayload = JSON.stringify({
+            const cursorPayload = {
               type: 'cursor-update',
               fileId,
               email: user.email,
@@ -123,13 +233,24 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
               y,
               isCanvas: !!isCanvas,
               updatedAt: Date.now()
-            });
+            };
 
+            // 1. Broadcast locally
             activeConnections.forEach((conn) => {
               if (conn !== connection && conn.joinedRooms.has(fileId)) {
-                conn.ws.send(broadcastPayload);
+                conn.ws.send(JSON.stringify(cursorPayload));
               }
             });
+
+            // 2. Publish to Redis for horizontal scale
+            if (pubClient && isRedisAvailable) {
+              pubClient.publish('collabpro:channel:canvas', JSON.stringify({
+                type: 'cursor',
+                fileId,
+                senderEmail: user.email,
+                payload: cursorPayload
+              })).catch(() => {});
+            }
           }
           break;
         }
@@ -150,7 +271,6 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
           connection.subscriptions.set(subKey, { path, args });
           console.log(`[WS SUB] User ${user.email} subscribed to: ${subKey}`);
 
-          // Initial data fetch
           const initialData = await executeQuery(path, args);
           ws.send(JSON.stringify({ type: 'query-update', path, args, data: initialData }));
           break;
@@ -167,15 +287,31 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
         case 'mutation': {
           const { path, args, fileId } = message;
           console.log(`[WS MUTATION] Executing mutation "${path}" for fileId "${fileId}"`);
-          
+
           try {
             const result = await executeMutation(path, args);
             ws.send(JSON.stringify({ type: 'mutation-result', path, success: true, data: result }));
 
-            // If it is a file-scoped mutation, trigger real-time broad update to the room
             const targetRoom = fileId || args?._id || args?.fileId;
             if (targetRoom) {
+              // 1. Broadcast locally
               await broadcastQueryUpdateToRoom(targetRoom, 'files:getFileById');
+
+              // 2. Publish to Redis for cluster updates
+              if (pubClient && isRedisAvailable) {
+                const updatedData = await executeQuery('files:getFileById', { _id: targetRoom });
+                pubClient.publish('collabpro:channel:canvas', JSON.stringify({
+                  type: 'mutation-update',
+                  fileId: targetRoom,
+                  senderEmail: user.email,
+                  payload: {
+                    type: 'query-update',
+                    path: 'files:getFileById',
+                    args: { _id: targetRoom },
+                    data: updatedData,
+                  }
+                })).catch(() => {});
+              }
             }
           } catch (err: any) {
             console.error(`[WS MUTATION ERROR] Mutation failed:`, err);
@@ -204,7 +340,6 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
   });
 });
 
-// Periodic heartbeat to clean up dead sockets
 const heartbeatInterval = setInterval(() => {
   activeConnections.forEach((conn) => {
     if (!conn.isAlive) {
@@ -222,15 +357,24 @@ wss.on('close', () => {
   clearInterval(heartbeatInterval);
 });
 
-// Helper to execute read queries against Prisma database
 async function executeQuery(path: string, args: any): Promise<any> {
   try {
     switch (path) {
       case 'files:getFileById': {
         const { _id } = args || {};
+
+        const pending = pendingWrites.get(_id);
+
         const file = await prisma.file.findUnique({
           where: { id: _id },
         });
+
+        if (file) {
+          if (pending?.document !== undefined) file.document = pending.document;
+          if (pending?.whiteboard !== undefined) file.whiteboard = pending.whiteboard;
+          if (pending?.fileName !== undefined) file.fileName = pending.fileName;
+        }
+
         return mapConvexIds(file);
       }
       default:
@@ -243,39 +387,49 @@ async function executeQuery(path: string, args: any): Promise<any> {
   }
 }
 
-// Helper to execute state-sync mutations against Prisma database
 async function executeMutation(path: string, args: any): Promise<any> {
   switch (path) {
     case 'files:updateDocument': {
       const { _id, document } = args || {};
-      const file = await prisma.file.update({
-        where: { id: _id },
-        data: { document },
+
+      queueDbWrite(_id, 'document', document, async () => {
+        return prisma.file.update({
+          where: { id: _id },
+          data: { document },
+        });
       });
-      return mapConvexIds(file);
+
+      return { id: _id, document, _id };
     }
     case 'files:updateWhiteboard': {
       const { _id, whiteboard } = args || {};
-      const file = await prisma.file.update({
-        where: { id: _id },
-        data: { whiteboard },
+
+      queueDbWrite(_id, 'whiteboard', whiteboard, async () => {
+        return prisma.file.update({
+          where: { id: _id },
+          data: { whiteboard },
+        });
       });
-      return mapConvexIds(file);
+
+      return { id: _id, whiteboard, _id };
     }
     case 'files:updateFileName': {
       const { _id, fileName } = args || {};
-      const file = await prisma.file.update({
-        where: { id: _id },
-        data: { fileName },
+
+      queueDbWrite(_id, 'fileName', fileName, async () => {
+        return prisma.file.update({
+          where: { id: _id },
+          data: { fileName },
+        });
       });
-      return mapConvexIds(file);
+
+      return { id: _id, fileName, _id };
     }
     default:
       throw new Error(`Unsupported or unoptimized mutation over WebSocket: ${path}`);
   }
 }
 
-// Broadcast updated query values to all clients in a specific fileId room
 async function broadcastQueryUpdateToRoom(fileId: string, queryPath: string) {
   const updatedData = await executeQuery(queryPath, { _id: fileId });
   const payload = JSON.stringify({
@@ -299,7 +453,6 @@ async function broadcastQueryUpdateToRoom(fileId: string, queryPath: string) {
   console.log(`[WS BROADCAST] Pushed query update "${queryPath}" for room "${fileId}" to ${recipientCount} subscribers.`);
 }
 
-// Utility mapper to match convex-like schema shape expected by the frontend
 function mapConvexIds(obj: any): any {
   if (!obj) return obj;
   if (Array.isArray(obj)) {
@@ -307,7 +460,7 @@ function mapConvexIds(obj: any): any {
   }
   if (typeof obj === 'object') {
     if (obj instanceof Date) return obj.toISOString();
-    
+
     const newObj: any = {};
     for (const key of Object.getOwnPropertyNames(obj)) {
       newObj[key] = mapConvexIds(obj[key]);
