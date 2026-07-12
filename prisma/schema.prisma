@@ -131,6 +131,7 @@ model SharedLink {
   role         String    @default("viewer") // "viewer", "commenter", "editor"
   passwordHash String?   // optional password protection
   expiresAt    DateTime? // optional expiration date
+  isActive     Boolean   @default(true)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
