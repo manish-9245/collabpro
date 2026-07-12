@@ -4,6 +4,7 @@ import { getServerSession } from '@/lib/session-auth/server';
 import { decodeCrdtState } from '@/lib/crdt';
 import { verifyApiKey } from '@/lib/api-key-middleware';
 import { validateAndSanitizeWhiteboardElements } from '@/lib/canvas-validation';
+import { getCachedFile, invalidateCachedFile } from '@/lib/redis-cache';
 
 function extractTextFromWhiteboard(whiteboard: string | null | undefined): string {
   if (!whiteboard) return "";
@@ -660,9 +661,7 @@ export async function POST(request: Request) {
       }
       case 'files:getFileById': {
         const { _id } = args || {};
-        result = await prisma.file.findUnique({
-          where: { id: _id },
-        });
+        result = _id ? await getCachedFile(_id) : null;
         break;
       }
       case 'files:createFile': {
@@ -687,6 +686,9 @@ export async function POST(request: Request) {
           where: { id: _id },
           data: { document },
         });
+        if (_id) {
+          await invalidateCachedFile(_id);
+        }
         break;
       }
       case 'files:updateWhiteboard': {
@@ -698,6 +700,9 @@ export async function POST(request: Request) {
             whiteboardText: extractTextFromWhiteboard(whiteboard),
           },
         });
+        if (_id) {
+          await invalidateCachedFile(_id);
+        }
         break;
       }
       case 'collabpro_update_document': {
@@ -760,6 +765,7 @@ export async function POST(request: Request) {
           });
 
           if (updated.count === 1) {
+            await invalidateCachedFile(targetFileId);
             result = {
               updated: true,
               conflict: conflictDetected,
@@ -840,6 +846,7 @@ export async function POST(request: Request) {
           });
 
           if (updated.count === 1) {
+            await invalidateCachedFile(targetFileId);
             result = {
               updated: true,
               conflict: conflictDetected,
@@ -862,6 +869,9 @@ export async function POST(request: Request) {
           where: { id: _id },
           data: { fileName },
         });
+        if (_id) {
+          await invalidateCachedFile(_id);
+        }
         break;
       }
       case 'files:updateFileFolder': {
@@ -870,6 +880,9 @@ export async function POST(request: Request) {
           where: { id: _id },
           data: { folder: folder || null },
         });
+        if (_id) {
+          await invalidateCachedFile(_id);
+        }
         break;
       }
       case 'files:archiveFile': {
@@ -878,6 +891,9 @@ export async function POST(request: Request) {
           where: { id: _id },
           data: { archive },
         });
+        if (_id) {
+          await invalidateCachedFile(_id);
+        }
         break;
       }
       case 'files:deleteFile': {
@@ -897,6 +913,9 @@ export async function POST(request: Request) {
         result = await prisma.file.delete({
           where: { id: _id },
         });
+        if (_id) {
+          await invalidateCachedFile(_id);
+        }
         break;
       }
       case 'files:createVersion': {
@@ -946,7 +965,6 @@ export async function POST(request: Request) {
           throw new Error("Version not found");
         }
         
-        // Update active file with version state
         result = await prisma.file.update({
           where: { id: version.fileId },
           data: {
@@ -955,6 +973,9 @@ export async function POST(request: Request) {
             whiteboardText: extractTextFromWhiteboard(version.whiteboard),
           },
         });
+        if (version.fileId) {
+          await invalidateCachedFile(version.fileId);
+        }
         break;
       }
       case 'files:updateVersionNote': {
