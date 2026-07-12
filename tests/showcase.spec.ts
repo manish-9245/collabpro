@@ -39,10 +39,10 @@ const SCENARIO_CONFIG = {
   data: {
     teamName: 'Engineering Core',
     fileName: 'AWS System Design Blueprint',
-    renamedFileName: 'AWS Architecture Model - GrahakAI Spec',
-    folderName: 'Architecture-GrahakAI',
+    renamedFileName: 'AWS Architecture Model - CollabPro Spec',
+    folderName: 'Architecture-CollabPro',
     iconSearchTerm: 'ECS',
-    editorHeadline: '# GrahakAI System Architecture Blueprint',
+    editorHeadline: '# CollabPro System Architecture Blueprint',
     checklistTasks: [
       'Provision AWS ECS Fargate clusters',
       'Set up state-sync websocket endpoints (Port 3001)'
@@ -65,9 +65,12 @@ test.describe('CollabPro Complete Feature Tour & Demonstration', () => {
   
   // Track unique credentials to cascade delete them during teardown
   const uniqueTimestamp = Date.now();
-  const testEmail = `grahakai_${uniqueTimestamp}@collabpro.com`;
+  const testEmail = `collabpro_${uniqueTimestamp}@collabpro.com`;
 
   test('Execute all features sequentially, export video, and clean database', async ({ page }) => {
+    page.on('console', msg => console.log(`[BROWSER LOG] ${msg.type()}: ${msg.text()}`));
+    page.on('pageerror', err => console.error(`[BROWSER EXCEPTION]: ${err.stack || err.message}`));
+
     // Extend timeout for this comprehensive test run to 4 minutes (240000ms)
     test.setTimeout(240000);
 
@@ -98,7 +101,7 @@ test.describe('CollabPro Complete Feature Tour & Demonstration', () => {
     await page.goto(SCENARIO_CONFIG.paths.register);
     await scenePause();
 
-    await slowType(SCENARIO_CONFIG.selectors.nameInput, 'GrahakAI Engineer');
+    await slowType(SCENARIO_CONFIG.selectors.nameInput, 'CollabPro Engineer');
     await slowType(SCENARIO_CONFIG.selectors.emailInput, testEmail);
     await slowType(SCENARIO_CONFIG.selectors.passwordInput, 'SecurePassword123!');
     
@@ -138,8 +141,10 @@ test.describe('CollabPro Complete Feature Tour & Demonstration', () => {
     // SCENE 2: Directory Folder Tree Navigation & New File
     // ----------------------------------------------------
     console.log('🎬 Scene 2: Creating File under a Folder...');
+    const newFileBtnLocator = page.locator(SCENARIO_CONFIG.selectors.newFileBtn);
+    await newFileBtnLocator.waitFor({ state: 'visible', timeout: 15000 });
     await hoverAndDelay(SCENARIO_CONFIG.selectors.newFileBtn);
-    await page.locator(SCENARIO_CONFIG.selectors.newFileBtn).click();
+    await newFileBtnLocator.click();
     await page.waitForTimeout(1000);
 
     await slowType(SCENARIO_CONFIG.selectors.fileInput, SCENARIO_CONFIG.data.fileName);

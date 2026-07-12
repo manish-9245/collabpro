@@ -479,5 +479,5 @@ function mapConvexIds(obj: any): any {
 }
 
 server.listen(PORT, () => {
-  console.log(`[GrahakAI WS SERVER] Standalone WebSocket Gateway running on http://localhost:${PORT}`);
+  console.log(`[CollabPro WS SERVER] Standalone WebSocket Gateway running on http://localhost:${PORT}`);
 });

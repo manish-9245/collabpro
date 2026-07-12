@@ -64,7 +64,7 @@ async function upload() {
     ? `\n\nVerified Functionalities:\n${testedFeatures.map(f => `- ${f}`).join('\n')}` 
     : '';
 
-  const dynamicDescription = `Automated E2E feature demonstration walk. Triggered by Commit: ${process.env.GITHUB_SHA || 'unknown'} - Build automated by GrahakAI.${featuresText}`;
+  const dynamicDescription = `Automated E2E feature demonstration walk. Triggered by Commit: ${process.env.GITHUB_SHA || 'unknown'} - Build automated by CollabPro.${featuresText}`;
 
   const res = await youtube.videos.insert({
     part: 'id,snippet,status',
