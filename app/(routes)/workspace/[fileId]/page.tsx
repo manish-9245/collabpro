@@ -12,6 +12,8 @@ const Editor = dynamic(() => import('../_components/Editor'), { ssr: false });
 const Canvas = dynamic(() => import('../_components/Canvas'), { ssr: false });
 
 function Workspace({params}:any) {
+   const resolvedParams: any = React.use(params);
+   const fileId = resolvedParams?.fileId;
    const [triggerSave,setTriggerSave]=useState(false);
    const [viewMode,setViewMode]=useState<'both'|'document'|'canvas'>('both');
    const [savingStatus,setSavingStatus]=useState<'idle'|'saving'|'saved'>('idle');
@@ -43,7 +45,7 @@ function Workspace({params}:any) {
    const clearPresence = useMutation(api.files.clearPresence);
 
    // Subscribe to file updates in real-time (polls behind the scenes in mock client)
-   const fileData = useQuery(api.files.getFileById, params?.fileId ? { _id: params.fileId } : 'skip' as any);
+   const fileData = useQuery(api.files.getFileById, fileId ? { _id: fileId } : 'skip' as any);
 
    const getPresenceStatus = (): string => {
     if (viewMode === 'document') return 'Editing document';
@@ -72,45 +74,45 @@ function Workspace({params}:any) {
    };
 
    useEffect(() => {
-    if (!params?.fileId || !user?.email) return;
+     if (!fileId || !user?.email) return;
 
-    const heartbeat = async () => {
-      try {
-        await upsertPresence({
-          fileId: params.fileId,
-          userEmail: user.email,
-          userName: user.given_name || user.email.split('@')[0] || 'Collaborator',
-          userImage: user.picture || '',
-          userColor: getPresenceColor(user.email),
-          workspaceStatus: getPresenceStatus(),
-        });
-      } catch (error) {
-        console.error('Failed to update presence heartbeat:', error);
-      }
-    };
+     const heartbeat = async () => {
+       try {
+         await upsertPresence({
+           fileId: fileId,
+           userEmail: user.email,
+           userName: user.given_name || user.email.split('@')[0] || 'Collaborator',
+           userImage: user.picture || '',
+           userColor: getPresenceColor(user.email),
+           workspaceStatus: getPresenceStatus(),
+         });
+       } catch (error) {
+         console.error('Failed to update presence heartbeat:', error);
+       }
+     };
 
-    heartbeat();
-    const interval = setInterval(heartbeat, 5000);
+     heartbeat();
+     const interval = setInterval(heartbeat, 5000);
 
-    return () => {
-      clearInterval(interval);
-    };
-   }, [params?.fileId, user?.email, user?.given_name, user?.picture, viewMode, activePanel]);
+     return () => {
+       clearInterval(interval);
+     };
+    }, [fileId, user?.email, user?.given_name, user?.picture, viewMode, activePanel]);
 
-   useEffect(() => {
-    if (!params?.fileId || !user?.email) return;
+    useEffect(() => {
+     if (!fileId || !user?.email) return;
 
-    const clearOnExit = () => {
-      clearPresence({ fileId: params.fileId, userEmail: user.email }).catch(() => {});
-    };
+     const clearOnExit = () => {
+       clearPresence({ fileId: fileId, userEmail: user.email }).catch(() => {});
+     };
 
-    window.addEventListener('beforeunload', clearOnExit);
+     window.addEventListener('beforeunload', clearOnExit);
 
-    return () => {
-      window.removeEventListener('beforeunload', clearOnExit);
-      clearOnExit();
-    };
-   }, [params?.fileId, user?.email]);
+     return () => {
+       window.removeEventListener('beforeunload', clearOnExit);
+       clearOnExit();
+     };
+    }, [fileId, user?.email]);
 
    useEffect(() => {
      if (activePanel === 'canvas') {
@@ -204,7 +206,7 @@ function Workspace({params}:any) {
           >
             <Editor 
               onSaveTrigger={triggerSave}
-              fileId={params.fileId}
+              fileId={fileId}
               fileData={fileData}
               setSavingStatus={setSavingStatus}
               undoTrigger={undoTrigger}
@@ -249,7 +251,7 @@ function Workspace({params}:any) {
           >
             <Canvas
               onSaveTrigger={triggerSave}
-              fileId={params.fileId}
+              fileId={fileId}
               fileData={fileData}
               setSavingStatus={setSavingStatus}
               undoTrigger={undoTrigger}
@@ -272,7 +274,7 @@ function Workspace({params}:any) {
         <AiSidebar 
           isOpen={isAiOpen} 
           onClose={() => setIsAiOpen(false)} 
-          fileId={params.fileId} 
+          fileId={fileId} 
           fileData={fileData} 
         />
      </div>

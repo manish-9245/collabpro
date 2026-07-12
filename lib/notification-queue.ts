@@ -124,7 +124,7 @@ function compileEmailTemplate(payload: NotificationPayload): string {
         <div style="max-width: 600px; margin: 0 auto; background-color: #111827; border-radius: 16px; border: 1px solid #1F2937; overflow: hidden; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);">
           <!-- Header Banner -->
           <div style="background: linear-gradient(135deg, #1E1B4B, #0F172A); padding: 32px; border-bottom: 1px solid #1F2937; text-align: center;">
-            <h1 style="color: #6366F1; margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.5px;">GrahakAI Build Intelligence</h1>
+            <h1 style="color: #6366F1; margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.5px;">CollabPro Build Intelligence</h1>
             <p style="color: #9CA3AF; margin: 8px 0 0 0; font-size: 14px;">Decoupled Serverless Delivery Engine</p>
           </div>
 
@@ -186,7 +186,7 @@ function compileEmailTemplate(payload: NotificationPayload): string {
           <!-- Footer Legal -->
           <div style="background-color: #111827; padding: 24px; text-align: center; border-top: 1px solid #1F2937; font-size: 12px; color: #6B7280;">
             This build update was initiated by continuous integration triggers on collabpro.<br>
-            Powered by GrahakAI &middot; Decoupled Delivery Layer
+            Powered by CollabPro &middot; Decoupled Delivery Layer
           </div>
         </div>
       </body>

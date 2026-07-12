@@ -419,7 +419,7 @@ export default function CommandPalette() {
             </span>
           </div>
           <span className="flex items-center gap-0.5">
-            GrahakAI <Sparkles className="h-2 w-2 text-[#6965db]" />
+            CollabPro <Sparkles className="h-2 w-2 text-[#6965db]" />
           </span>
         </div>
       </div>

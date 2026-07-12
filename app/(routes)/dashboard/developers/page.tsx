@@ -364,7 +364,7 @@ func main() {
             <div className="space-y-2">
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-950/40 text-blue-400 text-xs font-semibold border border-blue-900/30">
                 <Cpu className="h-3.5 w-3.5 animate-pulse" />
-                <span>GrahakAI Developer Gateway</span>
+                <span>CollabPro Developer Gateway</span>
               </div>
               <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
                 Developer & MCP Integration Hub
@@ -602,7 +602,7 @@ func main() {
                     } else if (e.target.value === 'collabpro_get_file') {
                       setArgumentsJson('{\n  "fileId": "YOUR_FILE_UUID"\n}');
                     } else if (e.target.value === 'collabpro_update_document') {
-                      setArgumentsJson('{\n  "fileId": "YOUR_FILE_UUID",\n  "document": "{\\\"blocks\\\":[{\\\"type\\\":\\\"paragraph\\\",\\\"data\\\":{\\\"text\\\":\\\"Updated via GrahakAI MCP\\\"}}]}"\n}');
+                      setArgumentsJson('{\n  "fileId": "YOUR_FILE_UUID",\n  "document": "{\\\"blocks\\\":[{\\\"type\\\":\\\"paragraph\\\",\\\"data\\\":{\\\"text\\\":\\\"Updated via CollabPro MCP\\\"}}]}"\n}');
                     } else if (e.target.value === 'collabpro_update_whiteboard') {
                       setArgumentsJson('{\n  "fileId": "YOUR_FILE_UUID",\n  "whiteboard": "[]"\n}');
                     }
