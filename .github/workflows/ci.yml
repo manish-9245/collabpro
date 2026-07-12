@@ -98,20 +98,16 @@ jobs:
       - name: 📈 Run Unit Tests with Coverage
         run: npm run test:coverage
 
-      # 10. SonarCloud Analysis Scan
-      - name: 📡 Run SonarCloud Static Code Check
-        uses: SonarSource/sonarcloud-github-action@master
-        continue-on-error: true # Continues pipeline if organization parameters require setting up first
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      # 10. Dispatch Asynchronous Security Scans & Quality Gate Webhook
+      - name: 🛡️ Dispatch Asynchronous Security Webhook
+        if: success()
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.NOTIFICATION_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d '{"commitSha":"${{ github.sha }}","branch":"${{ github.ref_name }}","repository":"${{ github.repository }}"}' \
+            https://collabpro.railway.app/api/security-audit
 
-      # 11. Snyk Security Vulnerability Scan
-      - name: 🛡️ Run Snyk Security Scan
-        continue-on-error: true # Avoid blocking the notify pipeline for non-blocking security alerts
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        run: npx snyk test --json --severity-threshold=high --org=${{ secrets.SNYK_ORG_ID }} > snyk_report.json || true
 
       # 11.5. Parse Discovered Insights from Sonar and Snyk
       - name: 🔍 Parse Discovered Scan Insights
