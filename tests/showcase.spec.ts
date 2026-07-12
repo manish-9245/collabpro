@@ -144,7 +144,7 @@ test.describe('CollabPro Complete Feature Tour & Demonstration', () => {
     const newFileBtnLocator = page.locator(SCENARIO_CONFIG.selectors.newFileBtn);
     await newFileBtnLocator.waitFor({ state: 'visible', timeout: 15000 });
     await hoverAndDelay(SCENARIO_CONFIG.selectors.newFileBtn);
-    await newFileBtnLocator.click();
+    await newFileBtnLocator.click({ force: true });
     await page.waitForTimeout(1000);
 
     await slowType(SCENARIO_CONFIG.selectors.fileInput, SCENARIO_CONFIG.data.fileName);
