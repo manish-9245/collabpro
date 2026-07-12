@@ -10,6 +10,7 @@
     "start": "prisma db push --accept-data-loss && next start",
     "lint": "next lint",
     "postinstall": "prisma generate",
+    "prepare": "node scripts/install-hooks.js",
     "resolve-issue": "node scripts/resolve-issue.js",
     "ws:start": "node scripts/db-prep.js && tsx ws-server/server.ts",
     "test:showcase": "playwright test tests/showcase.spec.ts",
