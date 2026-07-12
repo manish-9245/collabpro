@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button'
-import { Archive, Flag, User, Settings, Bell, HelpCircle, Sparkles, Cpu } from 'lucide-react'
+import { Archive, Flag, User, Settings, Bell, HelpCircle, Sparkles, Cpu, Server } from 'lucide-react'
 import React, { useState, useContext } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { api, useQuery } from '@/lib/state-sync/react'
@@ -102,6 +102,16 @@ function SideNavBottomSection({onFileCreate,totalFiles}:any) {
         router.push('/dashboard/developers');
       },
       isActive: pathname === '/dashboard/developers'
+    },
+    {
+      id: 8,
+      name: 'MCP Settings',
+      icon: Server,
+      path: '/dashboard/settings/mcp',
+      action: () => {
+        router.push('/dashboard/settings/mcp');
+      },
+      isActive: pathname === '/dashboard/settings/mcp'
     }
   ]
 
