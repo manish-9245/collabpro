@@ -136,13 +136,13 @@ class StateSyncWSClient {
 
     this.setStatus('connecting');
     const url = this.getWsUrl();
-    console.log(`[GrahakAI WS CLIENT] Connecting to ${url}...`);
+    console.log(`[CollabPro WS CLIENT] Connecting to ${url}...`);
 
     try {
       this.ws = new WebSocket(url);
 
       this.ws.onopen = () => {
-        console.log('[GrahakAI WS CLIENT] Connection established successfully!');
+        console.log('[CollabPro WS CLIENT] Connection established successfully!');
         this.setStatus('connected');
         this.reconnectDelay = 1000;
 
@@ -171,22 +171,22 @@ class StateSyncWSClient {
             this.cursorListeners.forEach(cb => cb(msg));
           }
         } catch (err) {
-          console.error('[GrahakAI WS CLIENT] Failed to parse socket message:', err);
+          console.error('[CollabPro WS CLIENT] Failed to parse socket message:', err);
         }
       };
 
       this.ws.onclose = () => {
-        console.warn('[GrahakAI WS CLIENT] Connection closed.');
+        console.warn('[CollabPro WS CLIENT] Connection closed.');
         this.cleanup();
         this.scheduleReconnect();
       };
 
       this.ws.onerror = (err) => {
-        console.error('[GrahakAI WS CLIENT] Socket error:', err);
+        console.error('[CollabPro WS CLIENT] Socket error:', err);
         this.cleanup();
       };
     } catch (err) {
-      console.error('[GrahakAI WS CLIENT] Connection initiation failed:', err);
+      console.error('[CollabPro WS CLIENT] Connection initiation failed:', err);
       this.scheduleReconnect();
     }
   }
@@ -198,7 +198,7 @@ class StateSyncWSClient {
 
   private scheduleReconnect() {
     if (this.reconnectTimeout) return;
-    console.log(`[GrahakAI WS CLIENT] Scheduling reconnection in ${this.reconnectDelay}ms`);
+    console.log(`[CollabPro WS CLIENT] Scheduling reconnection in ${this.reconnectDelay}ms`);
     this.reconnectTimeout = setTimeout(() => {
       this.reconnectTimeout = null;
       this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
@@ -436,7 +436,7 @@ export function useMutation(mutationReference: any) {
       try {
         return await wsClient.mutation(mutationPath, args, fileId);
       } catch (err) {
-        console.warn("[GrahakAI WS] Mutation via WS failed, falling back to HTTP:", err);
+        console.warn("[CollabPro WS] Mutation via WS failed, falling back to HTTP:", err);
       }
     }
 

@@ -132,7 +132,7 @@ export async function POST(request: NextRequest) {
       const res = await fetch(imageUrl, {
         method: "GET",
         headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) GrahakAI/CollabPro-Uploader",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) CollabPro-Uploader/1.0",
         },
       });
 

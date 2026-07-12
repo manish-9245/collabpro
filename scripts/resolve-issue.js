@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * GrahakAI - Auto PR Flow Runner
+ * CollabPro - Auto PR Flow Runner
  * An interactive developer CLI to pick an issue, automate branch creation,
  * verify build sanity, and raise a professional Pull Request.
  */
@@ -29,7 +29,7 @@ function prompt(question) {
 }
 
 async function main() {
-  console.log("\n🚀 \x1b[36mGrahakAI Precision Issue Resolver & PR Automation\x1b[0m\n");
+  console.log("\n🚀 \x1b[36mCollabPro Precision Issue Resolver & PR Automation\x1b[0m\n");
 
   // 1. Verify gh CLI installation
   const ghPath = runCommand("which gh");
