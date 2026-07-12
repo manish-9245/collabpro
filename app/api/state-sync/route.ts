@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getServerSession } from '@/lib/session-auth/server';
 import { decodeCrdtState } from '@/lib/crdt';
+import { verifyApiKey } from '@/lib/api-key-middleware';
 
 function extractTextFromWhiteboard(whiteboard: string | null | undefined): string {
   if (!whiteboard) return "";
@@ -166,21 +167,12 @@ export async function POST(request: Request) {
     // 2. Try API Key Auth (MCP Automation Tools & Programmatic Agents)
     if (!authUserEmail) {
       const authHeader = request.headers.get('authorization');
-      if (authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
-        const token = authHeader.substring(7).trim();
-        if (token.startsWith('collabpro_pat_')) {
-          const apiKeyRecord = await prisma.apiKey.findUnique({
-            where: { key: token }
-          });
-
-          if (apiKeyRecord) {
-            // Check expiry
-            if (apiKeyRecord.expiresAt && apiKeyRecord.expiresAt < new Date()) {
-              return NextResponse.json({ error: 'API key has expired' }, { status: 401 });
-            }
-            authUserEmail = apiKeyRecord.userEmail;
-          }
-        }
+      const verifyResult = await verifyApiKey(authHeader, request.method);
+      if (verifyResult.isValid) {
+        authUserEmail = verifyResult.userEmail;
+      } else if (authHeader) {
+        // If they provided a key but it is invalid/expired/forbidden, fail fast!
+        return NextResponse.json({ error: verifyResult.error }, { status: verifyResult.statusCode || 401 });
       }
     }
 
