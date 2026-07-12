@@ -137,3 +137,15 @@ model SharedLink {
 
   @@index([fileId])
 }
+
+model OrgSetting {
+  id                 String   @id @default(uuid())
+  teamId             String   @unique
+  allowedDomains     String   @default("") // comma-separated domains e.g. "enterprise.com,google.com"
+  ssoEnabled         Boolean  @default(false)
+  ssoProvider        String   @default("saml") // "saml" or "oidc"
+  ssoMetadataUrl     String   @default("")
+  seatLimit          Int      @default(50)
+  updatedAt          DateTime @updatedAt
+}
+
