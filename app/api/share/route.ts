@@ -73,7 +73,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized: Cookie session required' }, { status: 401 });
     }
 
-    const { fileId, role, password, expiresAt, sharedLinkId } = await request.json();
+    const { fileId, role, password, expiresAt, sharedLinkId, isActive } = await request.json();
 
     if (!fileId) {
       return NextResponse.json({ error: 'Missing required field: fileId' }, { status: 400 });
@@ -96,7 +96,8 @@ export async function POST(request: Request) {
         data: {
           role: role || 'viewer',
           passwordHash: password ? passwordHash : undefined,
-          expiresAt: expiresDateTime
+          expiresAt: expiresDateTime,
+          isActive: typeof isActive === 'boolean' ? isActive : undefined
         }
       });
     } else {
@@ -106,7 +107,8 @@ export async function POST(request: Request) {
           fileId,
           role: role || 'viewer',
           passwordHash,
-          expiresAt: expiresDateTime
+          expiresAt: expiresDateTime,
+          isActive: typeof isActive === 'boolean' ? isActive : true
         }
       });
     }

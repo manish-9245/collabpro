@@ -159,6 +159,9 @@ export async function POST(request: Request) {
 
     // --- SECURITY & AUTHORIZATION CHECK ---
     let authUserEmail: string | null = null;
+    let isGuest = false;
+    let guestRole = 'viewer';
+    let guestFileId = '';
 
     // 1. Try Cookie Session Auth (Standard Web Client)
     const session = getServerSession();
@@ -179,11 +182,68 @@ export async function POST(request: Request) {
       }
     }
 
-    // 3. Fallback: Reject unauthenticated calls
+    // 3. Try Shared Link (Guest Access)
+    if (!authUserEmail) {
+      let sharedLinkId = request.headers.get('x-shared-link-id');
+      if (!sharedLinkId && args && typeof args === 'object') {
+        sharedLinkId = args.sharedLinkId;
+      }
+
+      if (sharedLinkId) {
+        const link = await prisma.sharedLink.findUnique({
+          where: { id: sharedLinkId }
+        });
+
+        if (!link) {
+          return NextResponse.json({ error: 'Forbidden: Share link not found' }, { status: 403 });
+        }
+
+        // Check active status
+        if (!link.isActive) {
+          return NextResponse.json({ error: 'Forbidden: This shared link is currently inactive' }, { status: 403 });
+        }
+
+        // Check expiration
+        if (link.expiresAt && new Date(link.expiresAt) < new Date()) {
+          return NextResponse.json({ error: 'Forbidden: This sharing link has expired' }, { status: 410 });
+        }
+
+        // Valid shared link! Grant guest access
+        isGuest = true;
+        guestRole = link.role; // 'viewer', 'commenter', 'editor'
+        guestFileId = link.fileId;
+        authUserEmail = `guest_${link.id}@collabpro.guest`;
+      }
+    }
+
+    // 4. Fallback: Reject unauthenticated calls
     if (!authUserEmail) {
       return NextResponse.json({ 
-        error: 'Unauthorized: Valid cookie session or "Authorization: Bearer collabpro_pat_..." key required.' 
+        error: 'Unauthorized: Valid cookie session, API key, or shared link is required.' 
       }, { status: 401 });
+    }
+
+    // If guest, enforce scope restrictions and file boundaries
+    if (isGuest) {
+      // 1. Enforce file boundary
+      const requestedFileId = args?.fileId || args?._id || args?.id;
+      if (requestedFileId && requestedFileId !== guestFileId) {
+        return NextResponse.json({ 
+          error: 'Forbidden: This shared link does not grant access to the requested file.' 
+        }, { status: 403 });
+      }
+
+      // 2. Enforce write/mutation restriction
+      const mutationPaths = [
+        'files:updateDocument',
+        'files:updateWhiteboard',
+        'collabpro_update_whiteboard'
+      ];
+      if (mutationPaths.includes(path) && guestRole !== 'editor') {
+        return NextResponse.json({ 
+          error: 'Forbidden: Guest does not have write permissions for this shared link.' 
+        }, { status: 403 });
+      }
     }
 
     // Auto-default email arguments to the authenticated user's email if missing
