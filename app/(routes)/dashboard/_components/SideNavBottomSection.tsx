@@ -112,6 +112,16 @@ function SideNavBottomSection({onFileCreate,totalFiles}:any) {
         router.push('/dashboard/settings/mcp');
       },
       isActive: pathname === '/dashboard/settings/mcp'
+    },
+    {
+      id: 9,
+      name: 'AI Setup',
+      icon: Sparkles,
+      path: '/dashboard/settings/ai',
+      action: () => {
+        router.push('/dashboard/settings/ai');
+      },
+      isActive: pathname === '/dashboard/settings/ai'
     }
   ]
 
