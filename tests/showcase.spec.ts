@@ -281,6 +281,11 @@ test.describe('CollabPro Complete Feature Tour & Demonstration', () => {
 
     const renameSubmitBtn = page.locator('button:has-text("Rename")').first();
     await renameSubmitBtn.click();
+    
+    // Wait for the rename dialog to be fully dismissed and the backdrop to clear
+    await page.locator('div[role="dialog"]').waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {});
+    await page.waitForTimeout(1000); // Settle DOM and pointer-events
+    
     console.log('✅ File renamed successfully.');
     await scenePause();
 
