@@ -26,12 +26,52 @@ async function upload() {
   }
 
   console.log('🚀 Uploading cinematic test video of size', fs.statSync(videoPath).size, 'bytes...');
+
+  // Parse tested functionalities dynamically
+  let testedFeatures = [];
+  try {
+    const showcasePath = path.resolve(__dirname, '../tests/showcase.spec.ts');
+    if (fs.existsSync(showcasePath)) {
+      const showcaseContent = fs.readFileSync(showcasePath, 'utf8');
+      const sceneMatches = showcaseContent.match(/\/\/\s*SCENE\s+\d+(\.\d+)?:\s+([^\r\n]+)/gi);
+      if (sceneMatches) {
+        sceneMatches.forEach(match => {
+          const cleanScene = match.replace(/\/\/\s*SCENE\s+\d+(\.\d+)?:\s+/i, '').trim();
+          testedFeatures.push(`🎬 ${cleanScene}`);
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('⚠️ Error parsing showcase test scenes:', err);
+  }
+
+  try {
+    const unitDir = path.resolve(__dirname, '../tests/unit');
+    if (fs.existsSync(unitDir)) {
+      const files = fs.readdirSync(unitDir);
+      files.forEach(file => {
+        if (file.endsWith('.test.ts')) {
+          const targetName = file.replace('.test.ts', '').split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+          testedFeatures.push(`🧪 Unit: ${targetName} Verification`);
+        }
+      });
+    }
+  } catch (err) {
+    console.warn('⚠️ Error listing unit tests:', err);
+  }
+
+  const featuresText = testedFeatures.length > 0 
+    ? `\n\nVerified Functionalities:\n${testedFeatures.map(f => `- ${f}`).join('\n')}` 
+    : '';
+
+  const dynamicDescription = `Automated E2E feature demonstration walk. Triggered by Commit: ${process.env.GITHUB_SHA || 'unknown'} - Build automated by GrahakAI.${featuresText}`;
+
   const res = await youtube.videos.insert({
     part: 'id,snippet,status',
     requestBody: {
       snippet: {
         title: `CollabPro Cinematic E2E Tour - Branch: ${process.env.GITHUB_REF_NAME || 'main'}`,
-        description: `Automated E2E feature demonstration walk. Triggered by Commit: ${process.env.GITHUB_SHA || 'unknown'} - Build automated by GrahakAI`,
+        description: dynamicDescription,
         categoryId: '28', // Science & Technology
       },
       status: {

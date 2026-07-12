@@ -24,6 +24,18 @@ function Workspace({params}:any) {
    const [redoTrigger, setRedoTrigger] = useState(0);
    const { user } = useSessionAuth();
    const { cursors, broadcastCursor } = useCursors();
+
+   // Fallback split view to single panel on mobile/tablet viewports
+   useEffect(() => {
+     const handleResize = () => {
+       if (typeof window !== 'undefined' && window.innerWidth < 768 && viewMode === 'both') {
+         setViewMode('document');
+       }
+     };
+     handleResize();
+     window.addEventListener('resize', handleResize);
+     return () => window.removeEventListener('resize', handleResize);
+   }, [viewMode]);
    
    const upsertPresence = useMutation(api.files.upsertPresence);
    const clearPresence = useMutation(api.files.clearPresence);
