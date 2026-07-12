@@ -118,7 +118,9 @@ model ApiKey {
   id          String    @id @default(uuid())
   userEmail   String
   name        String
-  key         String    @unique
+  hashedKey   String    @unique
+  maskedKey   String    @default("")
+  scope       String    @default("read-write") // "read-only" or "read-write"
   expiresAt   DateTime?
   createdAt   DateTime  @default(now())
 }

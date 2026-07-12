@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getServerSession } from '@/lib/session-auth/server';
 import { randomBytes } from 'crypto';
+import { hashApiKey } from '@/lib/api-key-middleware';
 
 export async function GET() {
   try {
@@ -17,18 +18,14 @@ export async function GET() {
       select: {
         id: true,
         name: true,
-        key: true, // we will mask this except for the last 4 characters!
+        maskedKey: true,
+        scope: true,
         createdAt: true,
         expiresAt: true,
       }
     });
 
-    const maskedKeys = apiKeys.map(k => ({
-      ...k,
-      key: `collabpro_pat_••••${k.key.slice(-6)}`
-    }));
-
-    return NextResponse.json({ apiKeys: maskedKeys });
+    return NextResponse.json({ apiKeys });
   } catch (error: any) {
     console.error('[API_KEYS_GET]', error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
@@ -43,14 +40,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { name, expiresDays } = await request.json();
+    const { name, expiresDays, scope = 'read-write' } = await request.json();
     if (!name || typeof name !== 'string' || !name.trim()) {
       return NextResponse.json({ error: 'Key name is required' }, { status: 400 });
     }
 
-    // Generate secure token
+    if (!['read-only', 'read-write'].includes(scope)) {
+      return NextResponse.json({ error: 'Invalid scope specified' }, { status: 400 });
+    }
+
+    // Generate secure cryptographically strong token
     const tokenBytes = randomBytes(24).toString('hex');
     const secureKey = `collabpro_pat_${tokenBytes}`;
+    const hashedKey = hashApiKey(secureKey);
+    const maskedKey = `collabpro_pat_••••${secureKey.slice(-6)}`;
 
     let expiresAt: Date | null = null;
     if (expiresDays && !isNaN(Number(expiresDays))) {
@@ -62,7 +65,9 @@ export async function POST(request: Request) {
       data: {
         userEmail: user.email,
         name: name.trim(),
-        key: secureKey,
+        hashedKey,
+        maskedKey,
+        scope,
         expiresAt,
       }
     });
@@ -73,6 +78,8 @@ export async function POST(request: Request) {
         id: apiKey.id,
         name: apiKey.name,
         key: secureKey, // Raw key shown only once
+        maskedKey: apiKey.maskedKey,
+        scope: apiKey.scope,
         createdAt: apiKey.createdAt,
         expiresAt: apiKey.expiresAt,
       }
