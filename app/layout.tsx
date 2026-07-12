@@ -4,6 +4,7 @@ import "./globals.css";
 import StateSyncProvider from "./StateSyncProvider";
 import { Toaster } from "@/components/ui/sonner";
 import Script from "next/script";
+import CommandPalette from "@/components/CommandPalette";
 
 const inter = Inter({ 
   subsets: ["latin"],
@@ -80,6 +81,7 @@ export default function RootLayout({
         <StateSyncProvider>
          {children}
          <Toaster />
+         <CommandPalette />
         </StateSyncProvider>
       </body>
     </html>
