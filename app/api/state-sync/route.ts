@@ -420,6 +420,61 @@ export async function POST(request: Request) {
         });
         break;
       }
+      case 'teams:deleteTeam': {
+        const { teamId, ownerEmail } = args || {};
+        const team = await prisma.team.findUnique({
+          where: { id: teamId },
+        });
+        if (!team) {
+          throw new Error("Team not found");
+        }
+        if (team.createdBy !== ownerEmail) {
+          throw new Error("Only the team creator can delete the team.");
+        }
+
+        // 1. Fetch all files belonging to the team
+        const files = await prisma.file.findMany({
+          where: { teamId },
+        });
+        const fileIds = files.map(f => f.id);
+
+        // 2. Cascade delete all file-dependent records
+        if (fileIds.length > 0) {
+          await prisma.fileVersion.deleteMany({
+            where: { fileId: { in: fileIds } },
+          });
+          await prisma.filePresence.deleteMany({
+            where: { fileId: { in: fileIds } },
+          });
+          await prisma.sharedLink.deleteMany({
+            where: { fileId: { in: fileIds } },
+          });
+          await prisma.file.deleteMany({
+            where: { id: { in: fileIds } },
+          });
+        }
+
+        // 3. Delete team memberships
+        await prisma.teamMember.deleteMany({
+          where: { teamId },
+        });
+
+        // 4. Delete team invitations
+        await prisma.invitation.deleteMany({
+          where: { teamId },
+        });
+
+        // 5. Delete shared library items
+        await prisma.sharedLibraryItem.deleteMany({
+          where: { teamId },
+        });
+
+        // 6. Finally delete the team itself
+        result = await prisma.team.delete({
+          where: { id: teamId },
+        });
+        break;
+      }
       case 'teams:leaveTeam': {
         const { teamId, userEmail } = args || {};
         // Owner cannot leave, they must delete or transfer (handled simply by verifying createdBy)
@@ -832,6 +887,10 @@ export async function POST(request: Request) {
           where: { fileId: _id },
         });
         await prisma.filePresence.deleteMany({
+          where: { fileId: _id },
+        });
+        // Delete all shared links
+        await prisma.sharedLink.deleteMany({
           where: { fileId: _id },
         });
         // Delete the file
