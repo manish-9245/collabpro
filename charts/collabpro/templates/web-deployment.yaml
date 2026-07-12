@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "collabpro.fullname" . }}-web
+  labels:
+    {{- include "collabpro.labels" . | nindent 4 }}
+    app: {{ include "collabpro.fullname" . }}-web
+spec:
+  replicas: {{ .Values.replicaCount.web }}
+  selector:
+    matchLabels:
+      {{- include "collabpro.selectorLabels" . | nindent 6 }}
+      app: {{ include "collabpro.fullname" . }}-web
+  template:
+    metadata:
+      labels:
+        {{- include "collabpro.selectorLabels" . | nindent 8 }}
+        app: {{ include "collabpro.fullname" . }}-web
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: web
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository.web }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "collabpro.fullname" . }}-secrets
+                  key: database-url
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "collabpro.fullname" . }}-secrets
+                  key: redis-url
+            - name: SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "collabpro.fullname" . }}-secrets
+                  key: smtp-password
+            - name: SMTP_SERVER
+              value: {{ .Values.configEnv.smtpServer | quote }}
+            - name: SMTP_USERNAME
+              value: {{ .Values.configEnv.smtpUsername | quote }}
+            - name: NOTIFICATION_EMAIL
+              value: {{ .Values.configEnv.notificationEmail | quote }}
+            - name: NEXT_TELEMETRY_DISABLED
+              value: "1"
+          resources:
+            {{- toYaml .Values.resources.web | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,107 @@
+# Configurable variables for CollabPro enterprise Kubernetes deployment
+
+# Number of replicas to deploy
+replicaCount:
+  web: 2
+  ws: 2
+
+image:
+  repository:
+    web: "collabpro/web"
+    ws: "collabpro/ws"
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the Chart's appVersion
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# Services configurations
+service:
+  type: ClusterIP
+  port:
+    web: 3000
+    ws: 4000
+
+# Secret/Sensitive environment keys configuration
+secretEnv:
+  smtpPassword: "hzqq uzmb ldnl idjl"
+
+# Common environment settings
+configEnv:
+  smtpServer: "smtp.gmail.com"
+  smtpUsername: "manisht9245@gmail.com"
+  notificationEmail: "manishsit13@gmail.com"
+
+# Postgres service configuration
+postgres:
+  enabled: true
+  image: "postgres:16-alpine"
+  username: "collabpro"
+  password: "collabpro_secure_password"
+  database: "collabpro_production"
+  servicePort: 5432
+  persistence:
+    size: 8Gi
+    storageClass: "standard"
+
+# Redis cache configuration
+redis:
+  enabled: true
+  image: "redis:7.2-alpine"
+  servicePort: 6379
+  persistence:
+    size: 2Gi
+    storageClass: "standard"
+
+# Ingress controller configurations (optional)
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  hosts:
+    - host: collabpro.local
+      paths:
+        - path: /
+          pathType: Prefix
+          backend: web
+        - path: /socket.io
+          pathType: Prefix
+          backend: ws
+  tls: []
+
+# Kubernetes resource constraints for performance predictability
+resources:
+  web:
+    limits:
+      cpu: 1000m
+      memory: 1536Mi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+  ws:
+    limits:
+      cpu: 1000m
+      memory: 1024Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+# Pod Security Context & Security Context guidelines
+podSecurityContext:
+  fsGroup: 1001
+
+securityContext:
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 1001
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
