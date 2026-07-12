@@ -405,7 +405,7 @@ function WorkspaceHeader({
       {/* Center: Beautiful Segmented View Switcher Control & Undo/Redo Controls */}
       <div className="flex items-center gap-2">
         {/* Undo/Redo Button Group */}
-        <div className='flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200/80 dark:border-slate-800 shrink-0 shadow-inner mr-1'>
+        <div className='hidden sm:flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200/80 dark:border-slate-800 shrink-0 shadow-inner mr-1'>
           <button
             onClick={onUndo}
             disabled={!canUndo}

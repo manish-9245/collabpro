@@ -62,9 +62,9 @@ function Header() {
   }
 
   return (
-    <div className='flex justify-end w-full gap-4 items-center p-2 bg-slate-50/50 backdrop-blur-md rounded-xl border border-slate-100 dark:bg-slate-900/50 dark:border-slate-800 shadow-sm'>
-      <div className='flex gap-2 items-center border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-1.5 bg-white dark:bg-slate-950 w-64 shadow-inner transition-all focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500'>
-        <Search className='h-4 w-4 text-slate-400' />
+    <div className='flex flex-col sm:flex-row sm:justify-between items-stretch sm:items-center w-full gap-3 p-3 sm:p-2 bg-slate-50/50 backdrop-blur-md rounded-xl border border-slate-100 dark:bg-slate-900/50 dark:border-slate-800 shadow-sm'>
+      <div className='flex gap-2 items-center border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-1.5 bg-white dark:bg-slate-950 w-full sm:w-64 shadow-inner transition-all focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500'>
+        <Search className='h-4 w-4 text-slate-400 shrink-0' />
         <input 
           type='text' 
           placeholder='Search files...' 
@@ -74,26 +74,27 @@ function Header() {
         />
       </div>
 
-      {user && (
-        <div className='flex items-center gap-2 border-r border-slate-200 dark:border-slate-800 pr-4'>
-          <img 
-            src={localUser?.image || user?.picture || '/logo-1.png'} 
-            alt='user'
-            className='rounded-full border border-slate-200 dark:border-slate-800 shadow-sm w-8 h-8 object-cover'
-          />
-          <span className='text-xs font-semibold text-slate-600 dark:text-slate-300 hidden md:inline-block'>
-            {user?.given_name || 'User'}
-          </span>
-        </div>
-      )}
+      <div className='flex items-center justify-between sm:justify-end gap-3 shrink-0'>
+        {user && (
+          <div className='flex items-center gap-2 sm:border-r border-slate-200 dark:border-slate-800 sm:pr-4'>
+            <img 
+              src={localUser?.image || user?.picture || '/logo-1.png'} 
+              alt='user'
+              className='rounded-full border border-slate-200 dark:border-slate-800 shadow-sm w-8 h-8 object-cover'
+            />
+            <span className='text-xs font-semibold text-slate-600 dark:text-slate-300 hidden sm:inline-block'>
+              {user?.given_name || 'User'}
+            </span>
+          </div>
+        )}
 
-      <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        <DialogTrigger asChild>
-          <Button className='gap-2 flex text-sm font-medium h-9 hover:bg-blue-700 bg-blue-600 text-white rounded-lg shadow-md hover:shadow-lg hover:shadow-blue-500/20 active:scale-95 transition-all duration-200'>
-            <Send className='h-4 w-4' /> 
-            Invite & Manage
-          </Button>
-        </DialogTrigger>
+        <Dialog open={isOpen} onOpenChange={setIsOpen}>
+          <DialogTrigger asChild>
+            <Button className='gap-2 flex text-sm font-medium h-9 hover:bg-blue-700 bg-blue-600 text-white rounded-lg shadow-md hover:shadow-lg hover:shadow-blue-500/20 active:scale-95 transition-all duration-200 flex-1 sm:flex-none justify-center'>
+              <Send className='h-4 w-4' /> 
+              Invite & Manage
+            </Button>
+          </DialogTrigger>
         <DialogContent className='bg-white border border-slate-200 text-slate-800 max-w-md rounded-2xl shadow-xl p-6 overflow-hidden'>
           <DialogHeader className='space-y-2'>
             <DialogTitle className='text-xl font-bold flex items-center gap-2 text-slate-950'>
@@ -193,6 +194,7 @@ function Header() {
           </div>
         </DialogContent>
       </Dialog>
+      </div>
     </div>
   )
 }

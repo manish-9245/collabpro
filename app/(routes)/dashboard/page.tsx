@@ -42,7 +42,7 @@ function Dashboard() {
   const totalMembersCount = members?.length || 1;
 
   return (
-    <div className='p-8 min-h-screen bg-slate-50/30 dark:bg-zinc-950/20'>
+    <div className='p-4 sm:p-8 min-h-screen bg-slate-50/30 dark:bg-zinc-950/20'>
       {/* Search and Invite Top Header */}
       <Header />
 

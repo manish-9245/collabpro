@@ -132,7 +132,7 @@ jobs:
           username: ${{ secrets.SMTP_USERNAME }}
           password: ${{ secrets.SMTP_PASSWORD }}
           secure: true
-          subject: "🚀 CollabPro CI Summary: ${{ github.ref_name }} [${{ job.status }}]"
+          subject: "🚀 CollabPro CI Summary: ${{ github.ref_name }} [${{ job.status }}] - Run #${{ github.run_id }} (Attempt #${{ github.run_attempt || '1' }} - SHA: ${{ github.sha }})"
           to: ${{ secrets.NOTIFICATION_EMAIL }}
           from: "CollabPro CI/CD <ci-reports@collabpro.com>"
           html_body: |
