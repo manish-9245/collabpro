@@ -58,3 +58,19 @@ gh pr create --title "feat(issue-<number>): concise title" --body "### Technical
   ```bash
   git checkout main
   ```
+
+---
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs are tracked using GitHub issues via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Using the canonical triage label vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context repo layout with `CONTEXT.md` and `docs/adr/`. See `docs/agents/domain.md`.
