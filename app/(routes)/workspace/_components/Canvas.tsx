@@ -3,6 +3,7 @@ import { Excalidraw, MainMenu, WelcomeScreen } from "@excalidraw/excalidraw";
 import { FILE } from '../../dashboard/_components/FileList';
 import { api, useMutation, useQuery } from '@/lib/state-sync/react';
 import { encodeCrdtState, decodeCrdtState } from '@/lib/crdt';
+import { buildIconNode } from './CanvasAssetBuilder';
 import { Sparkles, Cloud, Search, Loader2, ChevronLeft, ChevronRight, Plus, Trash2, Upload, BookOpen, Link, Check, Download, Info, Globe } from 'lucide-react';
 import { toast } from 'sonner';
 import { AWS_ICONS } from './aws_icons_list';
@@ -711,148 +712,24 @@ function Canvas({
                 y = -scrollY + 120 / zoomValue;
             }
 
-            const boxId = `box_${Math.random().toString(36).substr(2, 9)}`;
-            const imageId = `img_${Math.random().toString(36).substr(2, 9)}`;
-            const textId = `text_${Math.random().toString(36).substr(2, 9)}`;
-            const groupId = `group_${Math.random().toString(36).substr(2, 9)}`;
+            // Delegate Excalidraw element group formatting to the deep CanvasAssetBuilder module
+            const node = buildIconNode({
+                iconId: icon.id,
+                label: icon.label,
+                stroke: icon.stroke,
+                fill: icon.fill,
+                base64,
+                x,
+                y,
+                includeCard,
+                includeLabel
+            });
 
-            const groupIds = (includeCard || includeLabel) ? [groupId] : [];
-            const newElements = [...currentElements];
-
-            let imageX = x;
-            let imageY = y;
-            let imageW = 60;
-            let imageH = 60;
-
-            if (includeCard) {
-                imageW = 50;
-                imageH = 50;
-                imageX = x + 25;
-                imageY = y + 12;
-
-                const boxElement = {
-                    type: "rectangle",
-                    version: 1,
-                    versionNonce: Math.floor(Math.random() * 1000000),
-                    isDeleted: false,
-                    id: boxId,
-                    x: x,
-                    y: y,
-                    width: 100,
-                    height: includeLabel ? 105 : 74,
-                    strokeColor: icon.stroke || "#cbd5e1",
-                    backgroundColor: icon.fill || "#ffffff",
-                    fillStyle: "solid",
-                    strokeWidth: 1.5,
-                    strokeStyle: "solid",
-                    roughness: 0,
-                    opacity: 100,
-                    angle: 0,
-                    strokeSharpness: "round",
-                    boundElements: null,
-                    updated: Date.now(),
-                    link: null,
-                    locked: false,
-                    groupIds: groupIds,
-                    seed: Math.floor(Math.random() * 1000000),
-                    frameId: null,
-                    roundness: { type: 3 }
-                };
-                newElements.push(boxElement);
-            }
-
-            const imageElement = {
-                type: "image",
-                version: 1,
-                versionNonce: Math.floor(Math.random() * 1000000),
-                isDeleted: false,
-                id: imageId,
-                x: imageX,
-                y: imageY,
-                width: imageW,
-                height: imageH,
-                angle: 0,
-                strokeColor: "transparent",
-                backgroundColor: "transparent",
-                fillStyle: "solid",
-                strokeWidth: 1,
-                strokeStyle: "solid",
-                roughness: 0,
-                opacity: 100,
-                status: "pending",
-                fileId: icon.id,
-                scale: [1, 1],
-                locked: false,
-                groupIds: groupIds,
-                frameId: null,
-                roundness: null,
-                seed: Math.floor(Math.random() * 1000000),
-                updated: Date.now(),
-                link: null
-            };
-            newElements.push(imageElement);
-
-            if (includeLabel) {
-                let textX = x + 5;
-                let textY = y + 74;
-                let textW = 90;
-
-                if (!includeCard) {
-                    textX = x - 20;
-                    textY = y + 66;
-                    textW = 100;
-                }
-
-                const textElement = {
-                    type: "text",
-                    version: 1,
-                    versionNonce: Math.floor(Math.random() * 1000000),
-                    isDeleted: false,
-                    id: textId,
-                    x: textX,
-                    y: textY,
-                    width: textW,
-                    height: 20,
-                    strokeColor: "#334155",
-                    backgroundColor: "transparent",
-                    fillStyle: "solid",
-                    strokeWidth: 1,
-                    strokeStyle: "solid",
-                    roughness: 0,
-                    opacity: 100,
-                    angle: 0,
-                    text: icon.label,
-                    fontSize: 10,
-                    fontFamily: 1,
-                    textAlign: "center",
-                    verticalAlign: "middle",
-                    originalText: icon.label,
-                    updated: Date.now(),
-                    link: null,
-                    locked: false,
-                    groupIds: groupIds,
-                    frameId: null,
-                    roundness: null,
-                    seed: Math.floor(Math.random() * 1000000),
-                    baseline: 13,
-                    lineHeight: 1.25,
-                    boundElements: null
-                };
-                newElements.push(textElement);
-            }
-
-            const filesObj = {
-                [icon.id]: {
-                    id: icon.id,
-                    dataURL: base64,
-                    mimeType: "image/svg+xml",
-                    created: Date.now()
-                }
-            };
+            const newElements = [...currentElements, ...node.elements];
 
             excalidrawAPI.updateScene({
                 elements: newElements,
-                files: filesObj
+                files: node.files
             });
             
             handleCanvasChange(newElements);
