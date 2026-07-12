@@ -11,7 +11,7 @@ import { toast } from 'sonner'
 import { 
   Settings, Users, Shield, ShieldCheck, Mail, Loader2, Key, Check, Plus, 
   AlertTriangle, ArrowLeft, Globe, Lock, Info, Server, Sparkles, UserPlus, 
-  Trash2, UserCheck
+  Trash2, UserCheck, Download, Search, Filter, Clock, ShieldAlert
 } from 'lucide-react'
 
 export default function AdminSettingsPage() {
@@ -25,6 +25,14 @@ export default function AdminSettingsPage() {
   const [seatCount, setSeatCount] = useState<any>(null);
   const [members, setMembers] = useState<any[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
+
+  // Tab state
+  const [activeTab, setActiveTab] = useState<'policy' | 'audit'>('policy');
+
+  // Compliance Audit Logs states
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [actionFilter, setActionFilter] = useState('');
 
   // Form states
   const [allowedDomains, setAllowedDomains] = useState('');
@@ -73,6 +81,14 @@ export default function AdminSettingsPage() {
       setLoadingMembers(true);
       const membersList = await sync.query(api.teams.getTeamMembers, { teamId: activeTeam._id });
       setMembers(membersList || []);
+
+      // 4. Load compliance audit logs
+      try {
+        const logs = await sync.query(api.securityAudit.getLogs, { teamId: activeTeam._id });
+        setAuditLogs(logs || []);
+      } catch (logErr) {
+        console.error("Failed to load audit logs:", logErr);
+      }
     } catch (err) {
       console.error(err);
       toast.error("Failed to load organization settings.");
@@ -119,10 +135,10 @@ export default function AdminSettingsPage() {
       });
       toast.success(`Invitation successfully sent to ${inviteEmail}!`);
       setInviteEmail('');
-      loadAdminData(); // Refresh seat counts & active members list
+      loadAdminData();
     } catch (err: any) {
       console.error(err);
-      toast.error(err.message || "Failed to send invitation.");
+      toast.error(err.message || "Failed to invite member.");
     } finally {
       setInviting(false);
     }
@@ -130,8 +146,10 @@ export default function AdminSettingsPage() {
 
   const handleRemoveMember = async (memberEmail: string) => {
     if (!activeTeam?._id) return;
-    const confirmed = confirm(`Are you sure you want to remove ${memberEmail} from this organization?`);
-    if (!confirmed) return;
+    if (memberEmail === activeTeam.createdBy) {
+      toast.error("The organization creator/owner cannot be removed.");
+      return;
+    }
 
     try {
       await removeMember({
@@ -147,10 +165,50 @@ export default function AdminSettingsPage() {
     }
   };
 
+  const handleExportCSV = () => {
+    if (auditLogs.length === 0) {
+      toast.info("No audit logs available to export.");
+      return;
+    }
+
+    const headers = ['Timestamp', 'Actor Email', 'IP Address', 'Action', 'Context Details'];
+    const rows = auditLogs.map(log => [
+      new Date(log.createdAt).toISOString(),
+      log.userEmail,
+      log.ipAddress || '127.0.0.1',
+      log.action,
+      log.context.replace(/"/g, '""')
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(val => `"${val}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `collabpro-audit-logs-${activeTeam?.teamName || 'team'}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success("Audit logs exported to CSV successfully!");
+  };
+
   // Compute Seat gauge percentage
   const activeSeats = seatCount?.activeSeats || 1;
   const limit = seatCount?.seatLimit || 50;
   const seatPercent = Math.min(100, Math.round((activeSeats / limit) * 100));
+
+  // Filter audit logs based on user search and dropdown selection
+  const filteredLogs = auditLogs.filter(log => {
+    const matchesSearch = log.userEmail.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                          log.action.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          log.context.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesAction = actionFilter === '' || log.action === actionFilter;
+    return matchesSearch && matchesAction;
+  });
 
   if (!activeTeam) {
     return (
@@ -216,10 +274,36 @@ export default function AdminSettingsPage() {
               Organization Control Center
             </h1>
             <p className='text-sm text-slate-500 dark:text-zinc-400 max-w-xl leading-relaxed'>
-              Configure allowed domain rules, active seat restrictions, and SAML single sign-on mechanisms for your enterprise workspace.
+              Configure allowed domain rules, active seat restrictions, SAML single sign-on, and audit compliance logging records.
             </p>
           </div>
         </div>
+      </div>
+
+      {/* Interactive Tabs */}
+      <div className="mt-8 flex gap-2 border-b border-slate-100 dark:border-zinc-900 pb-px">
+        <Button
+          onClick={() => setActiveTab('policy')}
+          variant="ghost"
+          className={`h-10 px-6 rounded-t-xl rounded-b-none text-xs font-bold gap-2 transition-all border-b-2 -mb-px ${
+            activeTab === 'policy' 
+              ? 'border-indigo-600 text-indigo-600 bg-indigo-50/20 dark:bg-indigo-950/20' 
+              : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-zinc-300'
+          }`}
+        >
+          <Globe className="h-4 w-4" /> Access & Identity Policies
+        </Button>
+        <Button
+          onClick={() => setActiveTab('audit')}
+          variant="ghost"
+          className={`h-10 px-6 rounded-t-xl rounded-b-none text-xs font-bold gap-2 transition-all border-b-2 -mb-px ${
+            activeTab === 'audit' 
+              ? 'border-indigo-600 text-indigo-600 bg-indigo-50/20 dark:bg-indigo-950/20' 
+              : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-zinc-300'
+          }`}
+        >
+          <Server className="h-4 w-4" /> Compliance Audit Logs
+        </Button>
       </div>
 
       {loading ? (
@@ -227,7 +311,8 @@ export default function AdminSettingsPage() {
           <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
           <span className="text-sm font-medium">Loading organization configurations...</span>
         </div>
-      ) : (
+      ) : activeTab === 'policy' ? (
+        /* TAB 1: Access & Identity Policies (Two Column Grid) */
         <div className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
           
           {/* LEFT COL: Settings Form & SSO */}
@@ -328,75 +413,57 @@ export default function AdminSettingsPage() {
                 )}
               </div>
 
-              {/* Seat Capacity Monitor Trigger */}
-              <div className="space-y-2 pt-4 border-t border-slate-50 dark:border-zinc-900">
-                <label className="text-sm font-bold text-slate-700 dark:text-zinc-300 flex items-center gap-2">
-                  Allocated Organization Seat Limit
-                </label>
-                <input 
-                  type="number"
-                  min={1}
-                  max={500}
-                  value={seatLimit}
-                  onChange={(e) => setSeatLimit(Number(e.target.value))}
-                  className="w-full h-10 px-4 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-zinc-100"
-                />
-                <p className="text-xs text-slate-400 dark:text-zinc-500">
-                  Maximum active members allowed inside this organization concurrently (Max 500 seats).
-                </p>
-              </div>
-
-              {/* Submit Buttons */}
-              <div className="pt-4 flex justify-end">
+              {/* Submit triggers */}
+              <div className="pt-4 border-t border-slate-50 dark:border-zinc-900 flex justify-end">
                 <Button 
                   type="submit" 
                   disabled={savingSettings}
-                  className="h-10 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl px-6 gap-2"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold h-10 px-6 rounded-xl text-xs uppercase tracking-wide gap-2 transition-all shadow hover:shadow-indigo-500/15"
                 >
-                  {savingSettings ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                  Save Organization Policies
+                  {savingSettings && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Save Policy Configs
                 </Button>
               </div>
             </form>
 
-            {/* Collaborators Grid */}
+            {/* Teammates List Panel */}
             <div className="bg-white dark:bg-zinc-950 border border-slate-100 dark:border-zinc-900 rounded-2xl p-6 sm:p-8 shadow-sm">
-              <h3 className="text-base font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
+              <h3 className="text-base font-bold text-slate-800 dark:text-white flex items-center gap-2 border-b border-slate-50 dark:border-zinc-900 pb-4 mb-6">
                 <Users className="h-5 w-5 text-indigo-600" />
-                Collaborator Roster ({members.length + 1})
+                Active Teammates ({members.length})
               </h3>
 
-              <div className="border border-slate-100 dark:border-zinc-900 rounded-xl overflow-hidden shadow-sm">
-                <div className="divide-y divide-slate-100 dark:divide-zinc-900">
-                  
-                  {/* Owner (You) */}
-                  <div className="px-5 py-4 flex items-center justify-between bg-slate-50/50 dark:bg-zinc-900/10">
-                    <div className="flex items-center gap-3">
-                      <div className="h-9 w-9 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center text-xs font-bold font-mono">
-                        {activeTeam.createdBy.slice(0, 2).toUpperCase()}
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-bold text-slate-800 dark:text-zinc-100">{activeTeam.createdBy}</h4>
-                        <span className="inline-flex items-center gap-1 text-[10px] bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 font-semibold px-2 py-0.5 rounded-full mt-0.5">
-                          <ShieldCheck className="h-3 w-3" /> Owner
-                        </span>
-                      </div>
+              <div className="space-y-4">
+                {/* Active Owner Row */}
+                <div className="flex items-center justify-between p-4 border border-indigo-100/50 dark:border-indigo-950 bg-indigo-50/10 dark:bg-indigo-950/10 rounded-xl">
+                  <div className="flex items-center gap-3">
+                    <div className="h-9 w-9 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold shadow-sm">
+                      {activeTeam.createdBy.slice(0, 2).toUpperCase()}
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-indigo-950 dark:text-indigo-400">{activeTeam.createdBy}</h4>
+                      <span className="inline-flex items-center gap-1 text-[10px] bg-indigo-100 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-300 font-extrabold px-2.5 py-0.5 rounded-full mt-0.5 border border-indigo-200/30">
+                        <Shield className="h-3 w-3" /> Creator & Owner
+                      </span>
                     </div>
                   </div>
+                  <span className="text-xs text-slate-400 font-semibold italic">Unremovable</span>
+                </div>
 
-                  {/* Members list */}
+                {/* Other members list */}
+                <div className="space-y-3.5 max-h-[350px] overflow-y-auto pr-1">
                   {loadingMembers ? (
-                    <div className="p-8 text-center text-slate-400 gap-2 flex justify-center items-center">
-                      <Loader2 className="h-4 w-4 animate-spin text-indigo-500" />
-                      <span className="text-sm">Retrieving team roster...</span>
+                    <div className="flex justify-center items-center py-12">
+                      <Loader2 className="h-6 w-6 animate-spin text-slate-300" />
                     </div>
-                  ) : members.length === 0 ? (
-                    <div className="p-8 text-center text-slate-400 text-sm">
-                      No external team members added yet. Use the sidebar to invite people.
+                  ) : members.filter(m => m.email !== activeTeam.createdBy).length === 0 ? (
+                    <div className="text-center py-12 text-slate-400 border border-dashed border-slate-100 dark:border-zinc-900 rounded-xl">
+                      <Users className="h-8 w-8 text-slate-200 dark:text-zinc-800 mx-auto mb-2" />
+                      <p className="text-xs font-medium">No additional teammates added yet.</p>
                     </div>
                   ) : (
-                    members.map((member: any, idx: number) => (
-                      <div key={idx} className="px-5 py-4 flex items-center justify-between hover:bg-slate-50/20 dark:hover:bg-zinc-900/10 transition-colors">
+                    members.filter(m => m.email !== activeTeam.createdBy).map((member: any) => (
+                      <div key={member.userEmail} className="flex items-center justify-between p-4 border border-slate-50 dark:border-zinc-900 bg-white dark:bg-zinc-950 hover:bg-slate-50/30 dark:hover:bg-zinc-900/10 rounded-xl transition-colors">
                         <div className="flex items-center gap-3">
                           <div className="h-9 w-9 rounded-full bg-slate-200 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 flex items-center justify-center text-xs font-bold font-mono">
                             {member.userEmail.slice(0, 2).toUpperCase()}
@@ -508,6 +575,123 @@ export default function AdminSettingsPage() {
 
           </div>
 
+        </div>
+      ) : (
+        /* TAB 2: Compliance Audit Logs (One-Column Rich List View) */
+        <div className="mt-8 space-y-6">
+          <div className="bg-white dark:bg-zinc-950 border border-slate-100 dark:border-zinc-900 rounded-2xl p-6 sm:p-8 shadow-sm space-y-6">
+            
+            {/* Tab header and actions */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-50 dark:border-zinc-900 pb-4">
+              <div>
+                <h3 className="text-base font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                  <Server className="h-5 w-5 text-indigo-600" />
+                  Compliance Audit Logs Tracking
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Immutable tracking of administrative settings updates, file deletions, and collaborative invitations.
+                </p>
+              </div>
+
+              <Button 
+                onClick={handleExportCSV}
+                className="h-9 px-4 rounded-xl border border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-900 text-slate-700 dark:text-zinc-300 gap-1.5 text-xs font-bold shadow-sm transition-all"
+                variant="outline"
+              >
+                <Download className="h-4 w-4" /> Export logs to CSV
+              </Button>
+            </div>
+
+            {/* Filter controls */}
+            <div className="flex flex-col sm:flex-row gap-4">
+              
+              {/* Search text box */}
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+                <input 
+                  type="text"
+                  placeholder="Search logs by actor email, context details, or event..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full h-10 pl-9 pr-4 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-zinc-100"
+                />
+              </div>
+
+              {/* Action dropdown selector */}
+              <div className="relative w-full sm:w-60">
+                <Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+                <select
+                  value={actionFilter}
+                  onChange={(e) => setActionFilter(e.target.value)}
+                  className="w-full h-10 pl-9 pr-8 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-zinc-100 appearance-none cursor-pointer"
+                >
+                  <option value="">All Security Events</option>
+                  <option value="file:delete">File Deletion (file:delete)</option>
+                  <option value="member:invite">Teammate Invite (member:invite)</option>
+                  <option value="member:remove">Teammate Removal (member:remove)</option>
+                  <option value="settings:update">SSO & Policies Update (settings:update)</option>
+                </select>
+              </div>
+
+            </div>
+
+            {/* Log Table view */}
+            <div className="overflow-x-auto border border-slate-100 dark:border-zinc-900 rounded-xl">
+              <table className="w-full text-left text-sm border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 dark:bg-zinc-900/50 text-slate-500 dark:text-zinc-400 font-extrabold border-b border-slate-100 dark:border-zinc-900">
+                    <th className="p-4 text-xs tracking-wider uppercase font-bold w-48">Timestamp</th>
+                    <th className="p-4 text-xs tracking-wider uppercase font-bold w-64">Actor Email</th>
+                    <th className="p-4 text-xs tracking-wider uppercase font-bold w-36">IP Address</th>
+                    <th className="p-4 text-xs tracking-wider uppercase font-bold w-44">Security Event</th>
+                    <th className="p-4 text-xs tracking-wider uppercase font-bold">Metadata Context</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50 dark:divide-zinc-900">
+                  {filteredLogs.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="p-12 text-center text-slate-400">
+                        <ShieldAlert className="h-8 w-8 text-slate-200 dark:text-zinc-800 mx-auto mb-2" />
+                        <p className="text-xs font-semibold">No matching compliance audit events found.</p>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredLogs.map((log) => (
+                      <tr key={log.id} className="hover:bg-slate-50/20 dark:hover:bg-zinc-900/10 transition-colors">
+                        <td className="p-4 font-mono text-xs text-slate-400 flex items-center gap-1.5 whitespace-nowrap">
+                          <Clock className="h-3.5 w-3.5" />
+                          {new Date(log.createdAt).toLocaleString()}
+                        </td>
+                        <td className="p-4 font-bold text-slate-700 dark:text-zinc-300 max-w-[240px] truncate">
+                          {log.userEmail}
+                        </td>
+                        <td className="p-4 font-mono text-xs text-slate-500">
+                          {log.ipAddress || '127.0.0.1'}
+                        </td>
+                        <td className="p-4 whitespace-nowrap">
+                          <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${
+                            log.action === 'file:delete' 
+                              ? 'bg-rose-50 border-rose-200 text-rose-600 dark:bg-rose-950/20 dark:border-rose-900/40 dark:text-rose-400' 
+                              : log.action === 'member:remove' 
+                              ? 'bg-amber-50 border-amber-200 text-amber-600 dark:bg-amber-950/20 dark:border-amber-900/40 dark:text-amber-400' 
+                              : log.action === 'member:invite' 
+                              ? 'bg-blue-50 border-blue-200 text-blue-600 dark:bg-blue-950/20 dark:border-blue-900/40 dark:text-blue-400' 
+                              : 'bg-emerald-50 border-emerald-200 text-emerald-600 dark:bg-emerald-950/20 dark:border-emerald-900/40 dark:text-emerald-400'
+                          }`}>
+                            {log.action}
+                          </span>
+                        </td>
+                        <td className="p-4 text-xs font-mono text-slate-500 dark:text-zinc-400 max-w-sm truncate">
+                          {log.context}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+          </div>
         </div>
       )}
     </div>
