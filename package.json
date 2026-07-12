@@ -69,6 +69,8 @@
     "@vitejs/plugin-react": "^6.0.3",
     "@vitest/coverage-v8": "^4.1.10",
     "autoprefixer": "^10.0.1",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.2.10",
     "googleapis": "^173.0.0",
     "jsdom": "^29.1.1",
     "postcss": "^8.5.10",
