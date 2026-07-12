@@ -25,7 +25,7 @@
     "@editorjs/list": "^1.9.0",
     "@editorjs/paragraph": "^2.11.3",
     "@editorjs/warning": "^1.4.0",
-    "@excalidraw/excalidraw": "^0.17.3",
+    "@excalidraw/excalidraw": "^0.18.0",
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "@radix-ui/react-dialog": "^1.0.5",
@@ -42,8 +42,8 @@
     "next-themes": "^0.2.1",
     "pg": "^8.22.0",
     "prisma": "^7.8.0",
-    "react": "^18",
-    "react-dom": "^18",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
     "sonner": "^1.4.0",
     "tailwind-merge": "^2.2.1",
     "tailwindcss-animate": "^1.0.7",
@@ -52,7 +52,9 @@
   },
   "overrides": {
     "postcss": "^8.5.10",
-    "@hono/node-server": "^1.19.13"
+    "@hono/node-server": "^1.19.13",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
@@ -60,8 +62,8 @@
     "@testing-library/react": "^16.3.2",
     "@types/node": "^20",
     "@types/pg": "^8.20.0",
-    "@types/react": "^18",
-    "@types/react-dom": "^18",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^6.0.3",
     "@vitest/coverage-v8": "^4.1.10",

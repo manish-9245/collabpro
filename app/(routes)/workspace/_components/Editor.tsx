@@ -58,7 +58,7 @@ function Editor({
     onHistoryChange,
     activePanel
 }: EditorProps) {
-    const ref=useRef<EditorJS>();
+    const ref=useRef<EditorJS | null>(null);
     const updateDocument=useMutation(api.files.updateDocument);
     const saveTimeoutRef=useRef<NodeJS.Timeout|null>(null);
     const lastSavedDataRef=useRef<string>("");
