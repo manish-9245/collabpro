@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button'
-import { Archive, Flag, User, Settings, Bell, HelpCircle, Sparkles } from 'lucide-react'
+import { Archive, Flag, User, Settings, Bell, HelpCircle, Sparkles, Cpu } from 'lucide-react'
 import React, { useState, useContext } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { api, useQuery } from '@/lib/state-sync/react'
@@ -92,6 +92,16 @@ function SideNavBottomSection({onFileCreate,totalFiles}:any) {
         router.push('/dashboard');
       },
       isActive: pathname === '/dashboard' && activeTab === 'archive'
+    },
+    {
+      id: 7,
+      name: 'Developer Hub',
+      icon: Cpu,
+      path: '/dashboard/developers',
+      action: () => {
+        router.push('/dashboard/developers');
+      },
+      isActive: pathname === '/dashboard/developers'
     }
   ]
 
