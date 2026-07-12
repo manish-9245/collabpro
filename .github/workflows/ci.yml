@@ -96,6 +96,8 @@ jobs:
 
       # 9.5. Run Unit Tests & Generate Coverage Report
       - name: 📈 Run Unit Tests with Coverage
+        env:
+          DATABASE_URL: postgresql://postgres:postgres_password@localhost:5432/collabpro
         run: npm run test:coverage
 
       # 10. Dispatch Asynchronous Security Scans & Quality Gate Webhook
