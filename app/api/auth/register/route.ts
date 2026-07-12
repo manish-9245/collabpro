@@ -29,7 +29,7 @@ export async function POST(request: Request) {
       },
     });
 
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     cookieStore.set('session_token', JSON.stringify({
       id: user.id,
       email: user.email,
