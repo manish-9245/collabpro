@@ -36,7 +36,7 @@
     "clsx": "^2.1.0",
     "lucide-react": "^0.335.0",
     "moment": "^2.30.1",
-    "next": "14.1.0",
+    "next": "14.2.35",
     "next-themes": "^0.2.1",
     "pg": "^8.22.0",
     "prisma": "^7.8.0",
@@ -47,6 +47,10 @@
     "tailwindcss-animate": "^1.0.7",
     "ws": "^8.21.0",
     "yjs": "^13.6.31"
+  },
+  "overrides": {
+    "postcss": "^8.5.10",
+    "@hono/node-server": "^1.19.13"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
@@ -62,7 +66,7 @@
     "autoprefixer": "^10.0.1",
     "googleapis": "^173.0.0",
     "jsdom": "^29.1.1",
-    "postcss": "^8",
+    "postcss": "^8.5.10",
     "tailwindcss": "^3.3.0",
     "tsx": "^4.23.0",
     "typescript": "^5",

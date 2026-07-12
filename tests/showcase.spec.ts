@@ -169,6 +169,7 @@ test.describe('CollabPro Complete Feature Tour & Demonstration', () => {
     console.log('🎬 Scene 3: Generating Rich Markdown Document...');
     try {
       const editor = page.locator('.ce-paragraph').first();
+      await editor.waitFor({ state: 'visible', timeout: 15000 });
       await editor.click({ timeout: 5000 });
       await page.keyboard.type(SCENARIO_CONFIG.data.editorHeadline, { delay: SCENARIO_CONFIG.timing.humanKeystrokeDelay });
       await page.keyboard.press('Enter');
