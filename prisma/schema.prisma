@@ -149,3 +149,16 @@ model OrgSetting {
   updatedAt          DateTime @updatedAt
 }
 
+model AuditLog {
+  id        String   @id @default(uuid())
+  teamId    String
+  userEmail String
+  ipAddress String   @default("")
+  action    String   // e.g. "file:delete", "link:share_modify", "member:invite", "member:remove", "settings:update"
+  context   String   @default("") // JSON string for details or parameters
+  createdAt DateTime @default(now())
+
+  @@index([teamId, createdAt])
+}
+
+

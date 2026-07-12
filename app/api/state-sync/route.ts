@@ -5,6 +5,8 @@ import { decodeCrdtState } from '@/lib/crdt';
 import { verifyApiKey } from '@/lib/api-key-middleware';
 import { validateAndSanitizeWhiteboardElements } from '@/lib/canvas-validation';
 import { getCachedFile, invalidateCachedFile } from '@/lib/redis-cache';
+import { logAuditEvent } from '@/lib/audit';
+
 
 function extractTextFromWhiteboard(whiteboard: string | null | undefined): string {
   if (!whiteboard) return "";
@@ -151,6 +153,9 @@ function mergeWhiteboardById(currentElements: any[], incomingElements: any[]): a
 
 export async function POST(request: Request) {
   try {
+    const ipAddress = (request && request.headers && typeof request.headers.get === 'function')
+      ? (request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || '127.0.0.1')
+      : '127.0.0.1';
     const { path, args } = await request.json();
     console.log("Convex Mock Request: path =", path, "args =", JSON.stringify(args || {}));
 
@@ -519,6 +524,15 @@ export async function POST(request: Request) {
             type: "system"
           }
         });
+
+        await logAuditEvent(
+          teamId,
+          authUserEmail || "unknown@collabpro.com",
+          "member:remove",
+          { removedUserEmail: userEmail },
+          ipAddress
+        );
+
         break;
       }
       case 'teams:getTeamMembers': {
@@ -617,6 +631,14 @@ export async function POST(request: Request) {
             type: "invite"
           }
         });
+
+        await logAuditEvent(
+          teamId,
+          authUserEmail || "unknown@collabpro.com",
+          "member:invite",
+          { inviteeEmail: userEmail, role: role || "member" },
+          ipAddress
+        );
 
         result = invite;
         break;
@@ -922,6 +944,22 @@ export async function POST(request: Request) {
       }
       case 'files:deleteFile': {
         const { _id } = args || {};
+        let fileRecord = null;
+        if (prisma.file && typeof prisma.file.findUnique === 'function') {
+          fileRecord = await prisma.file.findUnique({
+            where: { id: _id },
+          });
+        }
+        if (fileRecord) {
+          await logAuditEvent(
+            fileRecord.teamId,
+            authUserEmail || "unknown@collabpro.com",
+            "file:delete",
+            { fileId: _id, fileName: fileRecord.fileName },
+            ipAddress
+          );
+        }
+
         // Delete all file versions first
         await prisma.fileVersion.deleteMany({
           where: { fileId: _id },
@@ -1056,6 +1094,15 @@ export async function POST(request: Request) {
             seatLimit: seatLimit ? Number(seatLimit) : 50,
           },
         });
+
+        await logAuditEvent(
+          teamId,
+          authUserEmail || "unknown@collabpro.com",
+          "settings:update",
+          { allowedDomains, ssoEnabled, ssoProvider, ssoMetadataUrl, seatLimit },
+          ipAddress
+        );
+
         break;
       }
       case 'orgSettings:getSeatCount': {
@@ -1079,6 +1126,17 @@ export async function POST(request: Request) {
           pendingInvitations: pendingCount,
           seatLimit: limit,
         };
+        break;
+      }
+      case 'securityAudit:getLogs': {
+        const { teamId } = args || {};
+        if (!teamId) {
+          throw new Error("teamId is required");
+        }
+        result = await prisma.auditLog.findMany({
+          where: { teamId },
+          orderBy: { createdAt: 'desc' },
+        });
         break;
       }
       case 'sharedLibrary:getItems': {
