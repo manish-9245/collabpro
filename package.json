@@ -7,7 +7,7 @@
     "prebuild": "node scripts/db-prep.js",
     "dev": "next dev",
     "build": "next build",
-    "start": "prisma db push && next start",
+    "start": "prisma db push --accept-data-loss && next start",
     "lint": "next lint",
     "postinstall": "prisma generate",
     "resolve-issue": "node scripts/resolve-issue.js",
