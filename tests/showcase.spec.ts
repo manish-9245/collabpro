@@ -139,7 +139,7 @@ test.describe('CollabPro Complete Feature Tour & Demonstration', () => {
     // ----------------------------------------------------
     console.log('🎬 Scene 2: Creating File under a Folder...');
     await hoverAndDelay(SCENARIO_CONFIG.selectors.newFileBtn);
-    await page.locator(SCENARIO_CONFIG.selectors.newFileBtn).click();
+    await page.locator(SCENARIO_CONFIG.selectors.newFileBtn).click({ force: true });
     await page.waitForTimeout(1000);
 
     await slowType(SCENARIO_CONFIG.selectors.fileInput, SCENARIO_CONFIG.data.fileName);
