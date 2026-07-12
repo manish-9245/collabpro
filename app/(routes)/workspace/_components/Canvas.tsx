@@ -364,9 +364,148 @@ function Canvas({
     const lastSavedDataRef=useRef<string>("");
     const uploadingFilesRef = useRef<Set<string>>(new Set());
 
-    const [activeTab, setActiveTab] = useState<'standard' | 'aws' | 'custom' | 'libraries'>('standard');
+    const [activeTab, setActiveTab] = useState<'standard' | 'aws' | 'custom' | 'libraries' | 'pdf'>('standard');
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
+
+    // PDF Import and markup states
+    const [pdfjsLoaded, setPdfjsLoaded] = useState(false);
+    const [pdfDoc, setPdfDoc] = useState<any>(null);
+    const [pdfPagesCount, setPdfPagesCount] = useState(0);
+    const [currentPdfPage, setCurrentPdfPage] = useState(1);
+    const [pdfName, setPdfName] = useState("");
+    const [pdfLoading, setPdfLoading] = useState(false);
+    const [pdfDragOver, setPdfDragOver] = useState(false);
+
+    useEffect(() => {
+        if (activeTab === 'pdf' && !pdfjsLoaded) {
+            setPdfLoading(true);
+            const script = document.createElement('script');
+            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js';
+            script.async = true;
+            script.onload = () => {
+                const globalWindow = window as any;
+                if (globalWindow.pdfjsLib) {
+                    globalWindow.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+                    setPdfjsLoaded(true);
+                }
+                setPdfLoading(false);
+            };
+            script.onerror = () => {
+                toast.error("Failed to load PDF.js engine");
+                setPdfLoading(false);
+            };
+            document.body.appendChild(script);
+        }
+    }, [activeTab, pdfjsLoaded]);
+
+    const handlePdfFile = async (file: File) => {
+        if (file.type !== 'application/pdf') {
+            toast.error("Please upload a valid PDF file.");
+            return;
+        }
+        setPdfLoading(true);
+        setPdfName(file.name);
+        try {
+            const arrayBuffer = await file.arrayBuffer();
+            const globalWindow = window as any;
+            if (!globalWindow.pdfjsLib) {
+                throw new Error("PDF.js engine is still loading. Please try again in a moment.");
+            }
+            const loadingTask = globalWindow.pdfjsLib.getDocument({ data: arrayBuffer });
+            const pdf = await loadingTask.promise;
+            setPdfDoc(pdf);
+            setPdfPagesCount(pdf.numPages);
+            setCurrentPdfPage(1);
+            toast.success(`PDF "${file.name}" loaded successfully with ${pdf.numPages} pages!`);
+        } catch (error: any) {
+            console.error("Error loading PDF:", error);
+            toast.error("Error loading PDF: " + error.message);
+        } finally {
+            setPdfLoading(false);
+        }
+    };
+
+    const insertPdfPageToCanvas = async (pageNum: number) => {
+        if (!pdfDoc || !excalidrawAPI) {
+            toast.error("PDF document or Excalidraw is not fully initialized.");
+            return;
+        }
+        setPdfLoading(true);
+        try {
+            const page = await pdfDoc.getPage(pageNum);
+            const viewport = page.getViewport({ scale: 2.0 });
+            const canvas = document.createElement('canvas');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            
+            const context = canvas.getContext('2d');
+            if (!context) throw new Error("Could not instantiate canvas context");
+            
+            await page.render({
+                canvasContext: context,
+                viewport: viewport
+            }).promise;
+            
+            const dataURL = canvas.toDataURL('image/png');
+            const imageId = `pdf_${Date.now()}_p${pageNum}`;
+            
+            await excalidrawAPI.addFiles([
+                {
+                    id: imageId,
+                    dataURL: dataURL,
+                    mimeType: 'image/png',
+                    created: Date.now()
+                }
+            ]);
+            
+            const currentElements = excalidrawAPI.getSceneElements() || [];
+            const appState = excalidrawAPI.getAppState() || {};
+            const centerX = appState.scrollX ? -appState.scrollX + window.innerWidth / 4 : 150;
+            const centerY = appState.scrollY ? -appState.scrollY + window.innerHeight / 4 : 150;
+            
+            const newImageElement = {
+                type: "image",
+                id: `elem_${imageId}`,
+                fileId: imageId,
+                status: "pending",
+                x: centerX,
+                y: centerY,
+                width: viewport.width / 2,
+                height: viewport.height / 2,
+                angle: 0,
+                strokeColor: "transparent",
+                backgroundColor: "transparent",
+                fillStyle: "hachure",
+                strokeWidth: 1,
+                strokeStyle: "solid",
+                roughness: 1,
+                opacity: 100,
+                groupIds: [],
+                frameId: null,
+                roundness: null,
+                seed: Math.floor(Math.random() * 100000),
+                version: 1,
+                versionNonce: Math.floor(Math.random() * 100000),
+                isDeleted: false,
+                boundElements: null,
+                updated: Date.now(),
+                link: null,
+                locked: true
+            };
+            
+            excalidrawAPI.updateScene({
+                elements: [...currentElements, newImageElement]
+            });
+            
+            toast.success(`Rendered Page ${pageNum} and embedded as locked background layer!`);
+        } catch (error: any) {
+            console.error("Error inserting PDF page:", error);
+            toast.error("Failed to render and insert page: " + error.message);
+        } finally {
+            setPdfLoading(false);
+        }
+    };
     const [selectedCategory, setSelectedCategory] = useState<string>('all');
     const [loadingIcon, setLoadingIcon] = useState<string | null>(null);
     const [includeLabel, setIncludeLabel] = useState(true);
@@ -1292,12 +1431,13 @@ function Canvas({
         </div>
 
         {/* Tab Switcher Grid */}
-        <div className="grid grid-cols-4 gap-1 p-2 bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800/60 shrink-0">
+        <div className="grid grid-cols-5 gap-1 p-1.5 bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800/60 shrink-0">
           {[
             { id: 'standard', label: 'Standard' },
             { id: 'aws', label: 'AWS' },
             { id: 'custom', label: 'Custom' },
-            { id: 'libraries', label: 'Library' }
+            { id: 'libraries', label: 'Library' },
+            { id: 'pdf', label: 'PDF' }
           ].map((tab) => (
             <button
               key={tab.id}
@@ -1306,7 +1446,7 @@ function Canvas({
                 setActiveTab(tab.id as any);
                 setSearchQuery('');
               }}
-              className={`py-1.5 rounded-lg text-[10px] font-bold text-center transition-all cursor-pointer ${
+              className={`py-1.5 rounded-lg text-[9px] font-black text-center transition-all cursor-pointer ${
                 activeTab === tab.id
                   ? 'bg-white dark:bg-slate-800 text-[#6965db] dark:text-[#8572e3] shadow-sm border border-slate-200/50 dark:border-slate-700/50'
                   : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
@@ -2121,6 +2261,168 @@ function Canvas({
                           </button>
                         ))
                       )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'pdf' && (
+            <div className="flex flex-col h-full bg-white dark:bg-slate-900 min-h-0 select-none">
+              <div className="flex-1 overflow-y-auto p-4 flex flex-col min-h-0 bg-white dark:bg-slate-900 space-y-4">
+                {/* Header */}
+                <div className="flex items-center gap-2 pb-1 border-b border-slate-100 dark:border-slate-800">
+                  <div className="h-6 w-6 rounded-lg bg-[#6965db]/10 flex items-center justify-center">
+                    <BookOpen className="h-3.5 w-3.5 text-[#6965db]" />
+                  </div>
+                  <div>
+                    <h4 className="text-[11px] font-black uppercase tracking-wider text-slate-800 dark:text-slate-200 leading-none">
+                      PDF Markup Engine
+                    </h4>
+                    <span className="text-[8px] text-slate-400 dark:text-slate-500 font-extrabold uppercase">
+                      Vector Overlay Layer
+                    </span>
+                  </div>
+                </div>
+
+                {/* Main Dropper Container */}
+                {!pdfDoc ? (
+                  <div
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setPdfDragOver(true);
+                    }}
+                    onDragLeave={() => setPdfDragOver(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setPdfDragOver(false);
+                      const file = e.dataTransfer.files?.[0];
+                      if (file) handlePdfFile(file);
+                    }}
+                    onClick={() => document.getElementById('pdf-file-selector')?.click()}
+                    className={`flex-1 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center p-6 text-center cursor-pointer transition-all min-h-[220px] ${
+                      pdfDragOver
+                        ? 'border-[#6965db] bg-[#6965db]/5 scale-[0.98]'
+                        : 'border-slate-200 dark:border-slate-800 hover:border-[#6965db]/60 hover:bg-slate-50/50 dark:hover:bg-slate-800/10'
+                    }`}
+                  >
+                    <input
+                      id="pdf-file-selector"
+                      type="file"
+                      accept="application/pdf"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handlePdfFile(file);
+                      }}
+                    />
+                    {pdfLoading ? (
+                      <div className="flex flex-col items-center gap-2">
+                        <Loader2 className="h-8 w-8 text-[#6965db] animate-spin" />
+                        <span className="text-[10px] font-black uppercase text-slate-400 dark:text-slate-500 tracking-wider">
+                          Loading PDF...
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="h-10 w-10 rounded-2xl bg-[#6965db]/10 flex items-center justify-center mx-auto text-[#6965db] animate-pulse">
+                          <Upload className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                            Drag & Drop PDF
+                          </p>
+                          <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium leading-normal mt-0.5 max-w-[180px] mx-auto">
+                            or click to browse local files. PDF pages are converted into static background vectors.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  /* PDF Loaded Controls Panel */
+                  <div className="space-y-4 flex flex-col flex-1 min-h-0">
+                    <div className="p-3 bg-slate-50 dark:bg-slate-800/30 rounded-xl border border-slate-100 dark:border-slate-800 flex flex-col gap-2 shrink-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-black text-slate-700 dark:text-slate-300 truncate">
+                            {pdfName}
+                          </p>
+                          <p className="text-[8px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider mt-0.5 font-sans">
+                            Total {pdfPagesCount} Pages
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPdfDoc(null);
+                            setPdfName("");
+                            setPdfPagesCount(0);
+                            setCurrentPdfPage(1);
+                          }}
+                          className="p-1 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/20 text-slate-400 hover:text-rose-500 transition-colors cursor-pointer"
+                          title="Unload PDF"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+
+                      {/* Pages Flip Selector */}
+                      <div className="flex items-center justify-between bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 p-1.5 rounded-xl mt-1">
+                        <button
+                          type="button"
+                          disabled={currentPdfPage <= 1}
+                          onClick={() => setCurrentPdfPage(prev => Math.max(1, prev - 1))}
+                          className="p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition-colors disabled:opacity-30 cursor-pointer"
+                        >
+                          <ChevronLeft className="h-3.5 w-3.5" />
+                        </button>
+                        <span className="text-[9px] font-black uppercase text-slate-600 dark:text-slate-400 tracking-wider">
+                          Page {currentPdfPage} of {pdfPagesCount}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={currentPdfPage >= pdfPagesCount}
+                          onClick={() => setCurrentPdfPage(prev => Math.min(pdfPagesCount, prev + 1))}
+                          className="p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition-colors disabled:opacity-30 cursor-pointer"
+                        >
+                          <ChevronRight className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Canvas Injection Call-to-action */}
+                    <button
+                      type="button"
+                      disabled={pdfLoading}
+                      onClick={() => insertPdfPageToCanvas(currentPdfPage)}
+                      className="w-full py-2.5 bg-[#6965db] hover:bg-[#5b57c6] text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-[#6965db]/10 hover:shadow-md disabled:opacity-50"
+                    >
+                      {pdfLoading ? (
+                        <>
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Rendering Page...
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="h-3.5 w-3.5" /> Insert Page backdrop
+                        </>
+                      )}
+                    </button>
+
+                    {/* How-to help guide card */}
+                    <div className="p-3.5 bg-indigo-50/50 dark:bg-indigo-950/10 border border-indigo-100/60 dark:border-indigo-950/30 rounded-xl space-y-2 shrink-0">
+                      <div className="flex items-center gap-1.5 text-indigo-700 dark:text-indigo-400">
+                        <Info className="h-3.5 w-3.5" />
+                        <span className="text-[9px] font-black uppercase tracking-wider">
+                          Annotation Guide
+                        </span>
+                      </div>
+                      <p className="text-[8.5px] text-slate-500 dark:text-slate-400 leading-normal font-medium">
+                        1. Select a PDF page and click **"Insert Page backdrop"** above.<br />
+                        2. The page loads into the Excalidraw canvas as a locked background layer.<br />
+                        3. Use the standard **Pen/Brush**, **Text Tool**, or **Shapes** to markup, highlight, or draw system architectures directly over the PDF document.
+                      </p>
                     </div>
                   </div>
                 )}
