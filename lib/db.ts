@@ -40,7 +40,28 @@ if (isPostgres) {
   } else {
     console.log("[db.ts] Creating a new PostgreSQL Pool and PrismaClient...");
     try {
-      const pool = new Pool({ connectionString });
+      // Configure pgBouncer connection parameters dynamically on connection string
+      let pooledUrl = connectionString || "";
+      try {
+        const url = new URL(pooledUrl);
+        if (!url.searchParams.has('pgbouncer')) {
+          url.searchParams.set('pgbouncer', 'true');
+        }
+        if (!url.searchParams.has('connection_limit')) {
+          url.searchParams.set('connection_limit', '50');
+        }
+        pooledUrl = url.toString();
+      } catch (e) {
+        // Fallback to original string if not a parseable URL
+      }
+
+      const pool = new Pool({
+        connectionString: pooledUrl,
+        max: 50, // optimal maximum pool clients per server container instance
+        idleTimeoutMillis: 30000, // close idle connections after 30 seconds
+        connectionTimeoutMillis: 5000, // wait up to 5 seconds for connection handshake
+        maxUses: 10000, // close and recreate connection after 10000 queries to avoid memory leaks
+      });
       
       // Handle pool errors to clear stale global instances
       pool.on('error', (err) => {
@@ -59,7 +80,7 @@ if (isPostgres) {
         globalForPrisma.prisma = prismaInstance;
         globalForPrisma.pool = pool;
       }
-      console.log("[db.ts] PostgreSQL PrismaClient created successfully");
+      console.log("[db.ts] PostgreSQL PrismaClient with pgBouncer pooling created successfully");
     } catch (err) {
       console.error("[db.ts] Error constructing PostgreSQL PrismaClient with adapter:", err);
       throw err;
