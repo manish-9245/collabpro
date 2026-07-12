@@ -6,7 +6,7 @@
     "predev": "node scripts/db-prep.js",
     "prebuild": "node scripts/db-prep.js",
     "dev": "next dev",
-    "build": "next build",
+    "build": "DATABASE_URL=postgresql://localhost:5432 next build",
     "start": "prisma db push --accept-data-loss && next start",
     "lint": "next lint",
     "postinstall": "prisma generate",
