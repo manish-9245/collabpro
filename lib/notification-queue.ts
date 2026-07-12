@@ -1,4 +1,4 @@
-import { getRedisClient } from './redis-cache';
+import { ResilientQueue } from './queue';
 
 export interface NotificationPayload {
   repository: string;
@@ -11,30 +11,14 @@ export interface NotificationPayload {
   retryCount?: number;
 }
 
-// Fallback in-memory queue when Redis is offline or during mock unit testing
-const inMemoryQueue: string[] = [];
+// Instantiate the resilient queue specifically for notifications
+const notificationQueue = new ResilientQueue<NotificationPayload>('collabpro:queue:notifications');
 
 /**
- * Enqueues a notification payload into the Redis-backed queue list
+ * Enqueues a notification payload into the Resilient Queue
  */
 export async function enqueueNotification(payload: NotificationPayload): Promise<void> {
-  const queueKey = 'collabpro:queue:notifications';
-  const client = getRedisClient();
-
-  const serialized = JSON.stringify(payload);
-
-  if (client) {
-    try {
-      await client.rpush(queueKey, serialized);
-      console.log(`📥 [Notification Queue] Enqueued build report for commit ${payload.commit} on Redis`);
-      return;
-    } catch (err: any) {
-      console.warn('⚠️ Redis queue push failed, falling back to In-Memory Queue: ', err.message);
-    }
-  }
-
-  inMemoryQueue.push(serialized);
-  console.log(`📥 [Notification Queue] Enqueued build report for commit ${payload.commit} in memory`);
+  await notificationQueue.enqueue(payload);
 }
 
 /**
@@ -46,61 +30,45 @@ export async function processNotificationQueue(options?: { forceDeliveryFailure?
   failedCount: number;
   html?: string;
 }> {
-  const queueKey = 'collabpro:queue:notifications';
-  const client = getRedisClient();
-  let serializedPayload: string | null = null;
+  let result: { processedCount: number; failedCount: number; html?: string } = { processedCount: 0, failedCount: 0 };
 
-  if (client) {
+  const success = await notificationQueue.process(async (payload) => {
+    const currentRetry = payload.retryCount || 0;
     try {
-      serializedPayload = await client.lpop(queueKey);
-    } catch (err: any) {
-      console.warn('⚠️ Redis queue pop failed, falling back to In-Memory: ', err.message);
+      if (options?.forceDeliveryFailure) {
+        throw new Error('Simulated transient HTTP API delivery timeout');
+      }
+
+      // Compile dynamic responsive HTML email template
+      const htmlReport = compileEmailTemplate(payload);
+
+      // Delivery Phase (e.g. Mock Dispatcher to Resend / SES / SMTP)
+      console.log(`✉️ [Decoupled Dispatcher] Successfully delivered Build Report HTML to inbox for commit ${payload.commit}`);
+
+      result = { processedCount: 1, failedCount: 0, html: htmlReport };
+    } catch (deliveryError: any) {
+      console.warn(`⚠️ [Delivery Failed] Attempt ${currentRetry + 1}/5 for commit ${payload.commit}: ${deliveryError.message}`);
+
+      if (currentRetry < 5) {
+        const nextRetryPayload: NotificationPayload = {
+          ...payload,
+          retryCount: currentRetry + 1,
+        };
+        
+        // Calculate exponential backoff delay (simulated or task-deferred)
+        const backoffSec = Math.pow(2, currentRetry) * 10;
+        console.log(`🔄 [Retry Scheduled] Queueing retry attempt ${currentRetry + 1} with exponential backoff of ${backoffSec}s`);
+
+        await enqueueNotification(nextRetryPayload);
+      } else {
+        console.error(`❌ [Dead-Letter Event] Commits ${payload.commit} notification reached max retry exhaustion limit`);
+      }
+
+      result = { processedCount: 0, failedCount: 1 };
     }
-  }
+  });
 
-  if (!serializedPayload) {
-    serializedPayload = inMemoryQueue.shift() || null;
-  }
-
-  if (!serializedPayload) {
-    return { processedCount: 0, failedCount: 0 };
-  }
-
-  const payload: NotificationPayload = JSON.parse(serializedPayload);
-  const currentRetry = payload.retryCount || 0;
-
-  try {
-    if (options?.forceDeliveryFailure) {
-      throw new Error('Simulated transient HTTP API delivery timeout');
-    }
-
-    // Compile dynamic responsive HTML email template
-    const htmlReport = compileEmailTemplate(payload);
-
-    // Delivery Phase (e.g. Mock Dispatcher to Resend / SES / SMTP)
-    console.log(`✉️ [Decoupled Dispatcher] Successfully delivered Build Report HTML to inbox for commit ${payload.commit}`);
-
-    return { processedCount: 1, failedCount: 0, html: htmlReport };
-  } catch (deliveryError: any) {
-    console.warn(`⚠️ [Delivery Failed] Attempt ${currentRetry + 1}/5 for commit ${payload.commit}: ${deliveryError.message}`);
-
-    if (currentRetry < 5) {
-      const nextRetryPayload: NotificationPayload = {
-        ...payload,
-        retryCount: currentRetry + 1,
-      };
-      
-      // Calculate exponential backoff delay (simulated or task-deferred)
-      const backoffSec = Math.pow(2, currentRetry) * 10;
-      console.log(`🔄 [Retry Scheduled] Queueing retry attempt ${currentRetry + 1} with exponential backoff of ${backoffSec}s`);
-
-      await enqueueNotification(nextRetryPayload);
-    } else {
-      console.error(`❌ [Dead-Letter Event] Commits ${payload.commit} notification reached max retry exhaustion limit`);
-    }
-
-    return { processedCount: 0, failedCount: 1 };
-  }
+  return success ? result : { processedCount: 0, failedCount: 0 };
 }
 
 /**
@@ -124,7 +92,7 @@ function compileEmailTemplate(payload: NotificationPayload): string {
         <div style="max-width: 600px; margin: 0 auto; background-color: #111827; border-radius: 16px; border: 1px solid #1F2937; overflow: hidden; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);">
           <!-- Header Banner -->
           <div style="background: linear-gradient(135deg, #1E1B4B, #0F172A); padding: 32px; border-bottom: 1px solid #1F2937; text-align: center;">
-            <h1 style="color: #6366F1; margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.5px;">GrahakAI Build Intelligence</h1>
+            <h1 style="color: #6366F1; margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.5px;">CollabPro Build Intelligence</h1>
             <p style="color: #9CA3AF; margin: 8px 0 0 0; font-size: 14px;">Decoupled Serverless Delivery Engine</p>
           </div>
 
@@ -186,7 +154,7 @@ function compileEmailTemplate(payload: NotificationPayload): string {
           <!-- Footer Legal -->
           <div style="background-color: #111827; padding: 24px; text-align: center; border-top: 1px solid #1F2937; font-size: 12px; color: #6B7280;">
             This build update was initiated by continuous integration triggers on collabpro.<br>
-            Powered by GrahakAI &middot; Decoupled Delivery Layer
+            Powered by CollabPro &middot; Decoupled Delivery Layer
           </div>
         </div>
       </body>

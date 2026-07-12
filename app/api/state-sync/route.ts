@@ -6,37 +6,8 @@ import { verifyApiKey } from '@/lib/api-key-middleware';
 import { validateAndSanitizeWhiteboardElements } from '@/lib/canvas-validation';
 import { getCachedFile, invalidateCachedFile } from '@/lib/redis-cache';
 import { logAuditEvent } from '@/lib/audit';
+import { FileService, extractTextFromWhiteboard } from '@/lib/file-service';
 
-
-function extractTextFromWhiteboard(whiteboard: string | null | undefined): string {
-  if (!whiteboard) return "";
-  try {
-    const decoded = decodeCrdtState(whiteboard, []);
-    let elements: any[] = [];
-    if (Array.isArray(decoded)) {
-      elements = decoded;
-    } else if (decoded && typeof decoded === 'object') {
-      if (Array.isArray((decoded as any).elements)) {
-        elements = (decoded as any).elements;
-      } else {
-        elements = Object.values(decoded);
-      }
-    }
-
-    const textParts: string[] = [];
-    for (const elem of elements) {
-      if (elem && typeof elem === 'object') {
-        if (elem.type === 'text' && typeof elem.text === 'string' && elem.text.trim()) {
-          textParts.push(elem.text.trim());
-        }
-      }
-    }
-    return textParts.join(" ");
-  } catch (error) {
-    console.error("[extractTextFromWhiteboard] error:", error);
-    return "";
-  }
-}
 
 function mapConvexIds(obj: any): any {
   if (!obj) return obj;
@@ -728,27 +699,12 @@ export async function POST(request: Request) {
       }
       case 'files:updateDocument': {
         const { _id, document } = args || {};
-        result = await prisma.file.update({
-          where: { id: _id },
-          data: { document },
-        });
-        if (_id) {
-          await invalidateCachedFile(_id);
-        }
+        result = await FileService.updateFile(_id, { document });
         break;
       }
       case 'files:updateWhiteboard': {
         const { _id, whiteboard } = args || {};
-        result = await prisma.file.update({
-          where: { id: _id },
-          data: { 
-            whiteboard,
-            whiteboardText: extractTextFromWhiteboard(whiteboard),
-          },
-        });
-        if (_id) {
-          await invalidateCachedFile(_id);
-        }
+        result = await FileService.updateFile(_id, { whiteboard });
         break;
       }
       case 'collabpro_update_document': {
@@ -911,35 +867,17 @@ export async function POST(request: Request) {
       }
       case 'files:updateFileName': {
         const { _id, fileName } = args || {};
-        result = await prisma.file.update({
-          where: { id: _id },
-          data: { fileName },
-        });
-        if (_id) {
-          await invalidateCachedFile(_id);
-        }
+        result = await FileService.renameFile(_id, fileName);
         break;
       }
       case 'files:updateFileFolder': {
         const { _id, folder } = args || {};
-        result = await prisma.file.update({
-          where: { id: _id },
-          data: { folder: folder || null },
-        });
-        if (_id) {
-          await invalidateCachedFile(_id);
-        }
+        result = await FileService.moveFile(_id, folder);
         break;
       }
       case 'files:archiveFile': {
         const { _id, archive } = args || {};
-        result = await prisma.file.update({
-          where: { id: _id },
-          data: { archive },
-        });
-        if (_id) {
-          await invalidateCachedFile(_id);
-        }
+        result = await FileService.archiveFile(_id, archive);
         break;
       }
       case 'files:deleteFile': {
@@ -971,13 +909,9 @@ export async function POST(request: Request) {
         await prisma.sharedLink.deleteMany({
           where: { fileId: _id },
         });
-        // Delete the file
-        result = await prisma.file.delete({
-          where: { id: _id },
-        });
-        if (_id) {
-          await invalidateCachedFile(_id);
-        }
+        // Delete the file via unified FileService
+        await FileService.deleteFile(_id);
+        result = { success: true };
         break;
       }
       case 'files:createVersion': {
