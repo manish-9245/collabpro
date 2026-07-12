@@ -1,0 +1,49 @@
+name: CollabPro Automated PR Diagram Embeds
+
+on:
+  push:
+    branches:
+      - main
+      - feature/**
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  embed-diagrams:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.head_ref || github.ref }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Install workspace dependencies
+        run: npm ci || npm install
+
+      - name: Compile and Embed Whiteboard Diagrams
+        env:
+          COLLABPRO_URL: "https://collabpro-production.up.railway.app" # Production deployment endpoint fallback
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF_NAME: ${{ github.head_ref || github.ref_name }}
+        run: node scripts/embed-diagrams.js
+
+      - name: Commit and Push compiled SVG diagrams
+        run: |
+          git config --global user.name "collabpro-bot"
+          git config --global user.email "bot@collabpro.io"
+          git add .github/collabpro-diagrams/ *.md || true
+          if git diff --staged --quiet; then
+            echo "No changes in diagram embeds detected. Skipping commit."
+          else
+            git commit -m "chore(diagrams): automatically compile and embed active whiteboard vectors"
+            git push origin HEAD:${{ github.head_ref || github.ref_name }}
+          fi
