@@ -3,12 +3,12 @@ import { cookies } from "next/headers";
 export function getServerSession() {
   return {
     isAuthenticated: async () => {
-      const cookieStore = cookies();
+      const cookieStore = await cookies();
       const session = cookieStore.get("session_token")?.value;
       return !!session;
     },
     getUser: async () => {
-      const cookieStore = cookies();
+      const cookieStore = await cookies();
       const session = cookieStore.get("session_token")?.value;
       if (!session) return null;
       try {

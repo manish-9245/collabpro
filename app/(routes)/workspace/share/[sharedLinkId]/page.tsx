@@ -4,7 +4,9 @@ import React, { useState, useEffect } from 'react';
 import { Shield, Key, Eye, EyeOff, Loader2, ArrowRight, Lock, Check, AlertCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
-export default function SharedLinkPage({ params }: { params: { sharedLinkId: string } }) {
+export default function SharedLinkPage({ params }: { params: Promise<{ sharedLinkId: string }> }) {
+  const unwrappedParams = React.use(params);
+  const sharedLinkId = unwrappedParams.sharedLinkId;
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -19,7 +21,7 @@ export default function SharedLinkPage({ params }: { params: { sharedLinkId: str
   useEffect(() => {
     async function checkLink() {
       try {
-        const res = await fetch(`/api/share?sharedLinkId=${params.sharedLinkId}`);
+        const res = await fetch(`/api/share?sharedLinkId=${sharedLinkId}`);
         if (!res.ok) {
           const err = await res.json();
           setError(err.error || 'Failed to retrieve shared workspace info');
@@ -33,7 +35,7 @@ export default function SharedLinkPage({ params }: { params: { sharedLinkId: str
 
         // If no password is required, redirect immediately
         if (!data.requiresPassword) {
-          router.push(`/workspace/${data.fileId}?sharedLinkId=${params.sharedLinkId}&role=${data.role}`);
+          router.push(`/workspace/${data.fileId}?sharedLinkId=${sharedLinkId}&role=${data.role}`);
         } else {
           setLoading(false);
         }
@@ -43,10 +45,10 @@ export default function SharedLinkPage({ params }: { params: { sharedLinkId: str
       }
     }
 
-    if (params.sharedLinkId) {
+    if (sharedLinkId) {
       checkLink();
     }
-  }, [params.sharedLinkId, router]);
+  }, [sharedLinkId, router]);
 
   const handleSubmitPassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,7 +60,7 @@ export default function SharedLinkPage({ params }: { params: { sharedLinkId: str
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          sharedLinkId: params.sharedLinkId,
+          sharedLinkId,
           password
         })
       });
@@ -74,7 +76,7 @@ export default function SharedLinkPage({ params }: { params: { sharedLinkId: str
       const data = json.data;
 
       // Direct user to workspace with valid credentials
-      router.push(`/workspace/${data.fileId}?sharedLinkId=${params.sharedLinkId}&role=${data.role}`);
+      router.push(`/workspace/${data.fileId}?sharedLinkId=${sharedLinkId}&role=${data.role}`);
     } catch (err) {
       setError('An error occurred during password authentication.');
       setIsVerifying(false);

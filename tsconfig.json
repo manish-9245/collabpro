@@ -1,6 +1,10 @@
 {
   "compilerOptions": {
-    "lib": ["dom", "dom.iterable", "esnext"],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -18,12 +22,29 @@
       }
     ],
     "paths": {
-      "@/*": ["./*"],
-      "@/lib/state-sync/react": ["./lib/state-sync/react.tsx"],
-      "@/lib/session-auth/client": ["./lib/session-auth/client.tsx"],
-      "@/lib/session-auth/server": ["./lib/session-auth/server.ts"]
-    }
+      "@/*": [
+        "./*"
+      ],
+      "@/lib/state-sync/react": [
+        "./lib/state-sync/react.tsx"
+      ],
+      "@/lib/session-auth/client": [
+        "./lib/session-auth/client.tsx"
+      ],
+      "@/lib/session-auth/server": [
+        "./lib/session-auth/server.ts"
+      ]
+    },
+    "target": "ES2017"
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", "app/(routes)/dashboard/_components/SideNavTopSection.jsx"],
-  "exclude": ["node_modules"]
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    "app/(routes)/dashboard/_components/SideNavTopSection.jsx"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }
