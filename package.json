@@ -15,7 +15,8 @@
     "ws:start": "node scripts/db-prep.js && tsx ws-server/server.ts",
     "test:showcase": "playwright test tests/showcase.spec.ts",
     "test:showcase:ui": "playwright test tests/showcase.spec.ts --ui",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "verify-pipelines": "node scripts/verify-pipelines.js"
   },
   "dependencies": {
     "@actions/github": "^9.1.1",
