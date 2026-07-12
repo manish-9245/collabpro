@@ -1,14 +1,18 @@
 "use client"
 
 import React, { useContext, useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import Header from '../_components/Header'
 import { ActiveTeamContext } from '@/app/_context/ActiveTeamContext'
 import { useSessionAuth } from '@/lib/session-auth/client'
 import { api, useSync, useQuery, useMutation } from '@/lib/state-sync/react'
 import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
 import { Settings, Users, LogOut, Trash2, Shield, ShieldCheck, Mail, ChevronDown, ChevronUp, Loader2, Key, Copy, Check, Plus, AlertTriangle, Calendar } from 'lucide-react'
 
+
 function SettingsPage() {
+  const router = useRouter();
   const { user }: any = useSessionAuth();
   const { activeTeam, setActiveTeam } = useContext(ActiveTeamContext);
   const sync = useSync();
@@ -208,8 +212,18 @@ function SettingsPage() {
               Manage your memberships, review current collaborators, leave external organizations, and manage access to your active workspaces.
             </p>
           </div>
+
+          {activeTeam && activeTeam.createdBy === user?.email && (
+            <Button 
+              onClick={() => router.push('/dashboard/settings/admin')}
+              className="h-10 bg-indigo-600 hover:bg-indigo-700 text-white gap-2 rounded-xl text-xs font-bold shadow-sm transition-all"
+            >
+              <ShieldCheck className="h-4 w-4" /> Organization Admin Settings
+            </Button>
+          )}
         </div>
       </div>
+
 
       {/* Teams Settings Panel */}
       <div className="mt-8 bg-white dark:bg-zinc-950 border border-slate-100 dark:border-zinc-900 rounded-2xl p-6 sm:p-8 shadow-sm max-w-3xl">

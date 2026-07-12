@@ -566,6 +566,30 @@ export async function POST(request: Request) {
           throw new Error("User is already a member of this team.");
         }
 
+        // Fetch organization settings
+        const orgSettings = await prisma.orgSetting.findUnique({
+          where: { teamId },
+        });
+
+        // 1. Check Domain restrictions
+        if (orgSettings && orgSettings.allowedDomains) {
+          const allowed = orgSettings.allowedDomains.split(',').map(d => d.trim().toLowerCase()).filter(Boolean);
+          if (allowed.length > 0) {
+            const domain = userEmail.split('@')[1]?.toLowerCase();
+            if (!domain || !allowed.includes(domain)) {
+              throw new Error(`Invitation blocked: Email domain '${domain || 'unknown'}' is not authorized. Allowed domains: ${orgSettings.allowedDomains}`);
+            }
+          }
+        }
+
+        // 2. Check seat limit
+        const activeSeats = (await prisma.teamMember.count({ where: { teamId } })) + 1;
+        const limit = orgSettings ? orgSettings.seatLimit : 50;
+        if (activeSeats >= limit) {
+          throw new Error(`Seat limit reached: Your organization has reached its maximum seat capacity of ${limit} members.`);
+        }
+
+
         // GitHub strategy: Create a pending invitation!
         const existingInvite = await prisma.invitation.findFirst({
           where: { teamId, inviteeEmail: userEmail, status: "pending" },
@@ -984,6 +1008,77 @@ export async function POST(request: Request) {
           where: { id: versionId },
           data: { note },
         });
+        break;
+      }
+      case 'orgSettings:getSettings': {
+        const { teamId } = args || {};
+        if (!teamId) {
+          throw new Error("teamId is required");
+        }
+        let settings = await prisma.orgSetting.findUnique({
+          where: { teamId },
+        });
+        if (!settings) {
+          settings = await prisma.orgSetting.create({
+            data: {
+              teamId,
+              allowedDomains: "",
+              ssoEnabled: false,
+              ssoProvider: "saml",
+              ssoMetadataUrl: "",
+              seatLimit: 50,
+            },
+          });
+        }
+        result = settings;
+        break;
+      }
+      case 'orgSettings:updateSettings': {
+        const { teamId, allowedDomains, ssoEnabled, ssoProvider, ssoMetadataUrl, seatLimit } = args || {};
+        if (!teamId) {
+          throw new Error("teamId is required");
+        }
+        result = await prisma.orgSetting.upsert({
+          where: { teamId },
+          update: {
+            allowedDomains: allowedDomains !== undefined ? allowedDomains : undefined,
+            ssoEnabled: ssoEnabled !== undefined ? ssoEnabled : undefined,
+            ssoProvider: ssoProvider !== undefined ? ssoProvider : undefined,
+            ssoMetadataUrl: ssoMetadataUrl !== undefined ? ssoMetadataUrl : undefined,
+            seatLimit: seatLimit !== undefined ? Number(seatLimit) : undefined,
+          },
+          create: {
+            teamId,
+            allowedDomains: allowedDomains || "",
+            ssoEnabled: ssoEnabled || false,
+            ssoProvider: ssoProvider || "saml",
+            ssoMetadataUrl: ssoMetadataUrl || "",
+            seatLimit: seatLimit ? Number(seatLimit) : 50,
+          },
+        });
+        break;
+      }
+      case 'orgSettings:getSeatCount': {
+        const { teamId } = args || {};
+        if (!teamId) {
+          throw new Error("teamId is required");
+        }
+        const membersCount = await prisma.teamMember.count({
+          where: { teamId },
+        });
+        const pendingCount = await prisma.invitation.count({
+          where: { teamId, status: "pending" },
+        });
+        const settings = await prisma.orgSetting.findUnique({
+          where: { teamId },
+        });
+        const limit = settings ? settings.seatLimit : 50;
+        
+        result = {
+          activeSeats: membersCount + 1, // members + 1 (the owner)
+          pendingInvitations: pendingCount,
+          seatLimit: limit,
+        };
         break;
       }
       case 'sharedLibrary:getItems': {
