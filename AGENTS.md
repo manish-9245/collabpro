@@ -8,6 +8,7 @@ This file outlines the absolute guidelines, architecture shortcuts, and safety g
 1. **NO DIRECT PUSHES TO MAIN:** Direct pushes to `main` are strictly blocked. You must commit and push all edits to a dedicated feature branch: `feature/issue-<number>`.
 2. **ZERO BUILD FAILURES:** You must run and verify a clean compilation (`npm run build`) before pushing. Exit Code must be **0**.
 3. **STRICT DB AGNOSTICISM:** Do not write engine-specific Prisma fields (e.g., PostgreSQL `@db.Uuid` or arrays `String[]`). All database models inside `prisma/schema.prisma` must remain relational-generic.
+4. **PIPELINE INTEGRITY VERIFICATION:** You must programmatically verify that both the GitHub Actions CI pipeline and the Railway production deployment pipeline are fully green, active, and successful post-push/post-merge. Execute the verification script to validate both systems: `npm run verify-pipelines`.
 
 ---
 
@@ -54,9 +55,13 @@ git commit -m "feat(issue-<number>): concise conventional description"
 git push origin feature/issue-<number>
 gh pr create --title "feat(issue-<number>): concise title" --body "### Technical Changes\n- ...\n\n### Verification Done\n- Passed 'npm run build'"
 ```
-* **Post-Submit Cleanup:** Switch back to `main` safely:
+* **Post-Submit Cleanup & Switch:** Switch back to `main` safely:
   ```bash
   git checkout main
+  ```
+* **Post-Merge Verification:** Once merged to `main`, programmatically verify both GitHub Actions CI and Railway deployment health states:
+  ```bash
+  npm run verify-pipelines
   ```
 
 ---
