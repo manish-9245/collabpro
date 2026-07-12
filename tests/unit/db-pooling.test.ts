@@ -38,7 +38,10 @@ describe('Prisma pgBouncer Connection Pooling (Issue 2)', () => {
     process.env.DATABASE_URL = 'postgresql://user:pass@localhost:5432/db';
     
     // Dynamically import db.ts to trigger initialization logic
-    await import('@/lib/db');
+    const { prisma } = await import('@/lib/db');
+    
+    // Trigger lazy proxy evaluation
+    prisma.$connect;
     
     const { Pool } = await import('pg');
     expect(Pool).toHaveBeenCalled();
