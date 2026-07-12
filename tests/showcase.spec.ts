@@ -284,7 +284,13 @@ test.describe('CollabPro Complete Feature Tour & Demonstration', () => {
     
     // Wait for the rename dialog to be fully dismissed and the backdrop to clear
     await page.locator('div[role="dialog"]').waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {});
-    await page.waitForTimeout(1000); // Settle DOM and pointer-events
+    
+    // Settle DOM and pointer-events, manually force pointer-events to auto on html/body if Radix UI failed to clean up
+    await page.evaluate(() => {
+      document.documentElement.style.pointerEvents = 'auto';
+      document.body.style.pointerEvents = 'auto';
+    }).catch(() => {});
+    await page.waitForTimeout(1000);
     
     console.log('✅ File renamed successfully.');
     await scenePause();
@@ -296,7 +302,7 @@ test.describe('CollabPro Complete Feature Tour & Demonstration', () => {
     const renamedRow = page.locator(`tr:has-text("${SCENARIO_CONFIG.data.renamedFileName}")`).first();
     await renamedRow.waitFor({ state: 'visible', timeout: 15000 });
     await renamedRow.scrollIntoViewIfNeeded();
-    await renamedRow.hover();
+    await renamedRow.hover({ force: true });
     await page.waitForTimeout(400);
 
     // Open Dropdown menu for the renamed item

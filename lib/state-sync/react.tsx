@@ -131,11 +131,31 @@ class StateSyncWSClient {
     return `${protocol}//ws-${hostname}`;
   }
 
-  public connect() {
+  public async connect() {
     if (typeof window === 'undefined' || this.ws) return;
 
     this.setStatus('connecting');
-    const url = this.getWsUrl();
+    
+    let tokenParam = '';
+    try {
+      const res = await fetch('/api/auth/me');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.user) {
+          tokenParam = encodeURIComponent(JSON.stringify({
+            id: data.user.id,
+            email: data.user.email,
+            name: data.user.name,
+            image: data.user.image,
+          }));
+        }
+      }
+    } catch (err) {
+      console.error('[CollabPro WS CLIENT] Failed to fetch session token for handshake:', err);
+    }
+
+    const baseUrl = this.getWsUrl();
+    const url = tokenParam ? `${baseUrl}?token=${tokenParam}` : baseUrl;
     console.log(`[CollabPro WS CLIENT] Connecting to ${url}...`);
 
     try {
