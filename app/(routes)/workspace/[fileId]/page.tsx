@@ -3,9 +3,10 @@ import React, { useEffect, useState } from 'react'
 import WorkspaceHeader from '../_components/WorkspaceHeader'
 import { api, useMutation, useQuery, useCursors } from '@/lib/state-sync/react';
 import { FILE } from '../../dashboard/_components/FileList';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Sparkles } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { useSessionAuth } from '@/lib/session-auth/client';
+import AiSidebar from '../_components/AiSidebar';
 
 const Editor = dynamic(() => import('../_components/Editor'), { ssr: false });
 const Canvas = dynamic(() => import('../_components/Canvas'), { ssr: false });
@@ -14,6 +15,7 @@ function Workspace({params}:any) {
    const [triggerSave,setTriggerSave]=useState(false);
    const [viewMode,setViewMode]=useState<'both'|'document'|'canvas'>('both');
    const [savingStatus,setSavingStatus]=useState<'idle'|'saving'|'saved'>('idle');
+   const [isAiOpen, setIsAiOpen] = useState(false);
 
    // Coordination for Undo/Redo
    const [splitPct, setSplitPct] = useState(50);
@@ -257,6 +259,22 @@ function Workspace({params}:any) {
           </div>
         </div>
 
+        {/* Floating AI Companion Trigger Button */}
+        <button 
+          type="button"
+          onClick={() => setIsAiOpen(prev => !prev)}
+          className="fixed bottom-20 right-6 z-50 h-10 w-10 bg-gradient-to-tr from-[#6965db] to-[#8572e3] text-white shadow-xl rounded-full flex items-center justify-center hover:scale-105 active:scale-95 cursor-pointer transition-all border border-[#6965db]/40 group"
+          title="Toggle AI Co-Pilot Sidebar"
+        >
+          <Sparkles className="h-4.5 w-4.5 group-hover:rotate-12 transition-transform" />
+        </button>
+
+        <AiSidebar 
+          isOpen={isAiOpen} 
+          onClose={() => setIsAiOpen(false)} 
+          fileId={params.fileId} 
+          fileData={fileData} 
+        />
      </div>
    )
 }
