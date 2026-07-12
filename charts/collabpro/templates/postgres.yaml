@@ -1,0 +1,79 @@
+{{- if .Values.postgres.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "collabpro.fullname" . }}-postgres
+  labels:
+    {{- include "collabpro.labels" . | nindent 4 }}
+    app: {{ include "collabpro.fullname" . }}-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "collabpro.selectorLabels" . | nindent 6 }}
+      app: {{ include "collabpro.fullname" . }}-postgres
+  template:
+    metadata:
+      labels:
+        {{- include "collabpro.selectorLabels" . | nindent 8 }}
+        app: {{ include "collabpro.fullname" . }}-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: "{{ .Values.postgres.image }}"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POSTGRES_USER
+              value: {{ .Values.postgres.username | quote }}
+            - name: POSTGRES_PASSWORD
+              value: {{ .Values.postgres.password | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.postgres.database | quote }}
+          ports:
+            - containerPort: 5432
+              name: postgres
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 1024Mi
+            requests:
+              cpu: 250m
+              memory: 256Mi
+      volumes:
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: {{ include "collabpro.fullname" . }}-postgres-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "collabpro.fullname" . }}-postgres
+  labels:
+    {{- include "collabpro.labels" . | nindent 4 }}
+spec:
+  ports:
+    - port: {{ .Values.postgres.servicePort }}
+      targetPort: 5432
+      protocol: TCP
+      name: postgres
+  selector:
+    {{- include "collabpro.selectorLabels" . | nindent 4 }}
+    app: {{ include "collabpro.fullname" . }}-postgres
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "collabpro.fullname" . }}-postgres-pvc
+  labels:
+    {{- include "collabpro.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.postgres.persistence.size }}
+  storageClassName: {{ .Values.postgres.persistence.storageClass | quote }}
+{{- end }}

@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "collabpro.fullname" . }}-ws
+  labels:
+    {{- include "collabpro.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port.ws }}
+      targetPort: 4000
+      protocol: TCP
+      name: ws
+  selector:
+    {{- include "collabpro.selectorLabels" . | nindent 4 }}
+    app: {{ include "collabpro.fullname" . }}-ws

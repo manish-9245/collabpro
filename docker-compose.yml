@@ -1,0 +1,104 @@
+version: '3.8'
+
+services:
+  # Relational PostgreSQL Database Store
+  postgres:
+    image: postgres:16-alpine
+    container_name: collabpro-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: collabpro
+      POSTGRES_PASSWORD: collabpro_secure_password
+      POSTGRES_DB: collabpro_production
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U collabpro -d collabpro_production"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
+
+  # High-Performance Redis Cache Layer
+  redis:
+    image: redis:7.2-alpine
+    container_name: collabpro-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # Next.js Web Client & API Gateway
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: collabpro-web
+    restart: always
+    environment:
+      - DATABASE_URL=postgresql://collabpro:collabpro_secure_password@postgres:5432/collabpro_production?schema=public
+      - REDIS_URL=redis://redis:6379
+      - SMTP_SERVER=smtp.gmail.com
+      - SMTP_USERNAME=manisht9245@gmail.com
+      - SMTP_PASSWORD=hzqq uzmb ldnl idjl
+      - NOTIFICATION_EMAIL=manishsit13@gmail.com
+      - NEXT_TELEMETRY_DISABLED=1
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1536M
+
+  # Asynchronous Real-Time Collaboration Gateway (WebSockets)
+  ws:
+    build:
+      context: .
+      dockerfile: ws-server/Dockerfile
+    container_name: collabpro-ws
+    restart: always
+    environment:
+      - DATABASE_URL=postgresql://collabpro:collabpro_secure_password@postgres:5432/collabpro_production?schema=public
+      - REDIS_URL=redis://redis:6379
+      - PORT=4000
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local

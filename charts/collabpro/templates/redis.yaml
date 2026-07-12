@@ -1,0 +1,72 @@
+{{- if .Values.redis.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "collabpro.fullname" . }}-redis
+  labels:
+    {{- include "collabpro.labels" . | nindent 4 }}
+    app: {{ include "collabpro.fullname" . }}-redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "collabpro.selectorLabels" . | nindent 6 }}
+      app: {{ include "collabpro.fullname" . }}-redis
+  template:
+    metadata:
+      labels:
+        {{- include "collabpro.selectorLabels" . | nindent 8 }}
+        app: {{ include "collabpro.fullname" . }}-redis
+    spec:
+      containers:
+        - name: redis
+          image: "{{ .Values.redis.image }}"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 6379
+              name: redis
+          volumeMounts:
+            - name: redis-storage
+              mountPath: /data
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+      volumes:
+        - name: redis-storage
+          persistentVolumeClaim:
+            claimName: {{ include "collabpro.fullname" . }}-redis-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "collabpro.fullname" . }}-redis
+  labels:
+    {{- include "collabpro.labels" . | nindent 4 }}
+spec:
+  ports:
+    - port: {{ .Values.redis.servicePort }}
+      targetPort: 6379
+      protocol: TCP
+      name: redis
+  selector:
+    {{- include "collabpro.selectorLabels" . | nindent 4 }}
+    app: {{ include "collabpro.fullname" . }}-redis
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "collabpro.fullname" . }}-redis-pvc
+  labels:
+    {{- include "collabpro.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.redis.persistence.size }}
+  storageClassName: {{ .Values.redis.persistence.storageClass | quote }}
+{{- end }}

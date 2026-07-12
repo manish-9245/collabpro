@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "collabpro.fullname" . }}-ws
+  labels:
+    {{- include "collabpro.labels" . | nindent 4 }}
+    app: {{ include "collabpro.fullname" . }}-ws
+spec:
+  replicas: {{ .Values.replicaCount.ws }}
+  selector:
+    matchLabels:
+      {{- include "collabpro.selectorLabels" . | nindent 6 }}
+      app: {{ include "collabpro.fullname" . }}-ws
+  template:
+    metadata:
+      labels:
+        {{- include "collabpro.selectorLabels" . | nindent 8 }}
+        app: {{ include "collabpro.fullname" . }}-ws
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: ws
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository.ws }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: ws
+              containerPort: 4000
+              protocol: TCP
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "collabpro.fullname" . }}-secrets
+                  key: database-url
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "collabpro.fullname" . }}-secrets
+                  key: redis-url
+            - name: PORT
+              value: "4000"
+          resources:
+            {{- toYaml .Values.resources.ws | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
