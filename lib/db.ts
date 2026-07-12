@@ -95,11 +95,7 @@ if (isPostgres) {
     console.log("[db.ts] Connection string is non-PostgreSQL. Instantiating standard database-agnostic PrismaClient...");
     try {
       prismaInstance = new PrismaClient({
-        datasources: {
-          db: {
-            url: connectionString || "file:./dev.db"
-          }
-        }
+        datasourceUrl: connectionString || "file:./dev.db"
       } as any);
       if (process.env.NODE_ENV !== "production") {
         globalForPrisma.prisma = prismaInstance;
