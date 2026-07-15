@@ -161,4 +161,13 @@ model AuditLog {
   @@index([teamId, createdAt])
 }
 
+model UploadedFile {
+  id        String   @id @default(uuid())
+  filename  String
+  mimeType  String
+  payload   String   @default("") // base64 payload
+  createdAt DateTime @default(now())
+}
+
+
 

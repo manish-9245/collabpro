@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import dns from "dns";
+import { prisma } from "@/lib/db";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB limit
 const ALLOWED_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp"];
@@ -110,6 +111,7 @@ export async function POST(request: NextRequest) {
     const contentType = request.headers.get("content-type") || "";
     let arrayBuffer: ArrayBuffer;
     let originalName = "image.png";
+    let mimeType = "image/png";
 
     if (contentType.includes("application/json")) {
       const body = await request.json();
@@ -142,6 +144,7 @@ export async function POST(request: NextRequest) {
 
       // Check content-type header of remote resource
       const remoteContentType = res.headers.get("content-type") || "";
+      mimeType = remoteContentType;
       const isAllowedMime = ALLOWED_MIME_TYPES.some(mime => remoteContentType.toLowerCase().startsWith(mime));
       if (!isAllowedMime) {
         return NextResponse.json({ success: 0, message: "Fetched URL does not point to an allowed image format." }, { status: 400 });
@@ -169,7 +172,7 @@ export async function POST(request: NextRequest) {
       }
     } else {
       const formData = await request.formData();
-      const file = formData.get("image") as File | null;
+      const file = (formData.get("image") || formData.get("file")) as File | null;
 
       if (!file) {
         return NextResponse.json({ success: 0, message: "No file provided" }, { status: 400 });
@@ -187,6 +190,7 @@ export async function POST(request: NextRequest) {
 
       arrayBuffer = await file.arrayBuffer();
       originalName = file.name;
+      mimeType = file.type;
     }
 
     // DoS: Check byteLength of array buffer in memory
@@ -219,16 +223,35 @@ export async function POST(request: NextRequest) {
     const filename = `${Date.now()}_${sanitizedName}`;
     const filePath = path.join(uploadDir, filename);
 
-    // Save file locally
-    fs.writeFileSync(filePath, bufferArray);
+    // Save file locally (wrapped in try/catch to ensure robust operation on read-only environments)
+    let fileUrl = "";
+    try {
+      fs.writeFileSync(filePath, bufferArray);
+      fileUrl = `/uploads/${filename}`;
+      console.log(`[Upload API] Image saved successfully to local filesystem: ${filePath}`);
+    } catch (fsErr: any) {
+      console.warn("[Upload API] Local filesystem write failed (likely read-only cloud container):", fsErr.message);
+    }
 
-    const fileUrl = `/uploads/${filename}`;
-    console.log(`[Upload API] Image saved successfully to ${filePath}`);
+    // Convert Buffer to base64 for DB persistence
+    const base64Payload = Buffer.from(bufferArray).toString("base64");
+
+    // Persist to database
+    const uploadedRecord = await prisma.uploadedFile.create({
+      data: {
+        filename: sanitizedName,
+        mimeType: mimeType,
+        payload: base64Payload,
+      },
+    });
+
+    const dbBackedUrl = `/api/upload/${uploadedRecord.id}`;
+    console.log(`[Upload API] Image persisted successfully to database: id=${uploadedRecord.id}, url=${dbBackedUrl}`);
 
     return NextResponse.json({
       success: 1,
       file: {
-        url: fileUrl,
+        url: dbBackedUrl,
       },
     });
   } catch (error: any) {

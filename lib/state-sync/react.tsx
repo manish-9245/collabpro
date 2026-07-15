@@ -295,7 +295,7 @@ class StateSyncWSClient {
 
 const wsClient = typeof window !== 'undefined' ? new StateSyncWSClient() : null;
 
-function useAdaptiveInterval(defaultInterval = 4000, backoffInterval = 15000, inactivityTimeout = 60000) {
+function useAdaptiveInterval(defaultInterval = 4000, backoffInterval = 60000, inactivityTimeout = 60000) {
   const [intervalTime, setIntervalTime] = useState(defaultInterval);
   const lastActivityRef = useRef(Date.now());
 
@@ -332,7 +332,7 @@ function useAdaptiveInterval(defaultInterval = 4000, backoffInterval = 15000, in
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
-        setIntervalTime(backoffInterval);
+        setIntervalTime(300000); // 5 minutes (practically paused) when tab is hidden
       } else {
         // Check if they are active before resetting to default
         const elapsed = Date.now() - lastActivityRef.current;
@@ -370,7 +370,7 @@ function useAdaptiveInterval(defaultInterval = 4000, backoffInterval = 15000, in
 export function useQuery(queryReference: any, args?: any) {
   const queryPath = getPath(queryReference);
   const argsString = JSON.stringify(args || {});
-  const intervalTime = useAdaptiveInterval(4000, 15000, 60000);
+  const intervalTime = useAdaptiveInterval(4000, 60000, 60000);
 
   const [data, setData] = useState<any>(() => {
     if (!queryPath) return undefined;
