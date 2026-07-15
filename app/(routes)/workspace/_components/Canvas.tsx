@@ -8,6 +8,9 @@ import { Sparkles, Cloud, Search, Loader2, ChevronLeft, ChevronRight, Plus, Tras
 import { toast } from 'sonner';
 import { AWS_ICONS } from './aws_icons_list';
 
+// Cache AWS icons by ID for highly performant O(1) lookups during canvas render and session recovery
+const AWS_ICONS_MAP = new Map(AWS_ICONS.map(i => [i.id, i]));
+
 const fetchSVGAsBase64 = async (url: string): Promise<string> => {
     const response = await fetch(url);
     if (!response.ok) throw new Error("Failed to fetch SVG");
@@ -70,6 +73,9 @@ const SYSTEM_NODES = [
   { id: 'std__db', label: 'Database', stroke: '#10b981', fill: '#ffffff', url: "https://cdn.jsdelivr.net/npm/aws-icons@3.3.0/icons/resource/Database.svg" },
   { id: 'std__client', label: 'Client / User', stroke: '#f97316', fill: '#ffffff', url: "https://cdn.jsdelivr.net/npm/aws-icons@3.3.0/icons/resource/User.svg" }
 ];
+
+// Cache standard system nodes for performant O(1) lookups
+const SYSTEM_NODES_MAP = new Map(SYSTEM_NODES.map(i => [i.id, i]));
 
 const CURATED_LIBRARIES = [
   {
@@ -567,17 +573,19 @@ function Canvas({
                 if (unregisteredImageElements.length === 0) return;
 
                 const filesToRegister: any[] = [];
+                const customIconsMap = new Map(customIcons.map(i => [i.id, i]));
+
                 for (const el of unregisteredImageElements) {
                     let iconUrl: string | undefined;
 
                     if (el.fileId.startsWith("aws__")) {
-                        const icon = AWS_ICONS.find(i => i.id === el.fileId);
+                        const icon = AWS_ICONS_MAP.get(el.fileId);
                         if (icon) iconUrl = icon.url;
                     } else if (el.fileId.startsWith("std__")) {
-                        const icon = SYSTEM_NODES.find(i => i.id === el.fileId);
+                        const icon = SYSTEM_NODES_MAP.get(el.fileId);
                         if (icon) iconUrl = icon.url;
                     } else if (el.fileId.startsWith("custom__")) {
-                        const icon = customIcons.find(i => i.id === el.fileId);
+                        const icon = customIconsMap.get(el.fileId);
                         if (icon) iconUrl = icon.url;
                     }
 
