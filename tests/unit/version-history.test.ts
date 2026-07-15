@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/state-sync/route';
 import { prisma } from '@/lib/db';
+import { triggerQueryRefetch } from '@/lib/state-sync/react';
 
 // Mock server-auth and redis-cache
 vi.mock('@/lib/session-auth/server', () => {
@@ -119,5 +120,25 @@ describe('Workspace Version History Side-Drawer API Suite (Issue 8)', () => {
     });
     // Document should have reverted back to "Initial Draft"
     expect(restoredFileInDb?.document).toContain('Initial Draft');
+  });
+
+  it('should successfully dispatch a state-sync:refetch event via triggerQueryRefetch for in-place SPA synchronization', () => {
+    const firedEvents: any[] = [];
+    
+    const handleRefetch = (e: any) => {
+      firedEvents.push(e.detail);
+    };
+
+    window.addEventListener('state-sync:refetch', handleRefetch);
+
+    triggerQueryRefetch('files:getFileById', 'test-file-123');
+
+    window.removeEventListener('state-sync:refetch', handleRefetch);
+
+    expect(firedEvents.length).toBe(1);
+    expect(firedEvents[0]).toEqual({
+      path: 'files:getFileById',
+      fileId: 'test-file-123'
+    });
   });
 });

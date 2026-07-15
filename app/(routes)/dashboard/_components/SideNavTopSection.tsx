@@ -706,7 +706,7 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
                                 {renderFolderNode(hierarchyTree)}
 
                                 {/* Then, render Root-level files if any */}
-                                {hierarchyTree.files.length > 0 && (
+                                {hierarchyTree.files.length > 0 ? (
                                     <div className="space-y-0.5">
                                         {hierarchyTree.files.map((file) => (
                                             <div
@@ -772,7 +772,7 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
                                             </div>
                                         ))}
                                     </div>
-                                )}
+                                ) : null}
                             </div>
                         );
                     })()}

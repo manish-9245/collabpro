@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Link, Save, Edit2, Check, X, Loader2, FileText, Columns, Palette, Download, Share2, History, Plus, Cloud, Undo, Redo } from 'lucide-react'
 import Image from 'next/image'
 import React, { useState, useEffect, useRef } from 'react'
-import { api, useMutation, useQuery } from '@/lib/state-sync/react'
+import { api, useMutation, useQuery, triggerQueryRefetch } from '@/lib/state-sync/react'
 import { toast } from 'sonner'
 import { useSessionAuth } from '@/lib/session-auth/client'
 import moment from 'moment'
@@ -176,9 +176,7 @@ function WorkspaceHeader({
     try {
       await restoreVersion({ versionId })
       toast.success('Version restored successfully! Re-syncing and loading...')
-      setTimeout(() => {
-        window.location.reload()
-      }, 1000)
+      triggerQueryRefetch('files:getFileById', fileData._id)
     } catch (err) {
       console.error(err)
       toast.error('Failed to restore version')
