@@ -73,30 +73,60 @@ function Workspace({params}:any) {
      );
    };
 
-   useEffect(() => {
-     if (!fileId || !user?.email) return;
+    useEffect(() => {
+      if (!fileId || !user?.email) return;
 
-     const heartbeat = async () => {
-       try {
-         await upsertPresence({
-           fileId: fileId,
-           userEmail: user.email,
-           userName: user.given_name || user.email.split('@')[0] || 'Collaborator',
-           userImage: user.picture || '',
-           userColor: getPresenceColor(user.email),
-           workspaceStatus: getPresenceStatus(),
-         });
-       } catch (error) {
-         console.error('Failed to update presence heartbeat:', error);
-       }
-     };
+      let lastActivity = Date.now();
+      let timerId: any = null;
+      let active = true;
 
-     heartbeat();
-     const interval = setInterval(heartbeat, 5000);
+      const handleActivity = () => {
+        lastActivity = Date.now();
+      };
 
-     return () => {
-       clearInterval(interval);
-     };
+      const activityEvents = ["mousemove", "keydown", "mousedown", "scroll", "click", "touchstart"];
+      activityEvents.forEach((event) => {
+        window.addEventListener(event, handleActivity, { passive: true });
+      });
+
+      const heartbeat = async () => {
+        if (!active) return;
+
+        // Skip heartbeat if document is completely hidden to prevent database thrashing from background tabs
+        if (document.visibilityState === "hidden") {
+          timerId = setTimeout(heartbeat, 30000);
+          return;
+        }
+
+        try {
+          await upsertPresence({
+            fileId: fileId,
+            userEmail: user.email,
+            userName: user.given_name || user.email.split('@')[0] || 'Collaborator',
+            userImage: user.picture || '',
+            userColor: getPresenceColor(user.email),
+            workspaceStatus: getPresenceStatus(),
+          });
+        } catch (error) {
+          console.error('Failed to update presence heartbeat:', error);
+        }
+
+        // Calculate dynamic delay: 5s when active, 45s when idle (>60s inactivity)
+        const isIdle = Date.now() - lastActivity > 60000;
+        const nextDelay = isIdle ? 45000 : 5000;
+
+        timerId = setTimeout(heartbeat, nextDelay);
+      };
+
+      heartbeat();
+
+      return () => {
+        active = false;
+        if (timerId) clearTimeout(timerId);
+        activityEvents.forEach((event) => {
+          window.removeEventListener(event, handleActivity);
+        });
+      };
     }, [fileId, user?.email, user?.given_name, user?.picture, viewMode, activePanel]);
 
     useEffect(() => {
