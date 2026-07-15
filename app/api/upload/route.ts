@@ -5,8 +5,6 @@ import dns from "dns";
 import { prisma } from "@/lib/db";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB limit
-const ALLOWED_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp"];
-const ALLOWED_MIME_TYPES = ["image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp"];
 
 // Helper to validate IP address for SSRF protection
 async function isSafeUrl(urlStr: string): Promise<boolean> {
@@ -144,11 +142,7 @@ export async function POST(request: NextRequest) {
 
       // Check content-type header of remote resource
       const remoteContentType = res.headers.get("content-type") || "";
-      mimeType = remoteContentType;
-      const isAllowedMime = ALLOWED_MIME_TYPES.some(mime => remoteContentType.toLowerCase().startsWith(mime));
-      if (!isAllowedMime) {
-        return NextResponse.json({ success: 0, message: "Fetched URL does not point to an allowed image format." }, { status: 400 });
-      }
+      mimeType = remoteContentType || "application/octet-stream";
 
       // DoS: Pre-check content-length header
       const contentLengthHeader = res.headers.get("content-length");
@@ -183,14 +177,9 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: 0, message: "The file exceeds the maximum allowed limit of 10MB." }, { status: 400 });
       }
 
-      // MIME type check
-      if (!ALLOWED_MIME_TYPES.includes(file.type.toLowerCase())) {
-        return NextResponse.json({ success: 0, message: "Invalid file type. Only standard images (PNG, JPEG, GIF, WebP) are allowed." }, { status: 400 });
-      }
-
       arrayBuffer = await file.arrayBuffer();
       originalName = file.name;
-      mimeType = file.type;
+      mimeType = file.type || "application/octet-stream";
     }
 
     // DoS: Check byteLength of array buffer in memory
@@ -198,19 +187,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: 0, message: "The file size exceeds the maximum allowed limit of 10MB." }, { status: 400 });
     }
 
-    // Extension validation
-    const extension = path.extname(originalName).toLowerCase();
-    if (!ALLOWED_EXTENSIONS.includes(extension)) {
-      return NextResponse.json({ success: 0, message: "Invalid file extension. Only standard images are allowed." }, { status: 400 });
-    }
-
     // Convert to typed Uint8Array
     const bufferArray = new Uint8Array(arrayBuffer);
-
-    // Magic number verification to prevent stored-content attack vectors (XSS / SVGs disguised as PNGs etc)
-    if (!isValidImageBuffer(bufferArray)) {
-      return NextResponse.json({ success: 0, message: "Content verification failed. File is not a valid image format." }, { status: 400 });
-    }
 
     // Ensure upload directory exists
     const uploadDir = path.join(process.cwd(), "public/uploads");

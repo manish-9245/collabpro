@@ -59,7 +59,23 @@ export function StateSyncProvider({
 }
 
 // Global cache to share active query results and prevent infinite re-fetches
-const queryCache = new Map<string, any>();
+const memoryCache = new Map<string, any>();
+const queryCache = {
+  get(key: string) {
+    if (typeof window === 'undefined') return undefined;
+    return memoryCache.get(key);
+  },
+  set(key: string, value: any) {
+    memoryCache.set(key, value);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(`collabpro:cache:${key}`, JSON.stringify(value));
+      } catch (e) {
+        console.error("Failed to write to localStorage cache:", e);
+      }
+    }
+  }
+};
 
 class StateSyncWSClient {
   private ws: WebSocket | null = null;
@@ -386,6 +402,24 @@ export function useQuery(queryReference: any, args?: any) {
     if (!wsClient) return;
     return wsClient.addStatusListener(setWsStatus);
   }, []);
+
+  // Safely hydrate from localStorage cache after mount to prevent SSR hydration errors
+  useEffect(() => {
+    if (!queryPath) return;
+    const cacheKey = `${queryPath}:${argsString}`;
+    if (data === undefined && typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem(`collabpro:cache:${cacheKey}`);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          memoryCache.set(cacheKey, parsed);
+          setData(parsed);
+        }
+      } catch (e) {
+        console.error("Failed to read from localStorage cache:", e);
+      }
+    }
+  }, [queryPath, argsString, data]);
 
   useEffect(() => {
     if (!queryPath) return;
