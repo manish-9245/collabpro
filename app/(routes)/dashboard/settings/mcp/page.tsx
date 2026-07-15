@@ -68,9 +68,11 @@ export default function McpSettingsHub() {
     setTimeout(() => stateSetter(false), 2000);
   };
 
+  const [workspacePath, setWorkspacePath] = useState<string>('/Users/your-username/collabpro');
+
   // Node runtime environment setup paths
   const baseAppUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
-  const mcpServerScriptPath = `${process.cwd()}/scripts/mcp-server.ts`;
+  const mcpServerScriptPath = workspacePath ? `${workspacePath.replace(/\/$/, '')}/scripts/mcp-server.ts` : './scripts/mcp-server.ts';
 
   const claudeConfig = JSON.stringify({
     "mcpServers": {
@@ -204,6 +206,27 @@ export default function McpSettingsHub() {
                     ))}
                   </select>
                 )}
+              </div>
+            </div>
+
+            {/* Step 1b: Workspace absolute path */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/80 p-5 rounded-2xl shadow-sm">
+              <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
+                <Code className="h-4 w-4 text-[#6965db]" />
+                <span className="text-[11px] font-bold uppercase tracking-wider">1b. Local Workspace Path</span>
+              </div>
+              <p className="text-[9.5px] text-slate-400 dark:text-slate-500 mt-1.5 leading-relaxed">
+                Provide the absolute path to your local CollabPro repository. This dynamically updates client script paths below!
+              </p>
+              
+              <div className="mt-4">
+                <input
+                  type="text"
+                  value={workspacePath}
+                  onChange={(e) => setWorkspacePath(e.target.value)}
+                  placeholder="/Users/username/collabpro"
+                  className="w-full text-[10px] font-mono bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 outline-none focus:border-[#6965db] text-slate-700 dark:text-slate-300"
+                />
               </div>
             </div>
 
