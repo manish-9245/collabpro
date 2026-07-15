@@ -311,4 +311,5 @@ function Workspace({params}:any) {
    )
 }
 
-export default Workspace
+const WorkspacePage = dynamic(() => Promise.resolve(Workspace), { ssr: false });
+export default WorkspacePage

@@ -391,7 +391,19 @@ export function useQuery(queryReference: any, args?: any) {
   const [data, setData] = useState<any>(() => {
     if (!queryPath) return undefined;
     const cacheKey = `${queryPath}:${argsString}`;
-    return queryCache.get(cacheKey);
+    const cached = queryCache.get(cacheKey);
+    if (cached !== undefined) return cached;
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem(`collabpro:cache:${cacheKey}`);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          memoryCache.set(cacheKey, parsed);
+          return parsed;
+        }
+      } catch (e) {}
+    }
+    return undefined;
   });
 
   const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'disconnected'>(() => {
