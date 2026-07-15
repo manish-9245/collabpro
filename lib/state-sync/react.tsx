@@ -413,6 +413,20 @@ export function useQuery(queryReference: any, args?: any) {
       }
     }
 
+    const handleRefetchEvent = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const { path, fileId } = customEvent.detail || {};
+      if (path === queryPath) {
+        if (!fileId || (args && (args._id === fileId || args.fileId === fileId))) {
+          fetchData();
+        }
+      }
+    };
+
+    if (typeof window !== "undefined") {
+      window.addEventListener('state-sync:refetch', handleRefetchEvent);
+    }
+
     if (wsClient && wsStatus === 'connected') {
       const unsubscribe = wsClient.subscribe(queryPath, args, (updatedData) => {
         if (active) {
@@ -422,6 +436,9 @@ export function useQuery(queryReference: any, args?: any) {
 
       return () => {
         active = false;
+        if (typeof window !== "undefined") {
+          window.removeEventListener('state-sync:refetch', handleRefetchEvent);
+        }
         unsubscribe();
       };
     } else {
@@ -437,6 +454,9 @@ export function useQuery(queryReference: any, args?: any) {
 
       return () => {
         active = false;
+        if (typeof window !== "undefined") {
+          window.removeEventListener('state-sync:refetch', handleRefetchEvent);
+        }
         if (timerId) clearTimeout(timerId);
       };
     }
@@ -541,5 +561,13 @@ export function useCursors() {
   };
 
   return { cursors, broadcastCursor };
+}
+
+export function triggerQueryRefetch(path: string, fileId?: string) {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('state-sync:refetch', {
+      detail: { path, fileId }
+    }));
+  }
 }
 
