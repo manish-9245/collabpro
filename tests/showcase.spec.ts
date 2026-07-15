@@ -118,7 +118,7 @@ test.describe('CollabPro Complete Feature Tour & Demonstration', () => {
     // ----------------------------------------------------
     try {
       console.log('🔍 Checking for client-side team onboarding redirect...');
-      await page.waitForURL(/.*teams\/create/, { timeout: 4000 });
+      await page.waitForURL(/.*teams\/create/, { timeout: 15000 });
       console.log('🎬 Scene 1.5: Onboarding Team Creation...');
       await slowType(SCENARIO_CONFIG.selectors.teamNameInput, SCENARIO_CONFIG.data.teamName);
       
