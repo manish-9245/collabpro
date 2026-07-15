@@ -351,36 +351,36 @@ func main() {
   };
 
   return (
-    <div className='p-4 sm:p-8 min-h-screen bg-slate-950 text-slate-100'>
+    <div className='p-4 sm:p-8 min-h-screen bg-slate-50 text-slate-800'>
       <Header />
 
       <div className="mt-8 space-y-8 max-w-7xl mx-auto">
         {/* Page Banner */}
-        <div className="relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 p-6 sm:p-8 shadow-2xl">
+        <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 sm:p-8 shadow-md">
           <div className="absolute top-0 right-0 -mt-10 -mr-10 w-72 h-72 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
           <div className="absolute bottom-0 left-1/4 -mb-10 w-56 h-56 bg-indigo-500/5 rounded-full blur-2xl pointer-events-none" />
 
           <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
             <div className="space-y-2">
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-950/40 text-blue-400 text-xs font-semibold border border-blue-900/30">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 text-blue-600 text-xs font-bold border border-blue-100">
                 <Cpu className="h-3.5 w-3.5 animate-pulse" />
                 <span>CollabPro Developer Gateway</span>
               </div>
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+              <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
                 Developer & MCP Integration Hub
               </h1>
-              <p className="text-sm text-zinc-400 max-w-2xl leading-relaxed">
+              <p className="text-sm text-slate-500 max-w-2xl leading-relaxed">
                 Connect external agents, IDE extensions, or scripts directly into CollabPro. Create secure API tokens, explore standard Model Context Protocol schemas, and test integrations live.
               </p>
             </div>
             
-            <div className="flex gap-4 items-center bg-zinc-900/40 border border-zinc-800 p-4 rounded-xl">
+            <div className="flex gap-4 items-center bg-slate-100/60 border border-slate-200 p-4 rounded-xl">
               <div className="h-10 w-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center text-white font-bold">
                 <Server className="h-5 w-5" />
               </div>
               <div className="text-left">
-                <h4 className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Protocol Status</h4>
-                <p className="text-sm font-bold text-emerald-400">HTTP & Stdio Online</p>
+                <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Protocol Status</h4>
+                <p className="text-sm font-bold text-emerald-600">HTTP & Stdio Online</p>
               </div>
             </div>
           </div>
@@ -393,27 +393,27 @@ func main() {
           <div className="lg:col-span-7 space-y-8">
             
             {/* API Key lifecycle panel */}
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-6 shadow-xl space-y-6">
-              <div className="flex justify-between items-center border-b border-zinc-800 pb-4">
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-md space-y-6">
+              <div className="flex justify-between items-center border-b border-slate-100 pb-4">
                 <div className="flex items-center gap-2.5">
-                  <Key className="h-5 w-5 text-blue-400" />
-                  <h2 className="text-lg font-bold text-white">Developer API Keys</h2>
+                  <Key className="h-5 w-5 text-blue-500" />
+                  <h2 className="text-lg font-bold text-slate-900">Developer API Keys</h2>
                 </div>
-                <span className="text-xs text-zinc-500">Secure SHA-256 Tokens</span>
+                <span className="text-xs text-slate-400">Secure SHA-256 Tokens</span>
               </div>
 
               {newlyCreatedKey && (
-                <div className="p-4 bg-emerald-950/20 border border-emerald-900/50 rounded-xl space-y-3 animate-in fade-in duration-300">
+                <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-xl space-y-3 animate-in fade-in duration-300">
                   <div className="flex justify-between items-center">
-                    <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Key Created - Save this secret!</span>
-                    <span className="text-[10px] text-zinc-500">Only shown once</span>
+                    <span className="text-xs font-bold text-emerald-600 uppercase tracking-wider">Key Created - Save this secret!</span>
+                    <span className="text-[10px] text-slate-400">Only shown once</span>
                   </div>
                   <div className="flex gap-2 items-center">
                     <input 
                       type="text" 
                       readOnly 
                       value={newlyCreatedKey.key} 
-                      className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs font-mono text-emerald-300 w-full select-all outline-none"
+                      className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono text-emerald-600 w-full select-all outline-none"
                     />
                     <Button 
                       onClick={() => copyToClipboard(newlyCreatedKey.key, newlyCreatedKey.id)}
@@ -423,8 +423,8 @@ func main() {
                       {copiedKeyId === newlyCreatedKey.id ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                     </Button>
                   </div>
-                  <p className="text-[11px] text-zinc-400">
-                    Use this key in the Authorization header as a Bearer Token: <code className="text-emerald-400">Bearer {newlyCreatedKey.key}</code>
+                  <p className="text-[11px] text-slate-500">
+                    Use this key in the Authorization header as a Bearer Token: <code className="text-emerald-600">Bearer {newlyCreatedKey.key}</code>
                   </p>
                 </div>
               )}
@@ -436,7 +436,7 @@ func main() {
                     placeholder="e.g. Cursor Assistant Token" 
                     value={newKeyName}
                     onChange={(e) => setNewKeyName(e.target.value)}
-                    className="bg-zinc-900 border-zinc-800 text-white placeholder-zinc-500 text-sm rounded-lg"
+                    className="bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400 text-sm rounded-lg"
                     required
                   />
                 </div>
@@ -444,7 +444,7 @@ func main() {
                   <select 
                     value={expiresDays} 
                     onChange={(e) => setExpiresDays(e.target.value)}
-                    className="w-full bg-zinc-900 border border-zinc-800 text-white text-sm rounded-lg px-3 py-2 h-9 outline-none focus:ring-1 focus:ring-blue-500"
+                    className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-sm rounded-lg px-3 py-2 h-9 outline-none focus:ring-1 focus:ring-blue-500"
                   >
                     <option value="7">7 Days</option>
                     <option value="30">30 Days</option>
@@ -463,29 +463,29 @@ func main() {
               </form>
 
               <div className="space-y-3">
-                <span className="text-xs font-bold text-zinc-500 uppercase tracking-wider block">Active Keys</span>
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Active Keys</span>
                 
                 {loadingKeys ? (
-                  <div className="flex justify-center items-center py-6 text-zinc-500 gap-2">
-                    <RefreshCw className="h-4 w-4 animate-spin text-blue-500" />
+                  <div className="flex justify-center items-center py-6 text-slate-400 gap-2">
+                    <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
                     <span>Loading keys...</span>
                   </div>
                 ) : apiKeys.length === 0 ? (
-                  <div className="text-center py-8 text-sm text-zinc-600 border border-dashed border-zinc-800 rounded-xl">
+                  <div className="text-center py-8 text-sm text-slate-500 border border-dashed border-slate-200 rounded-xl">
                     No active developer keys found. Generate one above to begin.
                   </div>
                 ) : (
                   <div className="space-y-2 max-h-[250px] overflow-y-auto pr-1">
                     {apiKeys.map((key) => (
-                      <div key={key.id} className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/30 border border-zinc-800/60 hover:border-zinc-800 transition-all">
+                      <div key={key.id} className="flex items-center justify-between p-3 rounded-xl bg-slate-50/50 border border-slate-100 hover:border-slate-200 transition-all">
                         <div className="flex items-center gap-3">
-                          <div className="h-8 w-8 rounded-lg bg-zinc-900 flex items-center justify-center text-blue-400 border border-zinc-800">
+                          <div className="h-8 w-8 rounded-lg bg-slate-100 flex items-center justify-center text-blue-600 border border-slate-200">
                             <Key className="h-4 w-4" />
                           </div>
                           <div>
-                            <h4 className="text-sm font-semibold text-white">{key.name}</h4>
-                            <div className="flex items-center gap-2 text-[10px] text-zinc-500 mt-1">
-                              <span className="font-mono text-zinc-400">{key.maskedKey}</span>
+                            <h4 className="text-sm font-semibold text-slate-800">{key.name}</h4>
+                            <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-1">
+                              <span className="font-mono text-slate-500">{key.maskedKey}</span>
                               <span>•</span>
                               <span className="flex items-center gap-0.5"><Shield className="h-3 w-3" /> {key.scope}</span>
                             </div>
@@ -494,15 +494,15 @@ func main() {
 
                         <div className="flex items-center gap-2">
                           <div className="text-right hidden sm:block">
-                            <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider block">Expires</span>
-                            <span className="text-xs text-zinc-400 font-mono">
+                            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Expires</span>
+                            <span className="text-xs text-slate-500 font-mono">
                               {key.expiresAt ? new Date(key.expiresAt).toLocaleDateString() : 'Never'}
                             </span>
                           </div>
                           <Button 
                             variant="ghost" 
                             onClick={() => handleRevokeApiKey(key.id, key.name)}
-                            className="h-8 w-8 p-0 text-zinc-500 hover:text-red-400 hover:bg-zinc-900 rounded-lg"
+                            className="h-8 w-8 p-0 text-slate-400 hover:text-red-600 hover:bg-slate-100 rounded-lg"
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -515,23 +515,23 @@ func main() {
             </div>
 
             {/* Interactive Code Sandbox */}
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-6 shadow-xl space-y-6">
-              <div className="flex justify-between items-center border-b border-zinc-800 pb-4">
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-md space-y-6">
+              <div className="flex justify-between items-center border-b border-slate-100 pb-4">
                 <div className="flex items-center gap-2.5">
-                  <Code2 className="h-5 w-5 text-indigo-400" />
-                  <h2 className="text-lg font-bold text-white">Interactive Integration Sandbox</h2>
+                  <Code2 className="h-5 w-5 text-indigo-600" />
+                  <h2 className="text-lg font-bold text-slate-900">Interactive Integration Sandbox</h2>
                 </div>
                 
                 {/* Languages switcher */}
-                <div className="flex gap-1 bg-zinc-900 p-0.5 rounded-lg border border-zinc-800">
+                <div className="flex gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
                   {(['curl', 'js', 'python', 'go'] as const).map(lang => (
                     <button
                       key={lang}
                       onClick={() => setSelectedLanguage(lang)}
-                      className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
+                      className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all ${
                         selectedLanguage === lang 
-                          ? 'bg-zinc-800 text-white shadow' 
-                          : 'text-zinc-500 hover:text-zinc-300'
+                          ? 'bg-white text-slate-900 shadow-sm border border-slate-200/50' 
+                          : 'text-slate-500 hover:text-slate-800'
                       }`}
                     >
                       {lang === 'js' ? 'JS' : lang.toUpperCase()}
@@ -541,18 +541,18 @@ func main() {
               </div>
 
               <div className="space-y-3">
-                <div className="flex gap-2 items-center text-xs text-zinc-400 bg-zinc-900/30 p-2.5 rounded-lg border border-zinc-800">
-                  <Terminal className="h-4 w-4 text-indigo-400 shrink-0" />
+                <div className="flex gap-2 items-center text-xs text-slate-500 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                  <Terminal className="h-4 w-4 text-indigo-600 shrink-0" />
                   <span>Choose any method or tool below to automatically compile code execution blocks:</span>
                 </div>
 
                 <div className="relative">
-                  <pre className="bg-zinc-900 text-zinc-300 p-4 rounded-xl border border-zinc-800 text-[11px] font-mono leading-relaxed overflow-x-auto max-h-[250px] scrollbar-thin">
+                  <pre className="bg-slate-950 text-slate-100 p-4 rounded-xl border border-slate-800 text-[11px] font-mono leading-relaxed overflow-x-auto max-h-[250px] scrollbar-thin">
                     <code>{getCodeSnippet()}</code>
                   </pre>
                   <Button
                     onClick={() => copyToClipboard(getCodeSnippet(), 'snippet_copy')}
-                    className="absolute top-2.5 right-2.5 h-7 w-7 p-0 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700"
+                    className="absolute top-2.5 right-2.5 h-7 w-7 p-0 bg-slate-800 hover:bg-slate-700 text-zinc-300 border border-slate-700"
                   >
                     {copiedKeyId === 'snippet_copy' ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
                   </Button>
@@ -564,11 +564,11 @@ func main() {
 
           {/* RIGHT: JSON-RPC Live Playground */}
           <div className="lg:col-span-5 space-y-8">
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-6 shadow-xl flex flex-col h-full space-y-6">
-              <div className="flex justify-between items-center border-b border-zinc-800 pb-4">
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-md flex flex-col h-full space-y-6">
+              <div className="flex justify-between items-center border-b border-slate-100 pb-4">
                 <div className="flex items-center gap-2.5">
-                  <Play className="h-5 w-5 text-emerald-400" />
-                  <h2 className="text-lg font-bold text-white">JSON-RPC Live Console</h2>
+                  <Play className="h-5 w-5 text-emerald-600" />
+                  <h2 className="text-lg font-bold text-slate-900">JSON-RPC Live Console</h2>
                 </div>
                 <span className="flex h-2 w-2 relative">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -578,19 +578,19 @@ func main() {
 
               {/* API Key selector or plain-text input */}
               <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider block">Execution Authentication</label>
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Execution Authentication</label>
                 <Input 
                   type="password"
                   placeholder="Paste your collabpro_pat_... secret key here"
                   value={playgroundApiKey}
                   onChange={(e) => setPlaygroundApiKey(e.target.value)}
-                  className="bg-zinc-900 border-zinc-800 text-white placeholder-zinc-600 text-xs font-mono"
+                  className="bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400 text-xs font-mono"
                 />
               </div>
 
               {/* Methods selector */}
               <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider block">Target MCP / REST Method</label>
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Target MCP / REST Method</label>
                 <select
                   value={selectedMethod}
                   onChange={(e) => {
@@ -607,7 +607,7 @@ func main() {
                       setArgumentsJson('{\n  "fileId": "YOUR_FILE_UUID",\n  "whiteboard": "[]"\n}');
                     }
                   }}
-                  className="w-full bg-zinc-900 border border-zinc-800 text-white text-xs font-semibold rounded-lg px-3 py-2 h-9 outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs font-bold rounded-lg px-3 py-2 h-9 outline-none focus:ring-1 focus:ring-blue-500"
                 >
                   <option value="list_tools">tools/list (Discover schemas)</option>
                   <option value="collabpro_list_files">collabpro_list_files (Fetch files)</option>
@@ -620,12 +620,12 @@ func main() {
               {/* Arguments JSON Textarea */}
               {selectedMethod !== 'list_tools' && (
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider block">Arguments (JSON Payload)</label>
+                  <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Arguments (JSON Payload)</label>
                   <textarea
                     rows={4}
                     value={argumentsJson}
                     onChange={(e) => setArgumentsJson(e.target.value)}
-                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-3 text-[11px] font-mono text-zinc-300 focus:ring-1 focus:ring-blue-500 outline-none resize-none leading-relaxed"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-3 text-[11px] font-mono text-slate-850 focus:ring-1 focus:ring-blue-500 outline-none resize-none leading-relaxed"
                   />
                 </div>
               )}
@@ -642,24 +642,24 @@ func main() {
               {/* Monospace Neon Console Log View */}
               <div className="flex-1 flex flex-col space-y-1.5 min-h-[300px]">
                 <div className="flex justify-between items-center">
-                  <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider block">Live Terminal logs</label>
+                  <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Live Terminal logs</label>
                   <button 
                     onClick={() => setConsoleLogs([])}
-                    className="text-[10px] text-zinc-500 hover:text-zinc-300 font-semibold"
+                    className="text-[10px] text-slate-400 hover:text-slate-600 font-semibold"
                   >
                     Clear Console
                   </button>
                 </div>
                 
-                <div className="flex-1 bg-black border border-zinc-800 rounded-xl p-4 overflow-y-auto max-h-[350px] font-mono text-[10px] text-green-400 space-y-4 shadow-inner scrollbar-thin">
+                <div className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-4 overflow-y-auto max-h-[350px] font-mono text-[10px] text-green-400 space-y-4 shadow-inner scrollbar-thin">
                   {consoleLogs.length === 0 ? (
-                    <div className="h-full flex items-center justify-center text-zinc-600 text-center text-[11px] py-12 select-none">
+                    <div className="h-full flex items-center justify-center text-slate-500 text-center text-[11px] py-12 select-none">
                       Console idle. Execute requests above to stream live communication sequences.
                     </div>
                   ) : (
                     consoleLogs.map((log, index) => (
-                      <div key={index} className="border-b border-zinc-900 pb-3 last:border-0">
-                        <div className="flex justify-between items-center text-[9px] text-zinc-500 mb-1">
+                      <div key={index} className="border-b border-slate-900/50 pb-3 last:border-0">
+                        <div className="flex justify-between items-center text-[9px] text-slate-500 mb-1">
                           <span className={`font-bold uppercase tracking-wider ${
                             log.type === 'request' ? 'text-indigo-400' : log.type === 'error' ? 'text-red-400' : 'text-emerald-400'
                           }`}>
@@ -667,7 +667,7 @@ func main() {
                           </span>
                           <span>{log.timestamp}</span>
                         </div>
-                        <pre className="whitespace-pre-wrap leading-relaxed max-w-full overflow-x-auto text-green-300">
+                        <pre className="whitespace-pre-wrap leading-relaxed max-w-full overflow-x-auto text-green-300 font-mono">
                           {JSON.stringify(log.payload, null, 2)}
                         </pre>
                       </div>
