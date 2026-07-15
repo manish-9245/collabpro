@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+import { BackgroundBeams } from '@/components/ui/background-beams-custom';
 
 export default function RegisterPage() {
   const [name, setName] = useState('');
@@ -48,6 +49,9 @@ export default function RegisterPage() {
       {/* Dynamic Gradients Background */}
       <div className="absolute top-[-20%] left-[-20%] w-[60%] h-[60%] bg-blue-900/30 rounded-full blur-[120px] pointer-events-none" />
       <div className="absolute bottom-[-20%] right-[-20%] w-[60%] h-[60%] bg-purple-900/20 rounded-full blur-[120px] pointer-events-none" />
+
+      {/* Subtle Premium Background Beams */}
+      <BackgroundBeams className="opacity-20" />
 
       <div className="w-full max-w-md p-8 bg-zinc-950/60 backdrop-blur-md border border-zinc-800 rounded-2xl shadow-2xl relative z-10">
         <div className="flex flex-col items-center mb-8">

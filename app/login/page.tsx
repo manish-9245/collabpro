@@ -106,12 +106,17 @@ function LoginForm() {
   );
 }
 
+import { BackgroundBeams } from '@/components/ui/background-beams-custom';
+
 export default function LoginPage() {
   return (
     <div className="min-h-screen bg-black text-white flex flex-col justify-center items-center px-4 relative overflow-hidden">
       {/* Dynamic Gradients Background */}
       <div className="absolute top-[-20%] left-[-20%] w-[60%] h-[60%] bg-blue-900/30 rounded-full blur-[120px] pointer-events-none" />
       <div className="absolute bottom-[-20%] right-[-20%] w-[60%] h-[60%] bg-purple-900/20 rounded-full blur-[120px] pointer-events-none" />
+
+      {/* Subtle Premium Background Beams */}
+      <BackgroundBeams className="opacity-20" />
 
       <Suspense fallback={
         <div className="text-sm text-zinc-400 animate-pulse">Loading auth screen...</div>
