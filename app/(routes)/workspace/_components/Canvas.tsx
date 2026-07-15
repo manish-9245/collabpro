@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { Excalidraw, MainMenu, WelcomeScreen } from "@excalidraw/excalidraw";
+import "@excalidraw/excalidraw/index.css";
 import { FILE } from '../../dashboard/_components/FileList';
 import { api, useMutation, useQuery } from '@/lib/state-sync/react';
 import { encodeCrdtState, decodeCrdtState } from '@/lib/crdt';
