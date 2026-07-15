@@ -3,6 +3,8 @@
 import React from 'react'
 import { Layers, FolderGit, Zap, History, Users2, ShieldCheck, Sparkles, ArrowRight, FolderOpen, Folder, FileText } from 'lucide-react'
 import { CHANGELOG } from '@/lib/changelog'
+import { BackgroundBeams } from '@/components/ui/background-beams-custom'
+import { HoverEffect } from '@/components/ui/card-hover-effect'
 
 function Hero() {
   // Programmatic UI layout upgrade based on latest major release settings
@@ -59,6 +61,9 @@ function Hero() {
       <div className={`absolute top-0 left-1/4 -mt-32 w-[600px] h-[600px] ${theme.bannerGlow} rounded-full blur-3xl pointer-events-none`} />
       <div className="absolute top-1/3 right-1/4 -mt-16 w-[500px] h-[500px] bg-indigo-100/30 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute bottom-10 left-10 w-[400px] h-[400px] bg-purple-100/10 rounded-full blur-3xl pointer-events-none" />
+      
+      {/* Subtle Premium Background Beams */}
+      <BackgroundBeams className="opacity-30 mix-blend-multiply" />
 
       {/* CSS Keyframe definition for animated mockup cursors */}
       <style dangerouslySetInnerHTML={{__html: `
@@ -240,25 +245,8 @@ function Hero() {
             </p>
           </div>
 
-          {/* Dynamic Responsive Features Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-screen-xl mx-auto text-left">
-            {features.map((feat, idx) => (
-              <div 
-                key={idx}
-                className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg hover:shadow-slate-200/50 group"
-              >
-                <div className="h-10 w-10 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                  <feat.icon className={`h-5 w-5 ${feat.color}`} />
-                </div>
-                <h3 className="text-sm font-bold text-slate-800 mb-2">
-                  {feat.title}
-                </h3>
-                <p className="text-slate-500 text-xs leading-relaxed">
-                  {feat.description}
-                </p>
-              </div>
-            ))}
-          </div>
+          {/* Premium Animated Features Grid */}
+          <HoverEffect items={features} />
         </div>
       </div>
     </section>
