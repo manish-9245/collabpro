@@ -370,6 +370,7 @@ function Canvas({
     const saveTimeoutRef=useRef<NodeJS.Timeout|null>(null);
     const lastSavedDataRef=useRef<string>("");
     const uploadingFilesRef = useRef<Set<string>>(new Set());
+    const uploadRetriesRef = useRef<Map<string, number>>(new Map());
 
     const [activeTab, setActiveTab] = useState<'standard' | 'aws' | 'custom' | 'libraries' | 'pdf'>('standard');
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -759,7 +760,8 @@ function Canvas({
         let hasNewUploads = false;
         if (excalidrawAPI) {
             Object.values(filesObj).forEach((file: any) => {
-                if (file.dataURL && file.dataURL.startsWith('data:') && !uploadingFilesRef.current.has(file.id)) {
+                const retries = uploadRetriesRef.current.get(file.id) || 0;
+                if (file.dataURL && file.dataURL.startsWith('data:') && !uploadingFilesRef.current.has(file.id) && retries < 3) {
                     uploadingFilesRef.current.add(file.id);
                     hasNewUploads = true;
                     
@@ -790,9 +792,15 @@ function Canvas({
                                 excalidrawAPI.updateScene({
                                     elements: excalidrawAPI.getSceneElements()
                                 });
+                            } else {
+                                // Record failed attempt
+                                const currentRetries = uploadRetriesRef.current.get(file.id) || 0;
+                                uploadRetriesRef.current.set(file.id, currentRetries + 1);
                             }
                         } catch (err) {
                             console.error("[canvas image uploader] upload failed:", err);
+                            const currentRetries = uploadRetriesRef.current.get(file.id) || 0;
+                            uploadRetriesRef.current.set(file.id, currentRetries + 1);
                         } finally {
                             uploadingFilesRef.current.delete(file.id);
                         }
