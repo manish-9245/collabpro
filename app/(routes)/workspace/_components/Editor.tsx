@@ -62,6 +62,7 @@ function Editor({
     const updateDocument=useMutation(api.files.updateDocument);
     const saveTimeoutRef=useRef<NodeJS.Timeout|null>(null);
     const lastSavedDataRef=useRef<string>("");
+    const isProgrammaticUpdateRef=useRef<boolean>(false);
 
     // Undo/Redo History Stack (client-side)
     const historyRef = useRef<string[]>([]);
@@ -104,7 +105,14 @@ function Editor({
             
             // Only overwrite if we are not currently typing or waiting on a debounced save
             if (saveTimeoutRef.current === null && !saveTimeoutRef.current) {
-                ref.current.render(serverDoc);
+                isProgrammaticUpdateRef.current = true;
+                ref.current.render(serverDoc).then(() => {
+                    setTimeout(() => {
+                        isProgrammaticUpdateRef.current = false;
+                    }, 100);
+                }).catch(() => {
+                    isProgrammaticUpdateRef.current = false;
+                });
                 lastSavedDataRef.current = fileData.document;
                 
                 // Initialize/reset history stack to match this new server state
@@ -167,7 +175,14 @@ function Editor({
             const prevState = JSON.parse(prevStateStr);
             
             if (ref.current) {
-                ref.current.render(prevState);
+                isProgrammaticUpdateRef.current = true;
+                ref.current.render(prevState).then(() => {
+                    setTimeout(() => {
+                        isProgrammaticUpdateRef.current = false;
+                    }, 100);
+                }).catch(() => {
+                    isProgrammaticUpdateRef.current = false;
+                });
                 lastSavedDataRef.current = encodeCrdtState(prevState);
                 if (onHistoryChange) {
                     onHistoryChange(historyIndexRef.current > 0, true);
@@ -186,7 +201,14 @@ function Editor({
             const nextState = JSON.parse(nextStateStr);
             
             if (ref.current) {
-                ref.current.render(nextState);
+                isProgrammaticUpdateRef.current = true;
+                ref.current.render(nextState).then(() => {
+                    setTimeout(() => {
+                        isProgrammaticUpdateRef.current = false;
+                    }, 100);
+                }).catch(() => {
+                    isProgrammaticUpdateRef.current = false;
+                });
                 lastSavedDataRef.current = encodeCrdtState(nextState);
                 if (onHistoryChange) {
                     onHistoryChange(true, historyIndexRef.current < historyRef.current.length - 1);
@@ -263,6 +285,9 @@ function Editor({
             data: decodedDoc,
             
             onChange: () => {
+                if (isProgrammaticUpdateRef.current) {
+                    return;
+                }
                 setSavingStatus('saving');
                 if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
                 saveTimeoutRef.current = setTimeout(() => {
