@@ -248,13 +248,17 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const dbBackedUrl = `/api/upload/${uploadedRecord.id}`;
-    console.log(`[Upload API] Image persisted successfully: id=${uploadedRecord.id}, url=${dbBackedUrl}`);
+    // Return direct S3 URL if available for blazing-fast loading (bypassing the server redirect)
+    const returnedUrl = (process.env.S3_ENDPOINT && uploadedRecord.payload.startsWith("http"))
+      ? uploadedRecord.payload
+      : `/api/upload/${uploadedRecord.id}`;
+
+    console.log(`[Upload API] Image persisted successfully: id=${uploadedRecord.id}, url=${returnedUrl}`);
 
     return NextResponse.json({
       success: 1,
       file: {
-        url: dbBackedUrl,
+        url: returnedUrl,
       },
     });
   } catch (error: any) {
