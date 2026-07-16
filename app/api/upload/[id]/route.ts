@@ -21,6 +21,11 @@ export async function GET(
       return new NextResponse("File not found", { status: 404 });
     }
 
+    // If the payload is an S3 / MinIO URL, redirect the client browser to load directly from storage
+    if (uploadedFile.payload.startsWith("http://") || uploadedFile.payload.startsWith("https://")) {
+      return NextResponse.redirect(uploadedFile.payload);
+    }
+
     // Convert base64 payload back to Binary Buffer
     const buffer = Buffer.from(uploadedFile.payload, "base64");
 
