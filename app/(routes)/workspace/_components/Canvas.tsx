@@ -369,6 +369,7 @@ function Canvas({
     );
     const saveTimeoutRef=useRef<NodeJS.Timeout|null>(null);
     const lastSavedDataRef=useRef<string>("");
+    const isProgrammaticUpdateRef=useRef<boolean>(false);
     const uploadingFilesRef = useRef<Set<string>>(new Set());
     const uploadRetriesRef = useRef<Map<string, number>>(new Map());
 
@@ -703,10 +704,14 @@ function Canvas({
                 if (filesArray.length > 0) {
                     excalidrawAPI.addFiles(filesArray);
                 }
+                isProgrammaticUpdateRef.current = true;
                 excalidrawAPI.updateScene({
                     elements: serverElements
                 });
                 lastSavedDataRef.current = fileData.whiteboard;
+                setTimeout(() => {
+                    isProgrammaticUpdateRef.current = false;
+                }, 100);
             }
         } catch (e) {
             console.error("Error updating canvas from realtime sync:", e);
@@ -753,6 +758,9 @@ function Canvas({
 
     const handleCanvasChange = (excalidrawElements: any) => {
         setWhiteBoardData(excalidrawElements);
+        if (isProgrammaticUpdateRef.current) {
+            return;
+        }
         
         const filesObj = excalidrawAPI ? excalidrawAPI.getFiles() : {};
         
