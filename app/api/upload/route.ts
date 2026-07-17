@@ -53,8 +53,26 @@ async function isSafeUrl(urlStr: string): Promise<boolean> {
   }
 }
 
-// Magic bytes validation for image headers (PNG, JPEG, GIF, WebP)
+// Magic bytes validation for image headers (PNG, JPEG, GIF, WebP, SVG)
 function isValidImageBuffer(buffer: Uint8Array): boolean {
+  if (buffer.length < 4) return false;
+
+  // SVG Check (text-based XML format)
+  try {
+    const headerText = new TextDecoder("utf-8").decode(buffer.slice(0, Math.min(buffer.length, 512)));
+    const trimmedHeader = headerText.trim().toLowerCase();
+    if (
+      trimmedHeader.startsWith("<svg") ||
+      trimmedHeader.includes("<svg") ||
+      trimmedHeader.startsWith("<?xml") ||
+      trimmedHeader.startsWith("<!doctype svg")
+    ) {
+      return true;
+    }
+  } catch (e) {
+    // Ignore and proceed to binary magic bytes checks
+  }
+
   if (buffer.length < 12) return false;
 
   // PNG: 89 50 4E 47 0D 0A 1A 0A
