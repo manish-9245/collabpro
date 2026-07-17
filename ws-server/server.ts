@@ -2,9 +2,11 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { createServer } from 'http';
 import { prisma } from '../lib/db';
 import Redis from 'ioredis';
+import amqplib from 'amqplib';
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : (process.env.WS_PORT ? parseInt(process.env.WS_PORT, 10) : 3001);
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
+const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://localhost:5672';
 
 interface ClientConnection {
   ws: WebSocket;
@@ -24,6 +26,7 @@ const activeConnections = new Set<ClientConnection>();
 // Setup horizontal scaling via Resilient Redis Pub/Sub
 let pubClient: Redis | null = null;
 let subClient: Redis | null = null;
+let writeClient: Redis | null = null;
 let isRedisAvailable = false;
 
 try {
@@ -82,52 +85,70 @@ try {
   console.warn('⚠️ [Redis Pub/Sub Warning] Operating in standalone memory mode:', err.message);
 }
 
-// Keep track of pending database writes in memory (Write-Back Cache Layer)
-interface PendingWrite {
-  timer: NodeJS.Timeout;
-  document?: string;
-  whiteboard?: string;
-  fileName?: string;
-}
-const pendingWrites = new Map<string, PendingWrite>();
+// Set up RabbitMQ Connection and Channel
+let mqConnection: any = null;
+let mqChannel: any = null;
+const QUEUE_NAME = 'collabpro_db_writes';
 
-// Debounced database write-back commit queue helper
-function queueDbWrite(fileId: string, type: 'document' | 'whiteboard' | 'fileName', value: string, executeSave: () => Promise<any>) {
-  if (pendingWrites.has(fileId)) {
-    const existing = pendingWrites.get(fileId)!;
-    clearTimeout(existing.timer);
+async function initRabbitMQ() {
+  try {
+    mqConnection = await amqplib.connect(RABBITMQ_URL);
+    mqChannel = await mqConnection.createChannel();
+    await mqChannel.assertQueue(QUEUE_NAME, { durable: true });
+    console.log('🐇 [RabbitMQ] Connected to message broker successfully.');
 
-    if (type === 'document') existing.document = value;
-    if (type === 'whiteboard') existing.whiteboard = value;
-    if (type === 'fileName') existing.fileName = value;
-
-    existing.timer = setTimeout(async () => {
-      try {
-        await executeSave();
-        pendingWrites.delete(fileId);
-        console.log(`💾 [Debounced DB Commit] Batched changes flushed to PostgreSQL for file: ${fileId}`);
-      } catch (err: any) {
-        console.error(`❌ [Debounced DB Commit Error] Failed flushing updates for file ${fileId}:`, err.message);
-      }
-    }, 2000); // 2-second throttle delay
-  } else {
-    const writeRecord: PendingWrite = {
-      timer: setTimeout(async () => {
+    // Consumer to process queue items
+    mqChannel.consume(QUEUE_NAME, async (msg: any) => {
+      if (msg !== null) {
         try {
-          await executeSave();
-          pendingWrites.delete(fileId);
-          console.log(`💾 [Debounced DB Commit] Batched changes flushed to PostgreSQL for file: ${fileId}`);
+          const payload = JSON.parse(msg.content.toString());
+          const { fileId, type, value } = payload;
+          const updateData: any = {};
+          updateData[type] = value;
+          
+          await prisma.file.update({
+            where: { id: fileId },
+            data: updateData,
+          });
+          console.log(`💾 [RabbitMQ DB Commit] Durable update flushed to DB for file: ${fileId}`);
+          mqChannel?.ack(msg);
         } catch (err: any) {
-          console.error(`❌ [Debounced DB Commit Error] Failed flushing updates for file ${fileId}:`, err.message);
+          console.error(`❌ [RabbitMQ DB Commit Error] Failed flushing updates:`, err.message);
+          mqChannel?.nack(msg, false, false); // Do not requeue on fatal error
         }
-      }, 2000)
-    };
+      }
+    });
 
-    if (type === 'document') writeRecord.document = value;
-    if (type === 'whiteboard') writeRecord.whiteboard = value;
-    if (type === 'fileName') writeRecord.fileName = value;
+    mqConnection.on('error', (err: any) => {
+      console.error('RabbitMQ connection error:', err);
+    });
+    mqConnection.on('close', () => {
+      console.warn('RabbitMQ connection closed. Reconnecting...');
+      setTimeout(initRabbitMQ, 5000);
+    });
+  } catch (error) {
+    console.warn('⚠️ [RabbitMQ Warning] Could not connect to RabbitMQ. Falling back to direct database writes.', error);
+    setTimeout(initRabbitMQ, 5000);
+  }
+}
 
-    pendingWrites.set(fileId, writeRecord);
+initRabbitMQ();
+
+// Durable RabbitMQ-backed database write-back commit queue helper
+async function queueDbWrite(fileId: string, type: 'document' | 'whiteboard' | 'fileName', value: string, executeSave: () => Promise<any>) {
+  if (mqChannel) {
+    try {
+      const payload = { fileId, type, value, timestamp: Date.now() };
+      mqChannel.sendToQueue(QUEUE_NAME, Buffer.from(JSON.stringify(payload)), {
+        persistent: true
+      });
+    } catch (err) {
+      console.warn('⚠️ [RabbitMQ Queue Error] Failed to publish message, falling back to direct save');
+      await executeSave();
+    }
+  } else {
+    // Fallback to direct save
+    await executeSave();
   }
 }
 
@@ -363,17 +384,9 @@ async function executeQuery(path: string, args: any): Promise<any> {
       case 'files:getFileById': {
         const { _id } = args || {};
 
-        const pending = pendingWrites.get(_id);
-
         const file = await prisma.file.findUnique({
           where: { id: _id },
         });
-
-        if (file) {
-          if (pending?.document !== undefined) file.document = pending.document;
-          if (pending?.whiteboard !== undefined) file.whiteboard = pending.whiteboard;
-          if (pending?.fileName !== undefined) file.fileName = pending.fileName;
-        }
 
         return mapConvexIds(file);
       }

@@ -1,6 +1,13 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from "react";
+import { openDB } from 'idb';
+
+const dbPromise = typeof window !== 'undefined' ? openDB('collabpro-offline-sync', 1, {
+  upgrade(db) {
+    db.createObjectStore('mutations', { keyPath: 'id', autoIncrement: true });
+  },
+}) : null;
 
 // Robust helper to extract query path from any reference type (standard or mock)
 const getPath = (ref: any): string | undefined => {
@@ -89,7 +96,6 @@ export class StateSyncWSClient {
   private connectionStatus: 'connecting' | 'connected' | 'disconnected' = 'disconnected';
   private isConnecting = false;
   private consecutiveFailures = 0;
-  private offlineQueue: Array<{ type: string, path: string, args: any, fileId?: string, resolve: (val: any) => void, reject: (err: any) => void }> = [];
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -206,13 +212,30 @@ export class StateSyncWSClient {
           this.ws?.send(JSON.stringify({ type: 'subscribe', path, args }));
         });
 
-        // Flush offline queue
-        while (this.offlineQueue.length > 0) {
-          const item = this.offlineQueue.shift();
-          if (item) {
-            this.mutation(item.path, item.args, item.fileId)
-              .then(item.resolve).catch(item.reject);
-          }
+        // Flush durable offline queue from IndexedDB
+        if (dbPromise) {
+          dbPromise.then(async (db) => {
+            try {
+              const tx = db.transaction('mutations', 'readwrite');
+              const store = tx.objectStore('mutations');
+              const allMutations = await store.getAll();
+              for (const item of allMutations) {
+                try {
+                  // Use HTTP fallback to guarantee flush of queued offline operations
+                  await fetch("/api/state-sync", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ path: item.path, args: item.args }),
+                  });
+                  await store.delete(item.id);
+                } catch(e) {
+                  console.error('[CollabPro WS CLIENT] Failed to flush offline mutation', e);
+                }
+              }
+            } catch(err) {
+               console.error('[CollabPro WS CLIENT] Error accessing idb for flush:', err);
+            }
+          });
         }
       };
 
@@ -336,19 +359,28 @@ export class StateSyncWSClient {
         }, 10000);
       });
     } else {
-      // Compensate for lag on poor connections by queuing operations locally
+      // Compensate for lag on poor connections by queuing operations locally in IndexedDB
       console.log('[CollabPro WS] Queuing mutation offline for latency compensation...');
-      return new Promise((resolve, reject) => {
-        // Optimal batching: deduplicate pending mutations
-        const existingIndex = this.offlineQueue.findIndex(q => q.path === path && q.fileId === fileId);
-        if (existingIndex >= 0) {
-          // Resolve old promise early since it's superseded
-          this.offlineQueue[existingIndex].resolve(null);
-          this.offlineQueue[existingIndex] = { type: 'mutation', path, args, fileId, resolve, reject };
-        } else {
-          this.offlineQueue.push({ type: 'mutation', path, args, fileId, resolve, reject });
-        }
-      });
+      if (typeof window !== 'undefined' && dbPromise) {
+        dbPromise.then(async db => {
+          try {
+            const tx = db.transaction('mutations', 'readwrite');
+            const store = tx.objectStore('mutations');
+            // Optimal batching: deduplicate pending mutations
+            const allMutations = await store.getAll();
+            const existing = allMutations.find(m => m.path === path && m.fileId === fileId);
+            if (existing) {
+               existing.args = args;
+               await store.put(existing);
+            } else {
+               await store.add({ path: path, args, fileId });
+            }
+          } catch(err) {
+            console.error('[CollabPro WS CLIENT] Error accessing idb for queuing:', err);
+          }
+        });
+      }
+      return Promise.resolve(args); // Optimistically resolve
     }
 
     const res = await fetch("/api/state-sync", {

@@ -45,6 +45,25 @@ services:
           cpus: '0.5'
           memory: 512M
 
+  # Message Broker for Reliable Queueing
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: collabpro-rabbitmq
+    restart: always
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
   # Next.js Web Client & API Gateway
   web:
     build:
