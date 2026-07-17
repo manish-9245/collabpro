@@ -53,6 +53,40 @@ const dataURLtoFile = (dataurl: string, filename: string): File | null => {
     }
 };
 
+const resolveCanvasFiles = async (files: any[]): Promise<any[]> => {
+    const resolved: any[] = [];
+    await Promise.all(files.map(async (file) => {
+        if (!file || !file.dataURL) return;
+        
+        // If already a valid base64 data URL, keep it
+        if (file.dataURL.startsWith('data:')) {
+            resolved.push(file);
+            return;
+        }
+        
+        // Asynchronously resolve plain HTTP/HTTPS/relative URLs to base64 Data URLs
+        try {
+            const response = await fetch(file.dataURL);
+            if (!response.ok) throw new Error(`Fetch failed with status ${response.status}`);
+            const blob = await response.blob();
+            const base64 = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
+            resolved.push({
+                ...file,
+                dataURL: base64
+            });
+        } catch (err) {
+            console.error(`[resolveCanvasFiles] Failed to load canvas file ${file.id} from ${file.dataURL}:`, err);
+        }
+    }));
+    return resolved;
+};
+
+
 interface CanvasProps {
     onSaveTrigger: any;
     fileId: any;
@@ -376,6 +410,8 @@ function Canvas({
     const isProgrammaticUpdateRef=useRef<boolean>(false);
     const uploadingFilesRef = useRef<Set<string>>(new Set());
     const uploadRetriesRef = useRef<Map<string, number>>(new Map());
+    const isApplyingRemoteUpdateRef = useRef<boolean>(false);
+    const uploadedFilesMapRef = useRef<Map<string, string>>(new Map());
 
     const [activeTab, setActiveTab] = useState<'standard' | 'aws' | 'custom' | 'libraries' | 'pdf'>('standard');
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -703,22 +739,54 @@ function Canvas({
             }
             
             // Only overwrite if we are not currently drawing/saving (idle)
-            if (saveTimeoutRef.current === null && !saveTimeoutRef.current) {
+            if (saveTimeoutRef.current === null) {
+                isApplyingRemoteUpdateRef.current = true;
+                
                 const filesArray = Object.values(serverFiles);
-                if (filesArray.length > 0) {
-                    excalidrawAPI.addFiles(filesArray);
-                }
-                isProgrammaticUpdateRef.current = true;
-                excalidrawAPI.updateScene({
-                    elements: serverElements
+                
+                // Cache any custom server file URLs to keep DB updates lightweight
+                filesArray.forEach((file: any) => {
+                    if (file && file.id && file.dataURL && !file.dataURL.startsWith('data:')) {
+                        uploadedFilesMapRef.current.set(file.id, file.dataURL);
+                    }
                 });
-                lastSavedDataRef.current = fileData.whiteboard;
-                setTimeout(() => {
-                    isProgrammaticUpdateRef.current = false;
-                }, 100);
+
+                const applyUpdate = (resolvedFiles: any[]) => {
+                    if (!excalidrawAPI) {
+                        isApplyingRemoteUpdateRef.current = false;
+                        return;
+                    }
+                    
+                    if (resolvedFiles.length > 0) {
+                        excalidrawAPI.addFiles(resolvedFiles);
+                    }
+                    
+                    excalidrawAPI.updateScene({
+                        elements: serverElements
+                    });
+                    
+                    lastSavedDataRef.current = fileData.whiteboard || "";
+                    
+                    // Settle duration to let Excalidraw's component tree digest the programmatic state update
+                    setTimeout(() => {
+                        isApplyingRemoteUpdateRef.current = false;
+                    }, 150);
+                };
+
+                if (filesArray.length > 0) {
+                    resolveCanvasFiles(filesArray).then((resolvedFiles) => {
+                        applyUpdate(resolvedFiles);
+                    }).catch(err => {
+                        console.error("Failed to resolve canvas files:", err);
+                        applyUpdate([]);
+                    });
+                } else {
+                    applyUpdate([]);
+                }
             }
         } catch (e) {
             console.error("Error updating canvas from realtime sync:", e);
+            isApplyingRemoteUpdateRef.current = false;
         }
     }, [fileData?.whiteboard, excalidrawAPI]);
 
@@ -786,16 +854,17 @@ function Canvas({
             setSelectedImageEl(null);
         }
 
-        if (isProgrammaticUpdateRef.current) {
+        if (isProgrammaticUpdateRef.current || isApplyingRemoteUpdateRef.current) {
             return;
         }
         
-        const filesObj = excalidrawAPI ? excalidrawAPI.getFiles() : {};
+        const rawFilesObj = excalidrawAPI ? excalidrawAPI.getFiles() : {};
         
         // Background-upload raw base64 images to backend, replacing them with light relative URLs
         let hasNewUploads = false;
         if (excalidrawAPI) {
-            Object.values(filesObj).forEach((file: any) => {
+            Object.values(rawFilesObj).forEach((file: any) => {
+                if (!file) return;
                 const retries = uploadRetriesRef.current.get(file.id) || 0;
                 if (file.dataURL && file.dataURL.startsWith('data:') && !uploadingFilesRef.current.has(file.id) && retries < 3) {
                     uploadingFilesRef.current.add(file.id);
@@ -820,12 +889,7 @@ function Canvas({
                             if (result.success && result.file?.url) {
                                 // Mark as successfully uploaded by setting retries to max to prevent infinite upload loop
                                 uploadRetriesRef.current.set(file.id, 99);
-
-                                // Register the uploaded lightweight URL back in Excalidraw cache
-                                excalidrawAPI.addFiles([{
-                                    ...file,
-                                    dataURL: result.file.url
-                                }]);
+                                uploadedFilesMapRef.current.set(file.id, result.file.url);
                                 
                                 // Explicitly update elements to force a refresh and trigger a save
                                 excalidrawAPI.updateScene({
@@ -853,6 +917,21 @@ function Canvas({
             return;
         }
 
+        // Map files to their lightweight HTTP URLs from the upload cache for DB optimization
+        const filesObj: any = {};
+        Object.entries(rawFilesObj).forEach(([id, file]: [string, any]) => {
+            if (!file) return;
+            const uploadedUrl = uploadedFilesMapRef.current.get(id);
+            if (uploadedUrl) {
+                filesObj[id] = {
+                    ...file,
+                    dataURL: uploadedUrl
+                };
+            } else {
+                filesObj[id] = file;
+            }
+        });
+
         const stateToSave = {
             elements: excalidrawElements,
             files: filesObj
@@ -863,12 +942,15 @@ function Canvas({
             return;
         }
 
+        // Set lastSavedDataRef.current synchronously before triggering async DB update
+        // to prevent race conditions during background state sync polling!
+        lastSavedDataRef.current = currentCrdtStr;
+
         setSavingStatus('saving');
         updateWhiteboard({
             _id: fileId,
             whiteboard: currentCrdtStr
         }).then(() => {
-            lastSavedDataRef.current = currentCrdtStr;
             setSavingStatus('saved');
             setTimeout(() => setSavingStatus('idle'), 2000);
             saveTimeoutRef.current = null;
@@ -1422,9 +1504,18 @@ function Canvas({
             if (Array.isArray(decoded)) {
                 return { elements: decoded };
             } else if (decoded && typeof decoded === 'object') {
+                // Filter out non-base64 files from initialData to prevent synchronous atob crashes in Excalidraw's initialization
+                const initialFiles: any = {};
+                if (decoded.files) {
+                    Object.entries(decoded.files).forEach(([id, file]: [string, any]) => {
+                        if (file?.dataURL && file.dataURL.startsWith('data:')) {
+                            initialFiles[id] = file;
+                        }
+                    });
+                }
                 return {
                     elements: decoded.elements || [],
-                    files: decoded.files || {}
+                    files: initialFiles
                 };
             }
         } catch (e) {
