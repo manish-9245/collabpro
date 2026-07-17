@@ -13,9 +13,11 @@ test.describe('Group B QA Suite - GrahakAI', () => {
   const folderName = 'Core-Specs';
 
   let uncaughtExceptions: Error[] = [];
+  let consoleErrors: string[] = [];
 
   test.beforeEach(async ({ page }) => {
     uncaughtExceptions = [];
+    consoleErrors = [];
     
     // Block all third-party scripts/ads to focus exclusively on local execution
     await page.route('**/*', (route) => {
@@ -34,6 +36,9 @@ test.describe('Group B QA Suite - GrahakAI', () => {
 
     page.on('console', msg => {
       console.log(`[BROWSER CONSOLE ${msg.type().toUpperCase()}]: ${msg.text()}`);
+      if (msg.type() === 'error') {
+        consoleErrors.push(msg.text());
+      }
     });
 
     page.on('request', req => {
@@ -47,6 +52,11 @@ test.describe('Group B QA Suite - GrahakAI', () => {
         console.error(`[REQUEST FAILED]: ${req.method()} ${req.url()} - Error: ${req.failure()?.errorText}`);
       }
     });
+  });
+
+  test.afterEach(() => {
+    expect(uncaughtExceptions.length).toBe(0);
+    expect(consoleErrors.length).toBe(0);
   });
 
   test('Execute Group B QA Tests', async ({ page }) => {

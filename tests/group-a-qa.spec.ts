@@ -18,9 +18,38 @@ test.describe('Group A QA Browser Test Suite', () => {
     }
   });
 
+  let uncaughtExceptions: Error[] = [];
+  let consoleErrors: string[] = [];
+
   test.beforeEach(({ page }) => {
-    page.on('console', msg => console.log(`[CONSOLE ${msg.type()}] ${msg.text()}`));
-    page.on('pageerror', err => console.log(`[PAGE ERROR] ${err.message}\nStack: ${err.stack}`));
+    uncaughtExceptions = [];
+    consoleErrors = [];
+
+    // Block all third-party scripts/ads to focus exclusively on local execution
+    page.route('**/*', (route) => {
+      const url = route.request().url();
+      if (url.includes('localhost') || url.includes('127.0.0.1')) {
+        route.continue();
+      } else {
+        route.abort();
+      }
+    });
+
+    page.on('console', msg => {
+      console.log(`[CONSOLE ${msg.type()}] ${msg.text()}`);
+      if (msg.type() === 'error') {
+        consoleErrors.push(msg.text());
+      }
+    });
+    page.on('pageerror', err => {
+      console.log(`[PAGE ERROR] ${err.message}\nStack: ${err.stack}`);
+      uncaughtExceptions.push(err);
+    });
+  });
+
+  test.afterEach(() => {
+    expect(uncaughtExceptions.length).toBe(0);
+    expect(consoleErrors.length).toBe(0);
   });
 
   test.afterAll(async () => {

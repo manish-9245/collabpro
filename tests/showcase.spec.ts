@@ -68,8 +68,29 @@ test.describe('CollabPro Complete Feature Tour & Demonstration', () => {
   const testEmail = `collabpro_${uniqueTimestamp}@collabpro.com`;
 
   test('Execute all features sequentially, export video, and clean database', async ({ page }) => {
-    page.on('console', msg => console.log(`[BROWSER LOG] ${msg.type()}: ${msg.text()}`));
-    page.on('pageerror', err => console.error(`[BROWSER EXCEPTION]: ${err.stack || err.message}`));
+    let uncaughtExceptions: Error[] = [];
+    let consoleErrors: string[] = [];
+
+    // Block all third-party scripts/ads to focus exclusively on local execution
+    await page.route('**/*', (route) => {
+      const url = route.request().url();
+      if (url.includes('localhost') || url.includes('127.0.0.1')) {
+        route.continue();
+      } else {
+        route.abort();
+      }
+    });
+
+    page.on('console', msg => {
+      console.log(`[BROWSER LOG] ${msg.type()}: ${msg.text()}`);
+      if (msg.type() === 'error') {
+        consoleErrors.push(msg.text());
+      }
+    });
+    page.on('pageerror', err => {
+      console.error(`[BROWSER EXCEPTION]: ${err.stack || err.message}`);
+      uncaughtExceptions.push(err);
+    });
 
     // Extend timeout for this comprehensive test run to 4 minutes (240000ms)
     test.setTimeout(240000);
@@ -393,5 +414,11 @@ test.describe('CollabPro Complete Feature Tour & Demonstration', () => {
     } finally {
       await prisma.$disconnect();
     }
+
+    // Assert zero uncaught JS exceptions and console errors during the showcase tour
+    console.log('Checking for uncaught exceptions and console errors...');
+    expect(uncaughtExceptions.length).toBe(0);
+    expect(consoleErrors.length).toBe(0);
+    console.log('SUCCESS: Zero uncaught exceptions and zero console errors found.');
   });
 });
