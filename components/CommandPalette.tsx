@@ -210,6 +210,18 @@ export default function CommandPalette() {
       }
     },
     {
+      id: 'super-admin-telemetry',
+      title: 'Open Super Admin Telemetry Dashboard',
+      subtitle: 'Monitor Kafka messaging queues, topic lag, database connection pools, and system SLAs',
+      category: 'Workspace Settings',
+      shortcut: 'S T',
+      icon: Activity,
+      action: () => {
+        router.push('/dashboard/super-admin');
+        setIsOpen(false);
+      }
+    },
+    {
       id: 'settings-api-keys',
       title: 'Manage System API Keys',
       subtitle: 'Generate and revoke high-performance MCP authentication keys',
