@@ -87,6 +87,8 @@ export class StateSyncWSClient {
   private maxReconnectDelay = 30000;
   private activeRoom: string | null = null;
   private connectionStatus: 'connecting' | 'connected' | 'disconnected' = 'disconnected';
+  private isConnecting = false;
+  private consecutiveFailures = 0;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -132,6 +134,7 @@ export class StateSyncWSClient {
   }
 
   private setStatus(status: 'connecting' | 'connected' | 'disconnected') {
+    if (this.connectionStatus === status) return;
     this.connectionStatus = status;
     this.statusListeners.forEach(l => l(status));
   }
@@ -148,8 +151,9 @@ export class StateSyncWSClient {
   }
 
   public async connect() {
-    if (typeof window === 'undefined' || this.ws) return;
+    if (typeof window === 'undefined' || this.ws || this.isConnecting) return;
 
+    this.isConnecting = true;
     this.setStatus('connecting');
     
     let tokenParam = '';
@@ -170,17 +174,22 @@ export class StateSyncWSClient {
       console.error('[CollabPro WS CLIENT] Failed to fetch session token for handshake:', err);
     }
 
+    // Guard if we were cleaned up or connected during the async fetch
+    if (!this.isConnecting) return;
+
     const baseUrl = this.getWsUrl();
     const url = tokenParam ? `${baseUrl}?token=${tokenParam}` : baseUrl;
     console.log(`[CollabPro WS CLIENT] Connecting to ${url}...`);
 
     try {
       this.ws = new WebSocket(url);
+      this.isConnecting = false; // reset lock once instantiated
 
       this.ws.onopen = () => {
         console.log('[CollabPro WS CLIENT] Connection established successfully!');
-        this.setStatus('connected');
+        this.consecutiveFailures = 0;
         this.reconnectDelay = 1000;
+        this.setStatus('connected');
 
         if (this.activeRoom) {
           this.ws?.send(JSON.stringify({ type: 'join', fileId: this.activeRoom }));
@@ -214,6 +223,7 @@ export class StateSyncWSClient {
       this.ws.onclose = () => {
         console.warn('[CollabPro WS CLIENT] Connection closed.');
         this.cleanup();
+        this.consecutiveFailures++;
         this.scheduleReconnect();
       };
 
@@ -223,23 +233,43 @@ export class StateSyncWSClient {
       };
     } catch (err) {
       console.error('[CollabPro WS CLIENT] Connection initiation failed:', err);
+      this.isConnecting = false;
+      this.consecutiveFailures++;
       this.scheduleReconnect();
     }
   }
 
   private cleanup() {
+    this.isConnecting = false;
+    if (this.ws) {
+      try {
+        this.ws.onopen = null;
+        this.ws.onmessage = null;
+        this.ws.onerror = null;
+        this.ws.onclose = null;
+        this.ws.close();
+      } catch (e) {}
+    }
     this.ws = null;
     this.setStatus('disconnected');
   }
 
   private scheduleReconnect() {
     if (this.reconnectTimeout) return;
-    console.log(`[CollabPro WS CLIENT] Scheduling reconnection in ${this.reconnectDelay}ms`);
+    
+    // If we've failed repeatedly, slow down reconnection to prevent resource thrashing
+    let delay = this.reconnectDelay;
+    if (this.consecutiveFailures > 5) {
+      delay = Math.max(delay, 15000); // Wait at least 15s between attempts on repeated failures
+      console.warn(`[CollabPro WS CLIENT] Consecutive failures (${this.consecutiveFailures}). Slowing reconnection delay to ${delay}ms.`);
+    }
+
+    console.log(`[CollabPro WS CLIENT] Scheduling reconnection in ${delay}ms`);
     this.reconnectTimeout = setTimeout(() => {
       this.reconnectTimeout = null;
-      this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
+      this.reconnectDelay = Math.min(delay * 2, this.maxReconnectDelay);
       this.connect();
-    }, this.reconnectDelay);
+    }, delay);
   }
 
   public subscribe(path: string, args: any, callback: (data: any) => void) {
@@ -433,8 +463,10 @@ export function useQuery(queryReference: any, args?: any) {
     }
   }, [queryPath, argsString, data]);
 
+  const isConnected = wsStatus === 'connected';
+
   useEffect(() => {
-    if (!queryPath) return;
+    if (!queryPath || queryPath === 'skip') return;
 
     const cacheKey = `${queryPath}:${argsString}`;
     let active = true;
@@ -473,7 +505,7 @@ export function useQuery(queryReference: any, args?: any) {
       window.addEventListener('state-sync:refetch', handleRefetchEvent);
     }
 
-    if (wsClient && wsStatus === 'connected') {
+    if (wsClient && isConnected) {
       const unsubscribe = wsClient.subscribe(queryPath, args, (updatedData) => {
         if (active) {
           setData(updatedData);
@@ -506,7 +538,7 @@ export function useQuery(queryReference: any, args?: any) {
         if (timerId) clearTimeout(timerId);
       };
     }
-  }, [queryPath, argsString, wsStatus, intervalTime]);
+  }, [queryPath, argsString, isConnected, intervalTime]);
 
   return data;
 }
