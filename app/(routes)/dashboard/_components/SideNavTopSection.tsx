@@ -275,12 +275,12 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
 
 
     useEffect(() => {
-        user && getTeamList();
-    }, [user])
+        user?.email && getTeamList();
+    }, [user?.email])
 
     useEffect(() => {
         activeTeam ? setActiveTeamInfo(activeTeam) : null
-    }, [activeTeam])
+    }, [activeTeam?._id])
 
     const getTeamList = async () => {
         const result = await sync.query(api.teams.getTeam, { email: user?.email })
