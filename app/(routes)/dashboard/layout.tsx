@@ -34,7 +34,7 @@ function DashboardLayout(
 
         if(!result?.length)
         {
-            router.push('teams/create')
+            router.push('/teams/create')
         }
     }
 

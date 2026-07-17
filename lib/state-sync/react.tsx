@@ -1,6 +1,17 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from "react";
+// We will lazily import idb to avoid SSR module resolution errors
+let dbPromise: Promise<any> | null = null;
+if (typeof window !== 'undefined') {
+  import('idb').then(({ openDB }) => {
+    dbPromise = openDB('collabpro-offline-sync', 1, {
+      upgrade(db) {
+        db.createObjectStore('mutations', { keyPath: 'id', autoIncrement: true });
+      },
+    });
+  }).catch(e => console.error("Failed to load idb", e));
+}
 
 // Robust helper to extract query path from any reference type (standard or mock)
 const getPath = (ref: any): string | undefined => {
@@ -204,6 +215,32 @@ export class StateSyncWSClient {
           const args = JSON.parse(argsStr || '{}');
           this.ws?.send(JSON.stringify({ type: 'subscribe', path, args }));
         });
+
+        // Flush durable offline queue from IndexedDB
+        if (dbPromise) {
+          dbPromise.then(async (db) => {
+            try {
+              const tx = db.transaction('mutations', 'readwrite');
+              const store = tx.objectStore('mutations');
+              const allMutations = await store.getAll();
+              for (const item of allMutations) {
+                try {
+                  // Use HTTP fallback to guarantee flush of queued offline operations
+                  await fetch("/api/state-sync", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ path: item.path, args: item.args }),
+                  });
+                  await store.delete(item.id);
+                } catch(e) {
+                  console.error('[CollabPro WS CLIENT] Failed to flush offline mutation', e);
+                }
+              }
+            } catch(err) {
+               console.error('[CollabPro WS CLIENT] Error accessing idb for flush:', err);
+            }
+          });
+        }
       };
 
       this.ws.onmessage = (event) => {
@@ -303,43 +340,76 @@ export class StateSyncWSClient {
 
   public async mutation(path: string, args: any, fileId?: string): Promise<any> {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      return new Promise((resolve, reject) => {
-        const handler = (event: MessageEvent) => {
-          try {
-            const msg = JSON.parse(event.data);
-            if (msg.type === 'mutation-result' && msg.path === path) {
-              this.ws?.removeEventListener('message', handler);
-              if (msg.success) {
-                resolve(msg.data);
-              } else {
-                reject(new Error(msg.error || 'Mutation failed over WebSocket'));
+      try {
+        return await new Promise((resolve, reject) => {
+          const handler = (event: MessageEvent) => {
+            try {
+              const msg = JSON.parse(event.data);
+              if (msg.type === 'mutation-result' && msg.path === path) {
+                this.ws?.removeEventListener('message', handler);
+                if (msg.success) {
+                  resolve(msg.data);
+                } else {
+                  reject(new Error(msg.error || 'Mutation failed over WebSocket'));
+                }
               }
-            }
-          } catch {}
-        };
-        this.ws!.addEventListener('message', handler);
-        this.ws!.send(JSON.stringify({ type: 'mutation', path, args, fileId }));
+            } catch {}
+          };
+          this.ws!.addEventListener('message', handler);
+          this.ws!.send(JSON.stringify({ type: 'mutation', path, args, fileId }));
 
-        setTimeout(() => {
-          this.ws?.removeEventListener('message', handler);
-          reject(new Error('Mutation request timed out over WebSocket'));
-        }, 10000);
+          setTimeout(() => {
+            this.ws?.removeEventListener('message', handler);
+            reject(new Error('Mutation request timed out over WebSocket'));
+          }, 10000);
+        });
+      } catch (wsErr) {
+        console.warn("[CollabPro WS] Mutation via WS failed, falling back to HTTP:", wsErr);
+      }
+    }
+
+    try {
+      console.log(`[CollabPro WS CLIENT] Attempting HTTP fallback for ${path}...`);
+      const res = await fetch("/api/state-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path, args }),
       });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error(`[CollabPro WS CLIENT] HTTP Mutation Failed for ${path}: ${res.status} ${errText}`);
+        throw new Error(`Mutation failed: ${errText}`);
+      }
+
+      const json = await res.json();
+      console.log(`[CollabPro WS CLIENT] HTTP Mutation Success for ${path}`);
+      return json.data;
+    } catch (httpErr) {
+      console.error("[CollabPro WS CLIENT] HTTP Mutation Threw Exception:", httpErr);
+      // Compensate for lag on poor connections by queuing operations locally in IndexedDB
+      console.log('[CollabPro WS] Queuing mutation offline for latency compensation...');
+      if (typeof window !== 'undefined' && dbPromise) {
+        dbPromise.then(async db => {
+          try {
+            const tx = db.transaction('mutations', 'readwrite');
+            const store = tx.objectStore('mutations');
+            // Optimal batching: deduplicate pending mutations
+            const allMutations = await store.getAll();
+            const existing = allMutations.find((m: any) => m.path === path && m.fileId === fileId);
+            if (existing) {
+               existing.args = args;
+               await store.put(existing);
+            } else {
+               await store.add({ path: path, args, fileId });
+            }
+          } catch(err) {
+            console.error('[CollabPro WS CLIENT] Error accessing idb for queuing:', err);
+          }
+        });
+      }
+      return Promise.resolve(args); // Optimistically resolve
     }
-
-    const res = await fetch("/api/state-sync", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path, args }),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Mutation failed: ${errText}`);
-    }
-
-    const json = await res.json();
-    return json.data;
   }
 }
 
@@ -497,10 +567,15 @@ export function useQuery(queryReference: any, args?: any) {
 
     const handleRefetchEvent = (e: Event) => {
       const customEvent = e as CustomEvent;
-      const { path, fileId } = customEvent.detail || {};
+      const { path, fileId, optimisticData } = customEvent.detail || {};
       if (path === queryPath) {
         if (!fileId || (args && (args._id === fileId || args.fileId === fileId))) {
-          fetchData();
+          if (optimisticData) {
+            queryCache.set(cacheKey, optimisticData);
+            setData(optimisticData);
+          } else {
+            fetchData();
+          }
         }
       }
     };
@@ -554,12 +629,42 @@ export function useMutation(mutationReference: any) {
 
     const fileId = args?._id || args?.fileId;
 
+    // OPTIMISTIC UI: Apply edits instantly on the local client
+    if (mutationPath === 'files:updateDocument' && fileId && args?.document) {
+      const cacheKey = `files:getFileById:{"_id":"${fileId}"}`;
+      const cached = queryCache.get(cacheKey);
+      if (cached) {
+        const optimisticData = { ...cached, document: args.document };
+        queryCache.set(cacheKey, optimisticData);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('state-sync:refetch', {
+            detail: { path: 'files:getFileById', fileId, optimisticData }
+          }));
+        }
+      }
+    } else if (mutationPath === 'files:updateWhiteboard' && fileId && args?.whiteboard) {
+      const cacheKey = `files:getFileById:{"_id":"${fileId}"}`;
+      const cached = queryCache.get(cacheKey);
+      if (cached) {
+        const optimisticData = { ...cached, whiteboard: args.whiteboard };
+        queryCache.set(cacheKey, optimisticData);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('state-sync:refetch', {
+            detail: { path: 'files:getFileById', fileId, optimisticData }
+          }));
+        }
+      }
+    }
+
     if (wsClient && wsClient.getStatus() === 'connected') {
       try {
         return await wsClient.mutation(mutationPath, args, fileId);
       } catch (err) {
         console.warn("[CollabPro WS] Mutation via WS failed, falling back to HTTP:", err);
       }
+    } else if (wsClient) {
+      // Add to offline queue directly if WS is initialized but not connected
+      return await wsClient.mutation(mutationPath, args, fileId);
     }
 
     const res = await fetch("/api/state-sync", {

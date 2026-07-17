@@ -818,6 +818,9 @@ function Canvas({
                             const result = await res.json();
                             
                             if (result.success && result.file?.url) {
+                                // Mark as successfully uploaded by setting retries to max to prevent infinite upload loop
+                                uploadRetriesRef.current.set(file.id, 99);
+
                                 // Register the uploaded lightweight URL back in Excalidraw cache
                                 excalidrawAPI.addFiles([{
                                     ...file,
@@ -861,20 +864,17 @@ function Canvas({
         }
 
         setSavingStatus('saving');
-        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-        saveTimeoutRef.current = setTimeout(() => {
-            updateWhiteboard({
-                _id: fileId,
-                whiteboard: currentCrdtStr
-            }).then(() => {
-                lastSavedDataRef.current = currentCrdtStr;
-                setSavingStatus('saved');
-                setTimeout(() => setSavingStatus('idle'), 2000);
-                saveTimeoutRef.current = null;
-            }).catch(() => {
-                setSavingStatus('idle');
-            });
-        }, 1500);
+        updateWhiteboard({
+            _id: fileId,
+            whiteboard: currentCrdtStr
+        }).then(() => {
+            lastSavedDataRef.current = currentCrdtStr;
+            setSavingStatus('saved');
+            setTimeout(() => setSavingStatus('idle'), 2000);
+            saveTimeoutRef.current = null;
+        }).catch(() => {
+            setSavingStatus('idle');
+        });
     };
 
     const handleSaveEditedCanvasImage = (editedImageUrl: string) => {

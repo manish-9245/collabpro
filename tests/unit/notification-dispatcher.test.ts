@@ -157,7 +157,7 @@ describe('Decoupled Notification Dispatcher (Issue 53)', () => {
         branch: 'main',
         commit: '9614ebc',
         author: 'CollabPro',
-        build: { status: 'success', durationMs: 288000 },
+        build: { status: 'success' as 'success' | 'failed', durationMs: 288000 },
         tests: { passed: 55, total: 55 },
         snyk: { high: 0, medium: 4 },
       };
