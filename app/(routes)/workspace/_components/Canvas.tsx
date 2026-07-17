@@ -818,6 +818,9 @@ function Canvas({
                             const result = await res.json();
                             
                             if (result.success && result.file?.url) {
+                                // Mark as successfully uploaded by setting retries to max to prevent infinite upload loop
+                                uploadRetriesRef.current.set(file.id, 99);
+
                                 // Register the uploaded lightweight URL back in Excalidraw cache
                                 excalidrawAPI.addFiles([{
                                     ...file,
