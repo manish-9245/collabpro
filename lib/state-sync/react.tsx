@@ -89,6 +89,7 @@ export class StateSyncWSClient {
   private connectionStatus: 'connecting' | 'connected' | 'disconnected' = 'disconnected';
   private isConnecting = false;
   private consecutiveFailures = 0;
+  private offlineQueue: Array<{ type: string, path: string, args: any, fileId?: string, resolve: (val: any) => void, reject: (err: any) => void }> = [];
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -204,6 +205,15 @@ export class StateSyncWSClient {
           const args = JSON.parse(argsStr || '{}');
           this.ws?.send(JSON.stringify({ type: 'subscribe', path, args }));
         });
+
+        // Flush offline queue
+        while (this.offlineQueue.length > 0) {
+          const item = this.offlineQueue.shift();
+          if (item) {
+            this.mutation(item.path, item.args, item.fileId)
+              .then(item.resolve).catch(item.reject);
+          }
+        }
       };
 
       this.ws.onmessage = (event) => {
@@ -324,6 +334,20 @@ export class StateSyncWSClient {
           this.ws?.removeEventListener('message', handler);
           reject(new Error('Mutation request timed out over WebSocket'));
         }, 10000);
+      });
+    } else {
+      // Compensate for lag on poor connections by queuing operations locally
+      console.log('[CollabPro WS] Queuing mutation offline for latency compensation...');
+      return new Promise((resolve, reject) => {
+        // Optimal batching: deduplicate pending mutations
+        const existingIndex = this.offlineQueue.findIndex(q => q.path === path && q.fileId === fileId);
+        if (existingIndex >= 0) {
+          // Resolve old promise early since it's superseded
+          this.offlineQueue[existingIndex].resolve(null);
+          this.offlineQueue[existingIndex] = { type: 'mutation', path, args, fileId, resolve, reject };
+        } else {
+          this.offlineQueue.push({ type: 'mutation', path, args, fileId, resolve, reject });
+        }
       });
     }
 
@@ -497,10 +521,15 @@ export function useQuery(queryReference: any, args?: any) {
 
     const handleRefetchEvent = (e: Event) => {
       const customEvent = e as CustomEvent;
-      const { path, fileId } = customEvent.detail || {};
+      const { path, fileId, optimisticData } = customEvent.detail || {};
       if (path === queryPath) {
         if (!fileId || (args && (args._id === fileId || args.fileId === fileId))) {
-          fetchData();
+          if (optimisticData) {
+            queryCache.set(cacheKey, optimisticData);
+            setData(optimisticData);
+          } else {
+            fetchData();
+          }
         }
       }
     };
@@ -554,12 +583,42 @@ export function useMutation(mutationReference: any) {
 
     const fileId = args?._id || args?.fileId;
 
+    // OPTIMISTIC UI: Apply edits instantly on the local client
+    if (mutationPath === 'files:updateDocument' && fileId && args?.document) {
+      const cacheKey = `files:getFileById:{"_id":"${fileId}"}`;
+      const cached = queryCache.get(cacheKey);
+      if (cached) {
+        const optimisticData = { ...cached, document: args.document };
+        queryCache.set(cacheKey, optimisticData);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('state-sync:refetch', {
+            detail: { path: 'files:getFileById', fileId, optimisticData }
+          }));
+        }
+      }
+    } else if (mutationPath === 'files:updateWhiteboard' && fileId && args?.whiteboard) {
+      const cacheKey = `files:getFileById:{"_id":"${fileId}"}`;
+      const cached = queryCache.get(cacheKey);
+      if (cached) {
+        const optimisticData = { ...cached, whiteboard: args.whiteboard };
+        queryCache.set(cacheKey, optimisticData);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('state-sync:refetch', {
+            detail: { path: 'files:getFileById', fileId, optimisticData }
+          }));
+        }
+      }
+    }
+
     if (wsClient && wsClient.getStatus() === 'connected') {
       try {
         return await wsClient.mutation(mutationPath, args, fileId);
       } catch (err) {
         console.warn("[CollabPro WS] Mutation via WS failed, falling back to HTTP:", err);
       }
+    } else if (wsClient) {
+      // Add to offline queue directly if WS is initialized but not connected
+      return await wsClient.mutation(mutationPath, args, fileId);
     }
 
     const res = await fetch("/api/state-sync", {

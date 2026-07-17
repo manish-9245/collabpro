@@ -864,20 +864,17 @@ function Canvas({
         }
 
         setSavingStatus('saving');
-        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-        saveTimeoutRef.current = setTimeout(() => {
-            updateWhiteboard({
-                _id: fileId,
-                whiteboard: currentCrdtStr
-            }).then(() => {
-                lastSavedDataRef.current = currentCrdtStr;
-                setSavingStatus('saved');
-                setTimeout(() => setSavingStatus('idle'), 2000);
-                saveTimeoutRef.current = null;
-            }).catch(() => {
-                setSavingStatus('idle');
-            });
-        }, 1500);
+        updateWhiteboard({
+            _id: fileId,
+            whiteboard: currentCrdtStr
+        }).then(() => {
+            lastSavedDataRef.current = currentCrdtStr;
+            setSavingStatus('saved');
+            setTimeout(() => setSavingStatus('idle'), 2000);
+            saveTimeoutRef.current = null;
+        }).catch(() => {
+            setSavingStatus('idle');
+        });
     };
 
     const handleSaveEditedCanvasImage = (editedImageUrl: string) => {

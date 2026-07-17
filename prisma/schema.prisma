@@ -1,9 +1,9 @@
-datasource db {
-  provider = "postgresql"
+generator client {
+  provider = "prisma-client-js"
 }
 
-generator client {
-  provider   = "prisma-client-js"
+datasource db {
+  provider = "postgresql"
 }
 
 model User {
@@ -42,16 +42,16 @@ model File {
   archive        Boolean  @default(false)
   document       String   @default("")
   whiteboard     String   @default("")
-  whiteboardText String   @default("")
   folder         String?
   createdAt      DateTime @default(now())
+  whiteboardText String   @default("")
 }
 
 model TeamMember {
   id        String   @id @default(uuid())
   teamId    String
   userEmail String
-  role      String   @default("member") // "owner" or "member"
+  role      String   @default("member")
   createdAt DateTime @default(now())
 }
 
@@ -86,18 +86,18 @@ model Invitation {
   teamName     String
   inviterEmail String
   inviteeEmail String
-  status       String   @default("pending") // "pending", "accepted", "declined"
+  status       String   @default("pending")
   createdAt    DateTime @default(now())
 }
 
 model Notification {
-  id         String   @id @default(uuid())
-  userEmail  String   // Who gets the notification
-  title      String
-  message    String
-  type       String   @default("info") // "invite", "response", "system"
-  read       Boolean  @default(false)
-  createdAt  DateTime @default(now())
+  id        String   @id @default(uuid())
+  userEmail String
+  title     String
+  message   String
+  type      String   @default("info")
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
 }
 
 model SharedLibraryItem {
@@ -115,38 +115,38 @@ model SharedLibraryItem {
 }
 
 model ApiKey {
-  id          String    @id @default(uuid())
-  userEmail   String
-  name        String
-  hashedKey   String    @unique
-  maskedKey   String    @default("")
-  scope       String    @default("read-write") // "read-only" or "read-write"
-  expiresAt   DateTime?
-  createdAt   DateTime  @default(now())
+  id        String    @id @default(uuid())
+  userEmail String
+  name      String
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+  hashedKey String    @unique
+  maskedKey String    @default("")
+  scope     String    @default("read-write")
 }
 
 model SharedLink {
   id           String    @id @default(uuid())
   fileId       String
-  role         String    @default("viewer") // "viewer", "commenter", "editor"
-  passwordHash String?   // optional password protection
-  expiresAt    DateTime? // optional expiration date
-  isActive     Boolean   @default(true)
+  role         String    @default("viewer")
+  passwordHash String?
+  expiresAt    DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+  isActive     Boolean   @default(true)
 
   @@index([fileId])
 }
 
 model OrgSetting {
-  id                 String   @id @default(uuid())
-  teamId             String   @unique
-  allowedDomains     String   @default("") // comma-separated domains e.g. "enterprise.com,google.com"
-  ssoEnabled         Boolean  @default(false)
-  ssoProvider        String   @default("saml") // "saml" or "oidc"
-  ssoMetadataUrl     String   @default("")
-  seatLimit          Int      @default(50)
-  updatedAt          DateTime @updatedAt
+  id             String   @id @default(uuid())
+  teamId         String   @unique
+  allowedDomains String   @default("")
+  ssoEnabled     Boolean  @default(false)
+  ssoProvider    String   @default("saml")
+  ssoMetadataUrl String   @default("")
+  seatLimit      Int      @default(50)
+  updatedAt      DateTime @updatedAt
 }
 
 model AuditLog {
@@ -154,8 +154,8 @@ model AuditLog {
   teamId    String
   userEmail String
   ipAddress String   @default("")
-  action    String   // e.g. "file:delete", "link:share_modify", "member:invite", "member:remove", "settings:update"
-  context   String   @default("") // JSON string for details or parameters
+  action    String
+  context   String   @default("")
   createdAt DateTime @default(now())
 
   @@index([teamId, createdAt])
@@ -165,9 +165,6 @@ model UploadedFile {
   id        String   @id @default(uuid())
   filename  String
   mimeType  String
-  payload   String   @default("") // base64 payload
+  payload   String   @default("")
   createdAt DateTime @default(now())
 }
-
-
-

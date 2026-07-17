@@ -545,12 +545,8 @@ function Editor({
                 if (isProgrammaticUpdateRef.current) {
                     return;
                 }
-                setSavingStatus('saving');
-                if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-                saveTimeoutRef.current = setTimeout(() => {
-                    onSaveDocument(false);
-                    saveTimeoutRef.current = null;
-                }, 1500);
+                // Zero-Latency Doc Syncing: Save immediately instead of debouncing
+                onSaveDocument(false);
             }
           });
           ref.current=editor;
