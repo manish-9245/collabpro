@@ -19,7 +19,7 @@ function SideNav() {
   const {fileList_,setFileList_,fileScope}=useContext(FileListContext);
   useEffect(()=>{
     activeTeam&&getFiles();
-  },[activeTeam, fileScope])
+  },[activeTeam?._id, fileScope])
   const onFileCreate=(fileName:string, folder?: string)=>{
     console.log(fileName, folder)
     createFile({
