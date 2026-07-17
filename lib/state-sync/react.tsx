@@ -88,6 +88,9 @@ const queryCache = {
   }
 };
 
+// Coalesce concurrent redundant query fetches into a single promise
+const inflightRequests = new Map<string, Promise<any>>();
+
 export class StateSyncWSClient {
   private ws: WebSocket | null = null;
   private subscribers = new Map<string, Set<(data: any) => void>>();
@@ -547,21 +550,38 @@ export function useQuery(queryReference: any, args?: any) {
     let timerId: any = null;
 
     async function fetchData() {
-      try {
-        const res = await fetch("/api/state-sync", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path: queryPath, args }),
-        });
-        if (res.ok) {
-          const json = await res.json();
-          if (active) {
-            queryCache.set(cacheKey, json.data);
-            setData(json.data);
+      const cacheKey = `${queryPath}:${argsString}`;
+      let promise = inflightRequests.get(cacheKey);
+      if (!promise) {
+        promise = (async () => {
+          try {
+            const res = await fetch("/api/state-sync", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ path: queryPath, args }),
+            });
+            if (res.ok) {
+              const json = await res.json();
+              queryCache.set(cacheKey, json.data);
+              return json.data;
+            }
+          } catch (err) {
+            console.error("Error fetching state-sync query:", err);
+          } finally {
+            inflightRequests.delete(cacheKey);
           }
+          return undefined;
+        })();
+        inflightRequests.set(cacheKey, promise);
+      }
+
+      try {
+        const fetchedData = await promise;
+        if (active && fetchedData !== undefined) {
+          setData(fetchedData);
         }
       } catch (err) {
-        console.error("Error fetching state-sync query:", err);
+        console.error("Error waiting for state-sync promise:", err);
       }
     }
 
