@@ -1,13 +1,17 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from "react";
-import { openDB } from 'idb';
-
-const dbPromise = typeof window !== 'undefined' ? openDB('collabpro-offline-sync', 1, {
-  upgrade(db) {
-    db.createObjectStore('mutations', { keyPath: 'id', autoIncrement: true });
-  },
-}) : null;
+// We will lazily import idb to avoid SSR module resolution errors
+let dbPromise: Promise<any> | null = null;
+if (typeof window !== 'undefined') {
+  import('idb').then(({ openDB }) => {
+    dbPromise = openDB('collabpro-offline-sync', 1, {
+      upgrade(db) {
+        db.createObjectStore('mutations', { keyPath: 'id', autoIncrement: true });
+      },
+    });
+  }).catch(e => console.error("Failed to load idb", e));
+}
 
 // Robust helper to extract query path from any reference type (standard or mock)
 const getPath = (ref: any): string | undefined => {
