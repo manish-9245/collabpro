@@ -147,6 +147,10 @@ export class StateSyncWSClient {
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
       return `${protocol}//localhost:3001`;
     }
+    // For the production host collabpro.buildwithmanish.com, connect directly without a separate ws- prefix
+    if (hostname === 'collabpro.buildwithmanish.com' || hostname.includes('collabpro.buildwithmanish.com')) {
+      return `${protocol}//${hostname}`;
+    }
     return `${protocol}//ws-${hostname}`;
   }
 
