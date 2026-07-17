@@ -231,6 +231,9 @@ export async function POST(request: Request) {
       if (!args.email) {
         args.email = authUserEmail;
       }
+      if (!args.createdBy) {
+        args.createdBy = authUserEmail;
+      }
     }
 
     let result: any = null;

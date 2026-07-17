@@ -340,29 +340,53 @@ export class StateSyncWSClient {
 
   public async mutation(path: string, args: any, fileId?: string): Promise<any> {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      return new Promise((resolve, reject) => {
-        const handler = (event: MessageEvent) => {
-          try {
-            const msg = JSON.parse(event.data);
-            if (msg.type === 'mutation-result' && msg.path === path) {
-              this.ws?.removeEventListener('message', handler);
-              if (msg.success) {
-                resolve(msg.data);
-              } else {
-                reject(new Error(msg.error || 'Mutation failed over WebSocket'));
+      try {
+        return await new Promise((resolve, reject) => {
+          const handler = (event: MessageEvent) => {
+            try {
+              const msg = JSON.parse(event.data);
+              if (msg.type === 'mutation-result' && msg.path === path) {
+                this.ws?.removeEventListener('message', handler);
+                if (msg.success) {
+                  resolve(msg.data);
+                } else {
+                  reject(new Error(msg.error || 'Mutation failed over WebSocket'));
+                }
               }
-            }
-          } catch {}
-        };
-        this.ws!.addEventListener('message', handler);
-        this.ws!.send(JSON.stringify({ type: 'mutation', path, args, fileId }));
+            } catch {}
+          };
+          this.ws!.addEventListener('message', handler);
+          this.ws!.send(JSON.stringify({ type: 'mutation', path, args, fileId }));
 
-        setTimeout(() => {
-          this.ws?.removeEventListener('message', handler);
-          reject(new Error('Mutation request timed out over WebSocket'));
-        }, 10000);
+          setTimeout(() => {
+            this.ws?.removeEventListener('message', handler);
+            reject(new Error('Mutation request timed out over WebSocket'));
+          }, 10000);
+        });
+      } catch (wsErr) {
+        console.warn("[CollabPro WS] Mutation via WS failed, falling back to HTTP:", wsErr);
+      }
+    }
+
+    try {
+      console.log(`[CollabPro WS CLIENT] Attempting HTTP fallback for ${path}...`);
+      const res = await fetch("/api/state-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path, args }),
       });
-    } else {
+
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error(`[CollabPro WS CLIENT] HTTP Mutation Failed for ${path}: ${res.status} ${errText}`);
+        throw new Error(`Mutation failed: ${errText}`);
+      }
+
+      const json = await res.json();
+      console.log(`[CollabPro WS CLIENT] HTTP Mutation Success for ${path}`);
+      return json.data;
+    } catch (httpErr) {
+      console.error("[CollabPro WS CLIENT] HTTP Mutation Threw Exception:", httpErr);
       // Compensate for lag on poor connections by queuing operations locally in IndexedDB
       console.log('[CollabPro WS] Queuing mutation offline for latency compensation...');
       if (typeof window !== 'undefined' && dbPromise) {
@@ -386,20 +410,6 @@ export class StateSyncWSClient {
       }
       return Promise.resolve(args); // Optimistically resolve
     }
-
-    const res = await fetch("/api/state-sync", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path, args }),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Mutation failed: ${errText}`);
-    }
-
-    const json = await res.json();
-    return json.data;
   }
 }
 
