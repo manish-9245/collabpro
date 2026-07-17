@@ -62,14 +62,16 @@ const SCENARIO_CONFIG = {
 // =========================================================================
 test.describe('CollabPro Complete Feature Tour & Demonstration', () => {
   let tempVideoPath: string | undefined;
+  let uncaughtExceptions: Error[] = [];
+  let consoleErrors: string[] = [];
   
   // Track unique credentials to cascade delete them during teardown
   const uniqueTimestamp = Date.now();
   const testEmail = `collabpro_${uniqueTimestamp}@collabpro.com`;
 
   test('Execute all features sequentially, export video, and clean database', async ({ page }) => {
-    let uncaughtExceptions: Error[] = [];
-    let consoleErrors: string[] = [];
+    uncaughtExceptions = [];
+    consoleErrors = [];
 
     // Block all third-party scripts/ads to focus exclusively on local execution
     await page.route('**/*', (route) => {
