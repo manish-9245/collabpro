@@ -1,4 +1,5 @@
 import { ResilientQueue } from './queue';
+import { kafkaBroker } from './kafka';
 
 export interface NotificationPayload {
   repository: string;
@@ -14,12 +15,22 @@ export interface NotificationPayload {
 // Instantiate the resilient queue specifically for notifications
 const notificationQueue = new ResilientQueue<NotificationPayload>('collabpro:queue:notifications');
 
+// Register Kafka consumer subscription for telemetry tracing and log output
+kafkaBroker.subscribe('collabpro-notifications', async (message) => {
+  console.log(`📥 [Kafka Subscriber: collabpro-notifications] Consumer group processed event for commit ${message.value.commit} (partition ${message.partition}, offset ${message.offset})`);
+});
+
 /**
- * Enqueues a notification payload into the Resilient Queue
+ * Enqueues a notification payload into the Resilient Queue and publishes to Kafka.
  */
 export async function enqueueNotification(payload: NotificationPayload): Promise<void> {
+  // Publish to Kafka event-driven system first
+  await kafkaBroker.publish('collabpro-notifications', payload, payload.commit);
+  
+  // Hand off to consumer queue abstraction for test verification & background task processing
   await notificationQueue.enqueue(payload);
 }
+
 
 /**
  * Decoupled worker process: pops a message, compiles responsive HTML layout,
