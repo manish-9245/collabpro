@@ -11,7 +11,7 @@ export default function Home() {
 
   useEffect(()=>{
     console.log("--",user)
-  },[user])
+  },[user?.email])
   return (
     <div>
       <Header/>

@@ -81,18 +81,17 @@ function ProfilePage() {
   const updateUserImage = useMutation(api.user.updateUserImage);
   const updateTeamProfile = useMutation(api.teams.updateTeamProfile);
 
-  // Fetch profiles on mount or user change
   useEffect(() => {
     if (user?.email) {
       fetchUserProfile();
     }
-  }, [user]);
+  }, [user?.email]);
 
   useEffect(() => {
     if (activeTeam?._id) {
       fetchTeamProfile();
     }
-  }, [activeTeam]);
+  }, [activeTeam?._id]);
 
   const fetchUserProfile = async () => {
     try {

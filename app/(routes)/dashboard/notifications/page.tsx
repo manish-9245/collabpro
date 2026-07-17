@@ -26,7 +26,7 @@ function NotificationsPage() {
     if (user?.email) {
       fetchNotificationsData();
     }
-  }, [user]);
+  }, [user?.email]);
 
   const fetchNotificationsData = async () => {
     setLoading(true);
