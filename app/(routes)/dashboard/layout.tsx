@@ -25,8 +25,8 @@ function DashboardLayout(
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const router=useRouter();
     useEffect(()=>{
-        user&&checkTeam();
-    },[user])
+        user?.email&&checkTeam();
+    },[user?.email])
 
     const checkTeam=async()=>{
         const result=await sync.query(api.teams.getTeam,

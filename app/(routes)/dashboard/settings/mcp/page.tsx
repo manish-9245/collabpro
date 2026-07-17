@@ -40,7 +40,7 @@ export default function McpSettingsHub() {
     if (user?.email) {
       fetchApiKeys();
     }
-  }, [user]);
+  }, [user?.email]);
 
   const fetchApiKeys = async () => {
     setLoadingKeys(true);

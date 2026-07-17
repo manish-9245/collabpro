@@ -40,7 +40,7 @@ function SettingsPage() {
       fetchTeams();
       fetchApiKeys();
     }
-  }, [user]);
+  }, [user?.email]);
 
   const fetchApiKeys = async () => {
     setLoadingKeys(true);

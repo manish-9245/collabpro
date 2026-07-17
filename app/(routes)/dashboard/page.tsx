@@ -20,10 +20,10 @@ function Dashboard() {
   const members = useQuery(api.teams.getTeamMembers, activeTeam?._id ? { teamId: activeTeam._id } : 'skip' as any);
 
   useEffect(() => {
-    if (user) {
+    if (user?.email) {
       checkUser()
     }
-  }, [user])
+  }, [user?.email])
 
   const checkUser = async () => {
     const result = await sync.query(api.user.getUser, { email: user?.email });
