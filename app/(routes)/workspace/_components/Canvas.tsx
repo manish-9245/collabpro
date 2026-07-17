@@ -8,6 +8,7 @@ import { buildIconNode } from './CanvasAssetBuilder';
 import { Sparkles, Cloud, Search, Loader2, ChevronLeft, ChevronRight, Plus, Trash2, Upload, BookOpen, Link, Check, Download, Info, Globe } from 'lucide-react';
 import { toast } from 'sonner';
 import { AWS_ICONS } from './aws_icons_list';
+import ImageEditorModal from './ImageEditorModal';
 
 // Cache AWS icons by ID for highly performant O(1) lookups during canvas render and session recovery
 const AWS_ICONS_MAP = new Map(AWS_ICONS.map(i => [i.id, i]));
