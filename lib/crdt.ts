@@ -102,3 +102,75 @@ export function decodeCrdtState(storedStr: string | null | undefined, fallbackDe
     return fallbackDefault;
   }
 }
+
+// Background Web Worker client manager to execute non-blocking operations on browser threads
+let crdtWorker: Worker | null = null;
+const pendingRequests = new Map<string, { resolve: (val: any) => void; reject: (err: any) => void }>();
+
+function getCrdtWorker(): Worker | null {
+  if (typeof window === 'undefined') return null;
+  if (crdtWorker) return crdtWorker;
+  
+  try {
+    // Instantiate background thread Worker natively supported in Next.js/Webpack 5
+    crdtWorker = new Worker(new URL('./crdt.worker.ts', import.meta.url));
+    
+    crdtWorker.onmessage = (e: MessageEvent) => {
+      const { id, result, error } = e.data;
+      const request = pendingRequests.get(id);
+      if (!request) return;
+      
+      pendingRequests.delete(id);
+      if (error) {
+        request.reject(new Error(error));
+      } else {
+        request.resolve(result);
+      }
+    };
+    
+    crdtWorker.onerror = (e) => {
+      console.warn("[CRDT Worker] Thread execution encountered error, disposing worker:", e);
+      crdtWorker = null;
+    };
+  } catch (err) {
+    console.warn("[CRDT Worker] Failed to instantiate worker, falling back to synchronous execution:", err);
+    crdtWorker = null;
+  }
+  
+  return crdtWorker;
+}
+
+/**
+ * Asynchronously encodes state into a base64 CRDT update string inside a Web Worker.
+ * Safely falls back to synchronous main-thread encoding if the environment lacks Web Worker support.
+ */
+export function encodeCrdtStateAsync(state: any): Promise<string> {
+  const worker = getCrdtWorker();
+  if (!worker) {
+    return Promise.resolve(encodeCrdtState(state));
+  }
+  
+  return new Promise((resolve, reject) => {
+    const id = Math.random().toString(36).substr(2, 9);
+    pendingRequests.set(id, { resolve, reject });
+    worker.postMessage({ id, action: 'encode', payload: state });
+  });
+}
+
+/**
+ * Asynchronously decodes base64 CRDT update string back into its JSON form inside a Web Worker.
+ * Safely falls back to synchronous main-thread decoding if the environment lacks Web Worker support.
+ */
+export function decodeCrdtStateAsync(storedStr: string | null | undefined, fallbackDefault: any): Promise<any> {
+  const worker = getCrdtWorker();
+  if (!worker) {
+    return Promise.resolve(decodeCrdtState(storedStr, fallbackDefault));
+  }
+  
+  return new Promise((resolve, reject) => {
+    const id = Math.random().toString(36).substr(2, 9);
+    pendingRequests.set(id, { resolve, reject });
+    worker.postMessage({ id, action: 'decode', payload: storedStr, fallbackDefault });
+  });
+}
+

@@ -309,7 +309,7 @@ class StateSyncWSClient {
   }
 }
 
-const wsClient = typeof window !== 'undefined' ? new StateSyncWSClient() : null;
+export const wsClient = typeof window !== 'undefined' ? new StateSyncWSClient() : null;
 
 function useAdaptiveInterval(defaultInterval = 4000, backoffInterval = 60000, inactivityTimeout = 60000) {
   const [intervalTime, setIntervalTime] = useState(defaultInterval);

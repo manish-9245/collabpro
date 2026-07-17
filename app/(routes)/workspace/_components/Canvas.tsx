@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react'
 import { Excalidraw, MainMenu, WelcomeScreen } from "@excalidraw/excalidraw";
 import "@excalidraw/excalidraw/index.css";
 import { FILE } from '../../dashboard/_components/FileList';
-import { api, useMutation, useQuery } from '@/lib/state-sync/react';
+import { api, useMutation, useQuery, wsClient } from '@/lib/state-sync/react';
 import { encodeCrdtState, decodeCrdtState } from '@/lib/crdt';
 import { buildIconNode } from './CanvasAssetBuilder';
 import { Sparkles, Cloud, Search, Loader2, ChevronLeft, ChevronRight, Plus, Trash2, Upload, BookOpen, Link, Check, Download, Info, Globe } from 'lucide-react';
@@ -361,6 +361,9 @@ function Canvas({
 }: CanvasProps) {
     const [whiteBoardData,setWhiteBoardData]=useState<any>();
     const [excalidrawAPI, setExcalidrawAPI] = useState<any>(null);
+    
+    const [selectedImageEl, setSelectedImageEl] = useState<{ element: any; url: string } | null>(null);
+    const [isImageEditorOpen, setIsImageEditorOpen] = useState(false);
     const updateWhiteboard=useMutation(api.files.updateWhiteboard)
     const upsertSharedLibraryItem = useMutation(api.sharedLibrary.upsertItem);
     const sharedLibraryItems = useQuery(
@@ -758,6 +761,30 @@ function Canvas({
 
     const handleCanvasChange = (excalidrawElements: any) => {
         setWhiteBoardData(excalidrawElements);
+
+        // Check for selected image elements
+        if (excalidrawAPI) {
+            const selectedIds = excalidrawAPI.getAppState()?.selectedElementIds || {};
+            const selectedImage = excalidrawElements.find((el: any) => el.type === 'image' && selectedIds[el.id]);
+            
+            if (selectedImage) {
+                const files = excalidrawAPI.getFiles() || {};
+                const imgFile = files[selectedImage.fileId];
+                if (imgFile && imgFile.dataURL) {
+                    setSelectedImageEl({
+                        element: selectedImage,
+                        url: imgFile.dataURL
+                    });
+                } else {
+                    setSelectedImageEl(null);
+                }
+            } else {
+                setSelectedImageEl(null);
+            }
+        } else {
+            setSelectedImageEl(null);
+        }
+
         if (isProgrammaticUpdateRef.current) {
             return;
         }
@@ -847,6 +874,34 @@ function Canvas({
                 setSavingStatus('idle');
             });
         }, 1500);
+    };
+
+    const handleSaveEditedCanvasImage = (editedImageUrl: string) => {
+        if (!excalidrawAPI || !selectedImageEl) return;
+        
+        const imageElement = selectedImageEl.element;
+        const fileId = imageElement.fileId;
+        
+        const currentFiles = excalidrawAPI.getFiles() || {};
+        const matchedFile = currentFiles[fileId];
+        
+        if (matchedFile) {
+            excalidrawAPI.addFiles([{
+                ...matchedFile,
+                dataURL: editedImageUrl
+            }]);
+            
+            // Explicitly force a visual redraw
+            excalidrawAPI.updateScene({
+                elements: excalidrawAPI.getSceneElements()
+            });
+            
+            toast.success("Canvas image edited and updated successfully! 🎨");
+            setIsImageEditorOpen(false);
+            setSelectedImageEl(null);
+        } else {
+            toast.error("Failed to map the active image file.");
+        }
     };
 
     // Unified Premium Insertion Logic for Library Icons (Standard, AWS, Custom)
@@ -1415,6 +1470,29 @@ function Canvas({
                 </WelcomeScreen.Center>
             </WelcomeScreen>
           </Excalidraw>
+        )}
+
+        {/* Creative Image Editor overlay */}
+        {selectedImageEl && (
+          <div className="absolute top-[80px] left-1/2 transform -translate-x-1/2 z-[999]">
+            <button
+              onClick={() => setIsImageEditorOpen(true)}
+              className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-semibold text-sm px-5 py-3 rounded-full shadow-2xl hover:from-violet-500 hover:to-indigo-500 transition-all duration-200 transform hover:scale-105 active:scale-95 border border-white/20 backdrop-blur-md"
+            >
+              <Sparkles className="h-4 w-4 animate-pulse" />
+              <span>Creative Edit Image 🎨</span>
+            </button>
+          </div>
+        )}
+
+        {/* Image Editor Modal */}
+        {isImageEditorOpen && selectedImageEl && (
+          <ImageEditorModal
+            isOpen={true}
+            onClose={() => setIsImageEditorOpen(false)}
+            imageUrl={selectedImageEl.url}
+            onSave={handleSaveEditedCanvasImage}
+          />
         )}
 
         {/* Floating Button to open sidebar if collapsed */}
