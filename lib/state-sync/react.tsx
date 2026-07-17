@@ -372,7 +372,7 @@ export class StateSyncWSClient {
             const store = tx.objectStore('mutations');
             // Optimal batching: deduplicate pending mutations
             const allMutations = await store.getAll();
-            const existing = allMutations.find(m => m.path === path && m.fileId === fileId);
+            const existing = allMutations.find((m: any) => m.path === path && m.fileId === fileId);
             if (existing) {
                existing.args = args;
                await store.put(existing);
