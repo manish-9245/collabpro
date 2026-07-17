@@ -77,7 +77,7 @@ const queryCache = {
   }
 };
 
-class StateSyncWSClient {
+export class StateSyncWSClient {
   private ws: WebSocket | null = null;
   private subscribers = new Map<string, Set<(data: any) => void>>();
   private statusListeners = new Set<(status: 'connecting' | 'connected' | 'disconnected') => void>();

@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import dns from "dns";
 import { prisma } from "@/lib/db";
+import { uploadToS3 } from "@/lib/s3";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB limit
 
@@ -190,46 +191,74 @@ export async function POST(request: NextRequest) {
     // Convert to typed Uint8Array
     const bufferArray = new Uint8Array(arrayBuffer);
 
-    // Ensure upload directory exists
-    const uploadDir = path.join(process.cwd(), "public/uploads");
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
+    // Validate magic bytes to resolve Issue #118
+    if (!isValidImageBuffer(bufferArray)) {
+      console.error("[Upload API] Rejected file (failed image magic bytes validation)");
+      return NextResponse.json({ success: 0, message: "Invalid or corrupted image file format." }, { status: 400 });
     }
 
-    // Sanitize and generate unique filename
     const sanitizedName = originalName.replace(/[^a-zA-Z0-9.-]/g, "_");
-    const filename = `${Date.now()}_${sanitizedName}`;
-    const filePath = path.join(uploadDir, filename);
+    let uploadedRecord;
 
-    // Save file locally (wrapped in try/catch to ensure robust operation on read-only environments)
-    let fileUrl = "";
-    try {
-      fs.writeFileSync(filePath, bufferArray);
-      fileUrl = `/uploads/${filename}`;
-      console.log(`[Upload API] Image saved successfully to local filesystem: ${filePath}`);
-    } catch (fsErr: any) {
-      console.warn("[Upload API] Local filesystem write failed (likely read-only cloud container):", fsErr.message);
+    // Check if S3 / MinIO environment is configured
+    if (process.env.S3_ENDPOINT) {
+      console.log(`[Upload API] S3_ENDPOINT is configured. Uploading file "${sanitizedName}" to S3 storage...`);
+      try {
+        const s3Url = await uploadToS3(bufferArray, originalName, mimeType);
+        
+        // Persist S3 reference in DB (highly efficient, no heavy base64 payload)
+        uploadedRecord = await prisma.uploadedFile.create({
+          data: {
+            filename: sanitizedName,
+            mimeType: mimeType,
+            payload: s3Url, // Store URL string directly
+          },
+        });
+      } catch (s3Err: any) {
+        console.error("[Upload API] S3 upload failed:", s3Err);
+        return NextResponse.json({ success: 0, message: `S3 Upload failed: ${s3Err.message}` }, { status: 500 });
+      }
+    } else {
+      // Fallback: Local filesystem and base64 DB persistence
+      console.log("[Upload API] S3_ENDPOINT not configured. Falling back to local filesystem and base64 database persistence...");
+      
+      const uploadDir = path.join(process.cwd(), "public/uploads");
+      if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
+      }
+
+      const filename = `${Date.now()}_${sanitizedName}`;
+      const filePath = path.join(uploadDir, filename);
+
+      try {
+        fs.writeFileSync(filePath, bufferArray);
+        console.log(`[Upload API] Image saved successfully to local filesystem: ${filePath}`);
+      } catch (fsErr: any) {
+        console.warn("[Upload API] Local filesystem write failed:", fsErr.message);
+      }
+
+      const base64Payload = Buffer.from(bufferArray).toString("base64");
+
+      uploadedRecord = await prisma.uploadedFile.create({
+        data: {
+          filename: sanitizedName,
+          mimeType: mimeType,
+          payload: base64Payload,
+        },
+      });
     }
 
-    // Convert Buffer to base64 for DB persistence
-    const base64Payload = Buffer.from(bufferArray).toString("base64");
+    // Return direct S3 URL if available for blazing-fast loading (bypassing the server redirect)
+    const returnedUrl = (process.env.S3_ENDPOINT && uploadedRecord.payload.startsWith("http"))
+      ? uploadedRecord.payload
+      : `/api/upload/${uploadedRecord.id}`;
 
-    // Persist to database
-    const uploadedRecord = await prisma.uploadedFile.create({
-      data: {
-        filename: sanitizedName,
-        mimeType: mimeType,
-        payload: base64Payload,
-      },
-    });
-
-    const dbBackedUrl = `/api/upload/${uploadedRecord.id}`;
-    console.log(`[Upload API] Image persisted successfully to database: id=${uploadedRecord.id}, url=${dbBackedUrl}`);
+    console.log(`[Upload API] Image persisted successfully: id=${uploadedRecord.id}, url=${returnedUrl}`);
 
     return NextResponse.json({
       success: 1,
       file: {
-        url: dbBackedUrl,
+        url: returnedUrl,
       },
     });
   } catch (error: any) {
