@@ -17,6 +17,8 @@ import { api, useMutation } from '@/lib/state-sync/react';
 import { toast } from 'sonner';
 import { FILE } from '../../dashboard/_components/FileList';
 import { encodeCrdtState, decodeCrdtState } from '@/lib/crdt';
+import { Sparkles } from 'lucide-react';
+import ImageEditorModal from './ImageEditorModal';
 
 const rawDocument={
     "time" : 1550476186479,
@@ -71,6 +73,48 @@ function Editor({
     // Keep track of trigger changes to avoid firing on initial mount
     const lastUndoTriggerRef = useRef(0);
     const lastRedoTriggerRef = useRef(0);
+
+    const [hoveredImageBlock, setHoveredImageBlock] = useState<{ id: string; url: string; element: HTMLElement } | null>(null);
+    const [activeEditingImageBlock, setActiveEditingImageBlock] = useState<{ id: string; url: string } | null>(null);
+
+    // Watch for image hover in EditorJS
+    useEffect(() => {
+        const handleMouseMove = (e: MouseEvent) => {
+            if (!ref.current) return;
+            const target = e.target as HTMLElement;
+            
+            // Look for closest ce-block container
+            const ceBlock = target.closest('.ce-block');
+            if (!ceBlock) {
+                setHoveredImageBlock(null);
+                return;
+            }
+            
+            // Scan for img inside the block
+            const img = ceBlock.querySelector('img');
+            const blockId = ceBlock.getAttribute('data-id');
+            
+            if (img && img.src && blockId) {
+                setHoveredImageBlock({
+                    id: blockId,
+                    url: img.src,
+                    element: ceBlock as HTMLElement
+                });
+            } else {
+                setHoveredImageBlock(null);
+            }
+        };
+
+        const container = document.getElementById('editorjs');
+        if (container) {
+            container.addEventListener('mousemove', handleMouseMove);
+        }
+        return () => {
+            if (container) {
+                container.removeEventListener('mousemove', handleMouseMove);
+            }
+        };
+    }, []);
 
     // Initialize Editor on mount
     useEffect(()=>{
@@ -343,11 +387,87 @@ function Editor({
         });
       }
     }
-  return (
-    <div>
-        <div id='editorjs' className='ml-20'></div>
-    </div>
-  )
+    const handleSaveEditedDocumentImage = (editedImageUrl: string) => {
+        if (!ref.current || !activeEditingImageBlock) return;
+        
+        ref.current.save().then((outputData) => {
+            const updatedBlocks = outputData.blocks.map((block: any) => {
+                if (block.id === activeEditingImageBlock.id && block.type === 'image') {
+                    return {
+                        ...block,
+                        data: {
+                            ...block.data,
+                            file: {
+                                ...block.data?.file,
+                                url: editedImageUrl
+                            }
+                        }
+                    };
+                }
+                return block;
+            });
+            
+            const newOutputData = {
+                ...outputData,
+                blocks: updatedBlocks
+            };
+            
+            isProgrammaticUpdateRef.current = true;
+            ref.current?.render(newOutputData).then(() => {
+                const crdtStr = encodeCrdtState(newOutputData);
+                lastSavedDataRef.current = crdtStr;
+                
+                updateDocument({
+                    _id: fileId,
+                    document: crdtStr
+                }).then(() => {
+                    toast.success("Image successfully edited and document updated! 🎨");
+                    setActiveEditingImageBlock(null);
+                    setTimeout(() => {
+                        isProgrammaticUpdateRef.current = false;
+                    }, 100);
+                }).catch((err) => {
+                    console.error("Failed to save edited document to database:", err);
+                    isProgrammaticUpdateRef.current = false;
+                });
+            });
+        }).catch((err) => {
+            console.error("Failed saving document state before image edit:", err);
+        });
+    };
+
+    return (
+        <div className="relative group">
+            <div id='editorjs' className='ml-20'></div>
+            
+            {/* Floating Creative Edit Button */}
+            {hoveredImageBlock && (
+                <button
+                    onClick={() => setActiveEditingImageBlock({ id: hoveredImageBlock.id, url: hoveredImageBlock.url })}
+                    style={{
+                        position: 'absolute',
+                        top: hoveredImageBlock.element.offsetTop + 12,
+                        left: hoveredImageBlock.element.offsetLeft + hoveredImageBlock.element.offsetWidth - 160,
+                        zIndex: 40
+                    }}
+                    className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-semibold text-xs px-3 py-2 rounded-lg shadow-lg hover:from-violet-500 hover:to-indigo-500 transition-all duration-200 transform hover:scale-105 active:scale-95"
+                >
+                    <Sparkles className="h-3.5 w-3.5 animate-pulse" />
+                    <span>Creative Edit 🎨</span>
+                </button>
+            )}
+
+            {/* Image Editor Modal */}
+            {activeEditingImageBlock && (
+                <ImageEditorModal
+                    isOpen={true}
+                    onClose={() => setActiveEditingImageBlock(null)}
+                    imageUrl={activeEditingImageBlock.url}
+                    onSave={handleSaveEditedDocumentImage}
+                />
+            )}
+        </div>
+    );
 }
 
 export default Editor
