@@ -45,16 +45,23 @@ async function checkTeamAccess(teamId: string, email: string): Promise<boolean> 
 }
 
 async function POST_handler(request: Request) {
-  try {
-    const ipAddress = (request && request.headers && typeof request.headers.get === 'function')
-      ? (request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || '127.0.0.1')
-      : '127.0.0.1';
-    const { path, args } = await request.json();
-    logger.info("Convex Mock Request", { path, args });
+  const ipAddress = (request && request.headers && typeof request.headers.get === 'function')
+    ? (request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || '127.0.0.1')
+    : '127.0.0.1';
 
-    if (!path) {
-      return NextResponse.json({ error: 'Path parameter required' }, { status: 400 });
-    }
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+  }
+
+  const { path, args } = body || {};
+  if (!path || typeof path !== 'string') {
+    return NextResponse.json({ error: 'Path parameter required and must be a string' }, { status: 400 });
+  }
+
+  logger.info("Convex Mock Request received", { path });
 
     // --- SECURITY & AUTHORIZATION CHECK ---
     let authUserEmail: string | null = null;
@@ -247,11 +254,8 @@ async function POST_handler(request: Request) {
     }
 
     const mappedResult = mapConvexIds(result);
-    logger.info("Mapped output payload", { result: mappedResult });
+    logger.info("Mapped output payload success", { path });
     return NextResponse.json({ data: mappedResult });
-  } catch (error: any) {
-    throw error;
-  }
 }
 
 export const POST = withErrorHandler(POST_handler);

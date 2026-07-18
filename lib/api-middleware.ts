@@ -33,16 +33,21 @@ export function withErrorHandler(handler: RouteHandler): RouteHandler {
         durationMs: duration
       });
       
+      const rawMessage = error instanceof Error 
+        ? error.message 
+        : (error && typeof error === "object" ? String((error as any).message || JSON.stringify(error)) : String(error));
+      const safeMessage = rawMessage || "An unexpected error occurred.";
+      
       return NextResponse.json(
         {
           error: process.env.NODE_ENV === "production"
             ? "Internal Server Error"
-            : (error.message && (error.message.includes("is not authorized") || error.message.includes("Seat limit reached"))
-                ? error.message
+            : (safeMessage.includes("is not authorized") || safeMessage.includes("Seat limit reached")
+                ? safeMessage
                 : "Internal Server Error"),
           message: process.env.NODE_ENV === "production" 
             ? "An unexpected error occurred." 
-            : error.message || String(error)
+            : safeMessage
         },
         { status: 500 }
       );
