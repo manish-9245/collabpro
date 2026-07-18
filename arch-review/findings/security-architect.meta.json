@@ -1,0 +1,11 @@
+{
+  "agent": "Security Architect",
+  "confidence": "High",
+  "missing_tools": [],
+  "findings": {
+    "critical": 5,
+    "high": 4,
+    "medium": 2,
+    "low": 1
+  }
+}

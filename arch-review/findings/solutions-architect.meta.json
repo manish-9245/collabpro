@@ -1,0 +1,11 @@
+{
+  "agent": "Solutions Architect",
+  "confidence": "High",
+  "missing_tools": [],
+  "findings": {
+    "critical": 0,
+    "high": 1,
+    "medium": 2,
+    "low": 2
+  }
+}

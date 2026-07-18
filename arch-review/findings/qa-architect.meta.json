@@ -1,0 +1,11 @@
+{
+  "agent": "QA Architect",
+  "confidence": "High",
+  "missing_tools": [],
+  "findings": {
+    "critical": 1,
+    "high": 2,
+    "medium": 1,
+    "low": 1
+  }
+}

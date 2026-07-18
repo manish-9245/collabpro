@@ -1,0 +1,11 @@
+{
+  "agent": "Software Engineer",
+  "confidence": "High",
+  "missing_tools": [],
+  "findings": {
+    "critical": 2,
+    "high": 1,
+    "medium": 1,
+    "low": 1
+  }
+}

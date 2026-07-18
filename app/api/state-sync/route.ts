@@ -276,7 +276,15 @@ export async function POST(request: Request) {
     ];
 
     if (filePaths.includes(path)) {
-      const targetFileId = args?._id || args?.fileId || args?.id;
+      let targetFileId = args?._id || args?.fileId || args?.id;
+      if (!targetFileId && args?.versionId) {
+        const version = await prisma.fileVersion.findUnique({
+          where: { id: args.versionId }
+        });
+        if (version) {
+          targetFileId = version.fileId;
+        }
+      }
       if (!targetFileId) {
         return NextResponse.json({ error: 'Bad Request: Missing file context' }, { status: 400 });
       }

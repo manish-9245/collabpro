@@ -1,0 +1,11 @@
+{
+  "agent": "Platform Engineer",
+  "confidence": "High",
+  "missing_tools": [],
+  "findings": {
+    "critical": 2,
+    "high": 3,
+    "medium": 3,
+    "low": 2
+  }
+}

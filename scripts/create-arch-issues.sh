@@ -1,0 +1,21 @@
+#!/bin/bash
+set -e
+
+# Critical Issues
+gh issue create --title "[SEC-001] Critical: Broken Authentication (JSON cookie forgery)" --body "The custom session authorization engine uses unencrypted, unsigned JSON strings natively parsed from the \`session_token\` cookie, which permits trivial privilege escalation and complete authentication bypass via DevTools cookie tampering." --label "security" --label "bug"
+gh issue create --title "[SEC-002] Critical: Plaintext Password Storage" --body "User passwords are saved in plaintext to the PostgreSQL database without any hashing or salting. Total credential compromise risk." --label "security" --label "bug"
+gh issue create --title "[SEC-003] Critical: Severe IDOR via WS/REST" --body "Severe Broken Access Control (IDOR) vulnerabilities on both WebSockets and the state-sync REST API allowing unauthorized viewing and modification of files and teams." --label "security" --label "bug"
+gh issue create --title "[DAT-001] Critical: Missing Relation Directives (@relation)" --body "\`schema.prisma\` is completely missing relation directives (\`@relation\`), resulting in zero database-level referential integrity or foreign keys. It will lead to orphaned records and corrupted DB." --label "database" --label "data-integrity" --label "bug"
+gh issue create --title "[DAT-002] Critical: Last-Writer-Wins Data Loss via WS" --body "Real-time WS operations blindly overwrite the entire \`document\` and \`whiteboard\` fields in the database. There is no Operational Transformation (OT), CRDT merge, or Optimistic Concurrency Control (OCC) utilized in the WebSocket save paths, guaranteeing 'last writer wins' collaborative sync destruction." --label "database" --label "data-integrity" --label "real-time" --label "bug"
+gh issue create --title "[PER-001] Critical: Zero-debounce state syncing" --body "Zero-debounce state syncing causing massive immediate DB load via RabbitMQ and WS broadcasts on every keystroke. Risk of DoS via massive DB/WS load." --label "performance" --label "database" --label "real-time" --label "bug"
+gh issue create --title "[PER-002] Critical: Full-state payload transmission" --body "Full-state payload transmission instead of CRDT deltas, leading to high bandwidth / OOM risks." --label "performance" --label "real-time" --label "bug"
+gh issue create --title "[PLA-001] Critical: Destructive prisma db push --accept-data-loss in Prod" --body "Using \`prisma db push --accept-data-loss\` as a startup routine or Kubernetes orchestration step exposes the entire production architecture to imminent, irreversible catastrophic data loss." --label "infrastructure" --label "database" --label "devops" --label "bug"
+gh issue create --title "[PLA-002] Critical: Hardcoded Plaintext Secrets" --body "Both \`docker-compose.yml\` and Helm \`values.yaml\` contain hardcoded plaintext sensitive credentials, representing a severe security breach vector." --label "infrastructure" --label "security" --label "devops" --label "bug"
+gh issue create --title "[SWE-001] Critical: Monolithic God Function for State Sync" --body "A monolithic 'God Function' in \`app/api/state-sync/route.ts\` (1300 lines) handles all queries/mutations through a single \`switch\` statement. High regression risk and unmaintainable." --label "architecture" --label "backend"
+
+# High Issues from Remediation Roadmap
+gh issue create --title "[SEC-004] High: Stored XSS and SSRF vulnerabilities" --body "Stored XSS via SVG exports/uploads, SSRF via DNS Rebinding, and weak password hashing on share links found during security architecture review." --label "security" --label "bug"
+gh issue create --title "[QA-001] High: Single cinematic CI test bypasses actual QA regressions" --body "CI Pipeline (\`ci.yml\`) only runs a single cinematic showcase test (\`showcase.spec.ts\`), bypassing actual QA regression test scripts." --label "infrastructure" --label "devops" --label "bug"
+gh issue create --title "[INT-001] High: Lack of jitter in WebSocket backoff loops" --body "The WebSocket reconnection logic implements exponential backoff but lacks random jitter, leading to potential 'thundering herd' issues upon server recovery." --label "real-time" --label "backend" --label "bug"
+
+echo "Successfully created all GitHub issues."
