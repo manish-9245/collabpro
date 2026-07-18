@@ -27,6 +27,16 @@ describe('Workspace Version History Side-Drawer API Suite (Issue 8)', () => {
     // Clean tables before tests
     await prisma.fileVersion.deleteMany({});
     await prisma.file.deleteMany({});
+    await prisma.team.deleteMany({});
+
+    // Create parent Team to satisfy referential integrity constraints
+    await prisma.team.create({
+      data: {
+        id: "team-ver-test",
+        teamName: "Version Control Test Team",
+        createdBy: "user@example.com",
+      },
+    });
   });
 
   it('should successfully create, fetch, and restore file checkpoints', async () => {

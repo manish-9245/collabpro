@@ -321,11 +321,13 @@ export async function POST(request: Request) {
       }
       case 'user:searchUsers': {
         const { query } = args || {};
+        const isPg = process.env.DATABASE_URL?.startsWith("postgres") || process.env.DATABASE_URL?.startsWith("postgresql");
+        const modeObj = isPg ? { mode: "insensitive" } : {};
         result = await prisma.user.findMany({
           where: {
             OR: [
-              { email: { contains: query, mode: 'insensitive' } },
-              { name: { contains: query, mode: 'insensitive' } },
+              { email: { contains: query, ...(modeObj as any) } },
+              { name: { contains: query, ...(modeObj as any) } },
             ],
           },
           take: 10,
