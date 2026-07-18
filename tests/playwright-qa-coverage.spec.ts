@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { prisma } from '../lib/db';
 import * as fs from 'fs';
 import * as path from 'path';
+import bcrypt from 'bcryptjs';
 
 test.describe('E2E Interaction Coverage & Network Monitoring Suite', () => {
   const uniqueTimestamp = Date.now();
@@ -12,12 +13,13 @@ test.describe('E2E Interaction Coverage & Network Monitoring Suite', () => {
   let fileId: string;
 
   test.beforeAll(async () => {
+    const hashedPassword = await bcrypt.hash('Password123!', 10);
     // Prep mock relational records directly in DB to run E2E flow blazingly fast
     const userA = await prisma.user.create({
       data: {
         email: testEmailA,
         name: 'QA User Alpha',
-        password: 'Password123!'
+        password: hashedPassword
       }
     });
 
@@ -25,7 +27,7 @@ test.describe('E2E Interaction Coverage & Network Monitoring Suite', () => {
       data: {
         email: testEmailB,
         name: 'QA User Beta',
-        password: 'Password123!'
+        password: hashedPassword
       }
     });
 
