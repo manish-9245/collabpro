@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { getServerSession } from '@/lib/session-auth/server';
+import { signToken, verifyToken } from '@/lib/session-auth/jwt';
+import bcrypt from 'bcryptjs';
 import { POST as loginPOST } from '@/app/api/auth/login/route';
 import { POST as registerPOST } from '@/app/api/auth/register/route';
 import { GET as meGET } from '@/app/api/auth/me/route';
@@ -56,7 +58,7 @@ describe('Authentication & Session Management', () => {
         name: 'Test User',
         image: 'https://example.com/image.jpg',
       };
-      cookiesMock['session_token'] = JSON.stringify(userPayload);
+      cookiesMock['session_token'] = signToken(userPayload);
 
       const session = getServerSession();
       const authenticated = await session.isAuthenticated();
@@ -87,8 +89,22 @@ describe('Authentication & Session Management', () => {
       const authenticated = await session.isAuthenticated();
       const user = await session.getUser();
 
-      expect(authenticated).toBe(true); // Cookie is present
+      expect(authenticated).toBe(false); // Cookie is invalid
       expect(user).toBeNull(); // Parsing failed
+    });
+
+    it('should reject unencrypted raw JSON session cookie (forgery prevention)', async () => {
+      const forgedPayload = {
+        id: 'user-forged',
+        email: 'attacker@collabpro.com',
+        name: 'Attacker User',
+      };
+      cookiesMock['session_token'] = JSON.stringify(forgedPayload);
+
+      const session = getServerSession();
+      const user = await session.getUser();
+
+      expect(user).toBeNull();
     });
   });
 
@@ -98,7 +114,7 @@ describe('Authentication & Session Management', () => {
         id: 'user-123',
         email: 'test@collabpro.com',
         name: 'Test User',
-        password: 'correct-password',
+        password: await bcrypt.hash('correct-password', 10),
         image: 'https://example.com/image.jpg',
       };
 
@@ -121,7 +137,7 @@ describe('Authentication & Session Management', () => {
       // Verify cookie was set
       expect(mockSet).toHaveBeenCalled();
       expect(cookiesMock['session_token']).toBeDefined();
-      expect(JSON.parse(cookiesMock['session_token'])).toEqual({
+      expect(verifyToken(cookiesMock['session_token'])).toEqual({
         id: 'user-123',
         email: 'test@collabpro.com',
         name: 'Test User',
@@ -152,7 +168,7 @@ describe('Authentication & Session Management', () => {
         id: 'user-123',
         email: 'test@collabpro.com',
         name: 'Test User',
-        password: 'correct-password',
+        password: await bcrypt.hash('correct-password', 10),
       };
 
       mockFindUnique.mockResolvedValueOnce(mockUser);
@@ -217,6 +233,39 @@ describe('Authentication & Session Management', () => {
       expect(cookiesMock['session_token']).toBeDefined();
     });
 
+    it('should hash the password before saving and not return password in response', async () => {
+      mockFindUnique.mockResolvedValueOnce(null);
+      mockCreate.mockImplementationOnce((args) => {
+        return {
+          id: 'new-user-123',
+          name: args.data.name,
+          email: args.data.email,
+          password: args.data.password,
+          image: args.data.image,
+        };
+      });
+
+      const requestBody = { name: 'New User', email: 'new@collabpro.com', password: 'password123' };
+      const req = new Request('http://localhost/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+
+      const res = await registerPOST(req);
+      expect(res.status).toBe(200);
+
+      const resJson = await res.json();
+      expect(resJson.success).toBe(true);
+      expect(resJson.user.password).toBeUndefined();
+
+      expect(mockCreate).toHaveBeenCalled();
+      const createCallArgs = mockCreate.mock.calls[0][0];
+      const savedPassword = createCallArgs.data.password;
+      expect(savedPassword).not.toBe('password123');
+      expect(savedPassword.length).toBeGreaterThan(20);
+    });
+
     it('should reject registration when email is already registered', async () => {
       mockFindUnique.mockResolvedValueOnce({ id: 'existing-123', email: 'already@collabpro.com' });
 
@@ -257,7 +306,7 @@ describe('Authentication & Session Management', () => {
         email: 'test@collabpro.com',
         name: 'Test User',
       };
-      cookiesMock['session_token'] = JSON.stringify(userPayload);
+      cookiesMock['session_token'] = signToken(userPayload);
 
       const res = await meGET();
       expect(res.status).toBe(200);

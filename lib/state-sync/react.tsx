@@ -179,7 +179,9 @@ export class StateSyncWSClient {
       const res = await fetch('/api/auth/me');
       if (res.ok) {
         const data = await res.json();
-        if (data.user) {
+        if (data.token) {
+          tokenParam = encodeURIComponent(data.token);
+        } else if (data.user) {
           tokenParam = encodeURIComponent(JSON.stringify({
             id: data.user.id,
             email: data.user.email,

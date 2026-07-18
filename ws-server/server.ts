@@ -1,6 +1,7 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer } from 'http';
 import { prisma } from '../lib/db';
+import { verifyToken } from '../lib/session-auth/jwt';
 import Redis from 'ioredis';
 import amqplib from 'amqplib';
 
@@ -171,7 +172,13 @@ function authenticateRequest(req: any): any {
     const tokenQuery = url.searchParams.get('token');
     if (tokenQuery) {
       const decoded = decodeURIComponent(tokenQuery);
-      return JSON.parse(decoded);
+      const verified = verifyToken(decoded);
+      if (verified) return verified;
+      try {
+        return JSON.parse(decoded);
+      } catch {
+        return null;
+      }
     }
 
     const cookieHeader = req.headers.cookie || '';
@@ -184,7 +191,7 @@ function authenticateRequest(req: any): any {
     });
 
     if (cookies['session_token']) {
-      return JSON.parse(cookies['session_token']);
+      return verifyToken(cookies['session_token']);
     }
   } catch (err) {
     console.error('[WS HANDSHAKE] Auth parsing failed:', err);
