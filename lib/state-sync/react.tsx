@@ -642,6 +642,55 @@ export function useQuery(queryReference: any, args?: any) {
   return data;
 }
 
+// GrahakAI Delta Sync Utilities (Issue #144)
+const lastTransmittedWhiteboard = new Map();
+
+function getWhiteboardElements(state: any): any[] {
+  if (!state) return [];
+  try {
+    if (typeof state === 'string') {
+      const parsed = JSON.parse(state);
+      if (Array.isArray(parsed)) return parsed;
+      if (parsed && parsed.elements) return parsed.elements;
+    } else {
+      if (Array.isArray(state)) return state;
+      if (state.elements) return state.elements;
+    }
+  } catch (e) {}
+  return [];
+}
+
+function diffWhiteboardElements(prev: any[], next: any[]): { updated: any[]; deleted: string[] } {
+  const prevMap = new Map<string, any>();
+  prev.forEach(el => { if (el && el.id) prevMap.set(el.id, el); });
+
+  const nextMap = new Map<string, any>();
+  next.forEach(el => { if (el && el.id) nextMap.set(el.id, el); });
+
+  const updated: any[] = [];
+  const deleted: string[] = [];
+
+  next.forEach(el => {
+    if (!el || !el.id) return;
+    const prevEl = prevMap.get(el.id);
+    if (!prevEl) {
+      updated.push(el);
+    } else {
+      if (prevEl.version !== el.version || prevEl.updatedAt !== el.updatedAt || JSON.stringify(prevEl) !== JSON.stringify(el)) {
+        updated.push(el);
+      }
+    }
+  });
+
+  prev.forEach(el => {
+    if (el && el.id && !nextMap.has(el.id)) {
+      deleted.push(el.id);
+    }
+  });
+
+  return { updated, deleted };
+}
+
 export function useMutation(mutationReference: any) {
   return async (args?: any) => {
     const mutationPath = getPath(mutationReference);

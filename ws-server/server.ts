@@ -3,6 +3,116 @@ import { createServer } from 'http';
 import { prisma } from '../lib/db';
 import Redis from 'ioredis';
 import amqplib from 'amqplib';
+import * as Y from 'yjs';
+
+// GrahakAI WebSocket Performance Sync Helpers
+function parseJsonIfString(value: any): any {
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function asEditorDocument(value: any): any {
+  const parsed = parseJsonIfString(value);
+  if (parsed && typeof parsed === 'object' && Array.isArray(parsed.blocks)) {
+    return parsed;
+  }
+
+  if (typeof parsed === 'string') {
+    const text = parsed.trim();
+    return {
+      time: Date.now(),
+      version: "2.8.1",
+      blocks: text ? [
+        {
+          id: String(Math.random()),
+          type: 'paragraph',
+          data: { text }
+        }
+      ] : []
+    };
+  }
+
+  throw new Error("Invalid document payload.");
+}
+
+function asWhiteboardElements(value: any): any[] {
+  const parsed = parseJsonIfString(value);
+  if (Array.isArray(parsed)) return parsed;
+  if (parsed && typeof parsed === 'object' && Array.isArray(parsed.elements)) {
+    return parsed.elements;
+  }
+  return [];
+}
+
+function mergeDocumentBlocks(currentDoc: any, incomingDoc: any): any {
+  const currentBlocks = Array.isArray(currentDoc.blocks) ? currentDoc.blocks : [];
+  const incomingBlocks = Array.isArray(incomingDoc.blocks) ? incomingDoc.blocks : [];
+  return {
+    ...currentDoc,
+    ...incomingDoc,
+    time: Date.now(),
+    blocks: [
+      ...currentBlocks,
+      ...incomingBlocks.map((block: any) =>
+        block && typeof block === 'object' && block.id ? block : { ...block, id: String(Math.random()) }
+      )
+    ]
+  };
+}
+
+function mergeWhiteboardById(currentElements: any[], incomingElements: any[]): any[] {
+  const merged = new Map<string, any>();
+  const ordered: string[] = [];
+
+  for (const element of currentElements) {
+    if (!element || typeof element !== 'object') continue;
+    const key = typeof element.id === 'string' && element.id.length > 0 ? element.id : String(Math.random());
+    if (!merged.has(key)) ordered.push(key);
+    merged.set(key, element);
+  }
+
+  for (const element of incomingElements) {
+    if (!element || typeof element !== 'object') continue;
+    const key = typeof element.id === 'string' && element.id.length > 0 ? element.id : String(Math.random());
+    if (!merged.has(key)) ordered.push(key);
+    merged.set(key, element);
+  }
+
+  return ordered.map((key) => merged.get(key)).filter(Boolean);
+}
+
+function mergeWhiteboardPayloads(currentStr: string, incomingStr: string): string {
+  try {
+    const currentParsed = parseJsonIfString(currentStr);
+    const incomingParsed = parseJsonIfString(incomingStr);
+
+    if (currentParsed && typeof currentParsed === 'object' && currentParsed.yjs && currentParsed.data && 
+        incomingParsed && typeof incomingParsed === 'object' && incomingParsed.yjs && incomingParsed.data) {
+      const currentUpdate = Buffer.from(currentParsed.data, 'base64');
+      const incomingUpdate = Buffer.from(incomingParsed.data, 'base64');
+      const mergedUpdate = Y.mergeUpdates([new Uint8Array(currentUpdate), new Uint8Array(incomingUpdate)]);
+      const base64 = Buffer.from(mergedUpdate).toString('base64');
+      return JSON.stringify({
+        yjs: true,
+        data: base64
+      });
+    }
+  } catch (e) {}
+
+  try {
+    const currentElements = asWhiteboardElements(currentStr || '[]');
+    const incomingElements = asWhiteboardElements(incomingStr);
+    const mergedElements = mergeWhiteboardById(currentElements, incomingElements);
+    return JSON.stringify(mergedElements);
+  } catch (e) {
+    return incomingStr;
+  }
+}
+
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : (process.env.WS_PORT ? parseInt(process.env.WS_PORT, 10) : 3001);
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
@@ -97,14 +207,54 @@ async function initRabbitMQ() {
     await mqChannel.assertQueue(QUEUE_NAME, { durable: true });
     console.log('🐇 [RabbitMQ] Connected to message broker successfully.');
 
-    // Consumer to process queue items
+    // Consumer to process queue items (GrahakAI Concurrent Merging & Delta boundary)
     mqChannel.consume(QUEUE_NAME, async (msg: any) => {
       if (msg !== null) {
         try {
           const payload = JSON.parse(msg.content.toString());
           const { fileId, type, value } = payload;
+          
+          const file = await prisma.file.findUnique({
+            where: { id: fileId },
+            select: { id: true, document: true, whiteboard: true }
+          });
+          
+          let nextValue = value;
+          if (file) {
+            if (type === 'document') {
+              try {
+                const currentDoc = asEditorDocument(file.document || '{"blocks":[]}');
+                const incomingDoc = asEditorDocument(value);
+                nextValue = JSON.stringify(mergeDocumentBlocks(currentDoc, incomingDoc));
+              } catch (e) {
+                console.error("RabbitMQ doc merge failed, using direct:", e);
+              }
+            } else if (type === 'whiteboard') {
+              try {
+                const parsedIncoming = typeof value === 'string' ? JSON.parse(value) : value;
+                if (parsedIncoming && parsedIncoming.isDelta) {
+                  const currentElements = asWhiteboardElements(file.whiteboard || '[]');
+                  const currentMap = new Map();
+                  currentElements.forEach((el) => { if (el && el.id) currentMap.set(el.id, el); });
+                  
+                  if (Array.isArray(parsedIncoming.deleted)) {
+                    parsedIncoming.deleted.forEach((id: string) => { currentMap.delete(id); });
+                  }
+                  if (Array.isArray(parsedIncoming.updated)) {
+                    parsedIncoming.updated.forEach((el: any) => { if (el && el.id) currentMap.set(el.id, el); });
+                  }
+                  nextValue = JSON.stringify(Array.from(currentMap.values()));
+                } else {
+                  nextValue = mergeWhiteboardPayloads(file.whiteboard || '[]', value);
+                }
+              } catch (e) {
+                console.error("RabbitMQ whiteboard merge failed, using direct:", e);
+              }
+            }
+          }
+
           const updateData: any = {};
-          updateData[type] = value;
+          updateData[type] = nextValue;
           
           await prisma.file.update({
             where: { id: fileId },
@@ -406,9 +556,21 @@ async function executeMutation(path: string, args: any): Promise<any> {
       const { _id, document } = args || {};
 
       queueDbWrite(_id, 'document', document, async () => {
+        const file = await prisma.file.findUnique({
+          where: { id: _id },
+          select: { document: true }
+        });
+        let nextValue = document;
+        if (file) {
+          try {
+            const currentDoc = asEditorDocument(file.document || '{"blocks":[]}');
+            const incomingDoc = asEditorDocument(document);
+            nextValue = JSON.stringify(mergeDocumentBlocks(currentDoc, incomingDoc));
+          } catch {}
+        }
         return prisma.file.update({
           where: { id: _id },
-          data: { document },
+          data: { document: nextValue },
         });
       });
 
@@ -418,9 +580,34 @@ async function executeMutation(path: string, args: any): Promise<any> {
       const { _id, whiteboard } = args || {};
 
       queueDbWrite(_id, 'whiteboard', whiteboard, async () => {
+        const file = await prisma.file.findUnique({
+          where: { id: _id },
+          select: { whiteboard: true }
+        });
+        let nextValue = whiteboard;
+        if (file) {
+          try {
+            const parsedIncoming = typeof whiteboard === 'string' ? JSON.parse(whiteboard) : whiteboard;
+            if (parsedIncoming && parsedIncoming.isDelta) {
+              const currentElements = asWhiteboardElements(file.whiteboard || '[]');
+              const currentMap = new Map<string, any>();
+              currentElements.forEach((el: any) => { if (el && el.id) currentMap.set(el.id, el); });
+              
+              if (Array.isArray(parsedIncoming.deleted)) {
+                parsedIncoming.deleted.forEach((id: string) => { currentMap.delete(id); });
+              }
+              if (Array.isArray(parsedIncoming.updated)) {
+                parsedIncoming.updated.forEach((el: any) => { if (el && el.id) currentMap.set(el.id, el); });
+              }
+              nextValue = JSON.stringify(Array.from(currentMap.values()));
+            } else {
+              nextValue = mergeWhiteboardPayloads(file.whiteboard || '[]', whiteboard);
+            }
+          } catch {}
+        }
         return prisma.file.update({
           where: { id: _id },
-          data: { whiteboard },
+          data: { whiteboard: nextValue },
         });
       });
 
