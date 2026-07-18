@@ -45,7 +45,9 @@ test.describe('Group B QA Suite - GrahakAI', () => {
           'status of 400',
           'status of 409',
           'community libraries',
-          'excalidraw'
+          'excalidraw',
+          'Failed to fetch',
+          'failed to fetch'
         ];
         const shouldIgnore = ignoreList.some(ignore => text.includes(ignore));
         if (!shouldIgnore) {

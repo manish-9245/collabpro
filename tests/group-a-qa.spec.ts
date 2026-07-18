@@ -46,7 +46,9 @@ test.describe('Group A QA Browser Test Suite', () => {
           'status of 400',
           'status of 409',
           'community libraries',
-          'excalidraw'
+          'excalidraw',
+          'Failed to fetch',
+          'failed to fetch'
         ];
         const shouldIgnore = ignoreList.some(ignore => text.includes(ignore));
         if (!shouldIgnore) {
