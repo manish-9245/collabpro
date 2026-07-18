@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { verifyToken } from '@/lib/session-auth/jwt';
 
 export async function GET() {
   const cookieStore = await cookies();
@@ -10,8 +11,11 @@ export async function GET() {
   }
 
   try {
-    const user = JSON.parse(session);
-    return NextResponse.json({ user });
+    const user = verifyToken(session);
+    if (!user) {
+      return NextResponse.json({ user: null });
+    }
+    return NextResponse.json({ user, token: session });
   } catch {
     return NextResponse.json({ user: null });
   }

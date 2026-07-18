@@ -1,0 +1,11 @@
+{
+  "agent": "Integration Architect",
+  "confidence": "High",
+  "missing_tools": [],
+  "findings": {
+    "critical": 1,
+    "high": 1,
+    "medium": 2,
+    "low": 2
+  }
+}

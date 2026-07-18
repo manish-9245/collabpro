@@ -1,18 +1,21 @@
 import { cookies } from "next/headers";
+import { verifyToken } from "./jwt";
 
 export function getServerSession() {
   return {
     isAuthenticated: async () => {
       const cookieStore = await cookies();
       const session = cookieStore.get("session_token")?.value;
-      return !!session;
+      if (!session) return false;
+      return verifyToken(session) !== null;
     },
     getUser: async () => {
       const cookieStore = await cookies();
       const session = cookieStore.get("session_token")?.value;
       if (!session) return null;
       try {
-        const user = JSON.parse(session);
+        const user = verifyToken(session);
+        if (!user) return null;
         return {
           id: user.id,
           email: user.email,
@@ -25,4 +28,3 @@ export function getServerSession() {
     }
   };
 }
-

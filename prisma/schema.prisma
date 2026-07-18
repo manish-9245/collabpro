@@ -7,44 +7,58 @@ datasource db {
 }
 
 model User {
-  id          String   @id @default(uuid())
-  email       String   @unique
+  id          String         @id @default(uuid())
+  email       String         @unique
   name        String
-  password    String   @default("")
+  password    String         @default("")
   image       String?
-  title       String   @default("")
-  description String   @default("")
-  github      String   @default("")
-  twitter     String   @default("")
-  linkedin    String   @default("")
-  portfolio   String   @default("")
-  isPrivate   Boolean  @default(false)
-  createdAt   DateTime @default(now())
+  title       String         @default("")
+  description String         @default("")
+  github      String         @default("")
+  twitter     String         @default("")
+  linkedin    String         @default("")
+  portfolio   String         @default("")
+  isPrivate   Boolean        @default(false)
+  createdAt   DateTime       @default(now())
+  memberships TeamMember[]
+  presences   FilePresence[]
+  notifications Notification[]
+  apiKeys     ApiKey[]
 }
 
 model Team {
-  id          String   @id @default(uuid())
-  teamName    String
-  createdBy   String
-  description String   @default("")
-  industry    String   @default("")
-  website     String   @default("")
-  github      String   @default("")
-  isPrivate   Boolean  @default(false)
-  createdAt   DateTime @default(now())
+  id           String              @id @default(uuid())
+  teamName     String
+  createdBy    String
+  description  String              @default("")
+  industry     String              @default("")
+  website      String              @default("")
+  github       String              @default("")
+  isPrivate    Boolean             @default(false)
+  createdAt    DateTime            @default(now())
+  files        File[]
+  members      TeamMember[]
+  invitations  Invitation[]
+  libraryItems SharedLibraryItem[]
+  orgSetting   OrgSetting?
+  auditLogs    AuditLog[]
 }
 
 model File {
-  id             String   @id @default(uuid())
+  id             String         @id @default(uuid())
   fileName       String
   teamId         String
   createdBy      String
-  archive        Boolean  @default(false)
-  document       String   @default("")
-  whiteboard     String   @default("")
+  archive        Boolean        @default(false)
+  document       String         @default("")
+  whiteboard     String         @default("")
   folder         String?
-  createdAt      DateTime @default(now())
-  whiteboardText String   @default("")
+  createdAt      DateTime       @default(now())
+  whiteboardText String         @default("")
+  team           Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  versions       FileVersion[]
+  presences      FilePresence[]
+  sharedLinks    SharedLink[]
 }
 
 model TeamMember {
@@ -53,6 +67,8 @@ model TeamMember {
   userEmail String
   role      String   @default("member")
   createdAt DateTime @default(now())
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userEmail], references: [email], onDelete: Cascade)
 }
 
 model FileVersion {
@@ -65,6 +81,7 @@ model FileVersion {
   createdByImage String   @default("")
   note           String   @default("")
   createdAt      DateTime @default(now())
+  file           File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
 }
 
 model FilePresence {
@@ -76,6 +93,8 @@ model FilePresence {
   userColor       String   @default("#6366f1")
   workspaceStatus String   @default("Viewing workspace")
   lastSeenAt      DateTime @updatedAt
+  file            File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  user            User     @relation(fields: [userEmail], references: [email], onDelete: Cascade)
 
   @@unique([fileId, userEmail])
 }
@@ -88,6 +107,7 @@ model Invitation {
   inviteeEmail String
   status       String   @default("pending")
   createdAt    DateTime @default(now())
+  team         Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
 }
 
 model Notification {
@@ -98,6 +118,7 @@ model Notification {
   type      String   @default("info")
   read      Boolean  @default(false)
   createdAt DateTime @default(now())
+  user      User     @relation(fields: [userEmail], references: [email], onDelete: Cascade)
 }
 
 model SharedLibraryItem {
@@ -110,6 +131,7 @@ model SharedLibraryItem {
   payload     String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  team        Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@index([teamId, updatedAt])
 }
@@ -123,6 +145,7 @@ model ApiKey {
   hashedKey String    @unique
   maskedKey String    @default("")
   scope     String    @default("read-write")
+  user      User      @relation(fields: [userEmail], references: [email], onDelete: Cascade)
 }
 
 model SharedLink {
@@ -134,6 +157,7 @@ model SharedLink {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   isActive     Boolean   @default(true)
+  file         File      @relation(fields: [fileId], references: [id], onDelete: Cascade)
 
   @@index([fileId])
 }
@@ -147,6 +171,7 @@ model OrgSetting {
   ssoMetadataUrl String   @default("")
   seatLimit      Int      @default(50)
   updatedAt      DateTime @updatedAt
+  team           Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
 }
 
 model AuditLog {
@@ -157,6 +182,7 @@ model AuditLog {
   action    String
   context   String   @default("")
   createdAt DateTime @default(now())
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@index([teamId, createdAt])
 }

@@ -4,6 +4,7 @@ import { POST as stateSyncPOST } from '@/app/api/state-sync/route';
 // Mock database prisma
 const mockTeamFindUnique = vi.fn();
 const mockTeamDelete = vi.fn();
+const mockFileFindUnique = vi.fn();
 const mockFileFindMany = vi.fn();
 const mockFileDelete = vi.fn();
 const mockFileDeleteMany = vi.fn();
@@ -15,6 +16,7 @@ const mockInvitationDeleteMany = vi.fn();
 const mockSharedLibraryItemDeleteMany = vi.fn();
 const mockTeamMemberDelete = vi.fn();
 const mockNotificationCreate = vi.fn();
+const mockAuditLogCreate = vi.fn();
 
 vi.mock('@/lib/db', () => ({
   prisma: {
@@ -23,6 +25,7 @@ vi.mock('@/lib/db', () => ({
       delete: (...args: any[]) => mockTeamDelete(...args),
     },
     file: {
+      findUnique: (...args: any[]) => mockFileFindUnique(...args),
       findMany: (...args: any[]) => mockFileFindMany(...args),
       delete: (...args: any[]) => mockFileDelete(...args),
       deleteMany: (...args: any[]) => mockFileDeleteMany(...args),
@@ -48,6 +51,9 @@ vi.mock('@/lib/db', () => ({
     },
     notification: {
       create: (...args: any[]) => mockNotificationCreate(...args),
+    },
+    auditLog: {
+      create: (...args: any[]) => mockAuditLogCreate(...args),
     },
   },
 }));
@@ -131,6 +137,12 @@ describe('Relational Database Cascading Deletion Verification Suite (Issue 59)',
 
   it('should verify Board-to-Nodes Cascade rules when deleting a file', async () => {
     const fileId = 'file-123';
+    mockFileFindUnique.mockResolvedValue({
+      id: fileId,
+      fileName: 'Test File',
+      teamId: 'team-123',
+      createdBy: 'owner@example.com',
+    });
 
     const req = {
       json: async () => ({

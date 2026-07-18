@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { prisma } from '@/lib/db';
+import bcrypt from 'bcryptjs';
+import { signToken } from '@/lib/session-auth/jwt';
 
 export async function POST(request: Request) {
   try {
@@ -14,12 +16,15 @@ export async function POST(request: Request) {
       where: { email },
     });
 
-    if (!user || user.password !== password) {
+    if (!user || !(await bcrypt.compare(password, user.password))) {
       return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
     }
 
+    // Exclude password from returned user profile to prevent credential leaks
+    const { password: _, ...userWithoutPassword } = user;
+
     const cookieStore = await cookies();
-    cookieStore.set('session_token', JSON.stringify({
+    cookieStore.set('session_token', signToken({
       id: user.id,
       email: user.email,
       name: user.name,
@@ -31,7 +36,7 @@ export async function POST(request: Request) {
       path: '/',
     });
 
-    return NextResponse.json({ success: true, user });
+    return NextResponse.json({ success: true, user: userWithoutPassword });
   } catch (error: any) {
     console.error('Login error:', error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
