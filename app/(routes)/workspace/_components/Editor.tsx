@@ -32,6 +32,7 @@ const rawDocument={
     },
     {
         data:{
+            text: '',
             level:4
         },
         id:"1234",
