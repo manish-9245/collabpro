@@ -91,6 +91,11 @@ const queryCache = {
 // Coalesce concurrent redundant query fetches into a single promise
 const inflightRequests = new Map<string, Promise<any>>();
 
+export function calculateBackoffWithJitter(attempt: number, baseDelay = 1000, maxDelay = 30000): number {
+  const maxBackoff = Math.min(maxDelay, baseDelay * Math.pow(2, attempt));
+  return Math.random() * maxBackoff;
+}
+
 export class StateSyncWSClient {
   private ws: WebSocket | null = null;
   private subscribers = new Map<string, Set<(data: any) => void>>();
@@ -303,17 +308,16 @@ export class StateSyncWSClient {
   private scheduleReconnect() {
     if (this.reconnectTimeout) return;
     
-    // If we've failed repeatedly, slow down reconnection to prevent resource thrashing
-    let delay = this.reconnectDelay;
-    if (this.consecutiveFailures > 5) {
-      delay = Math.max(delay, 15000); // Wait at least 15s between attempts on repeated failures
-      console.warn(`[CollabPro WS CLIENT] Consecutive failures (${this.consecutiveFailures}). Slowing reconnection delay to ${delay}ms.`);
-    }
+    // Calculate backoff using full-jitter exponential backoff to prevent "thundering herd"
+    const delay = calculateBackoffWithJitter(
+      this.consecutiveFailures,
+      1000,
+      this.maxReconnectDelay
+    );
 
-    console.log(`[CollabPro WS CLIENT] Scheduling reconnection in ${delay}ms`);
+    console.log(`[CollabPro WS CLIENT] Scheduling reconnection in ${delay.toFixed(0)}ms (attempt ${this.consecutiveFailures})`);
     this.reconnectTimeout = setTimeout(() => {
       this.reconnectTimeout = null;
-      this.reconnectDelay = Math.min(delay * 2, this.maxReconnectDelay);
       this.connect();
     }, delay);
   }
