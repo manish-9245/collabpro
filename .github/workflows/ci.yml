@@ -2,9 +2,13 @@ name: CollabPro Unified CI/CD Pipeline
 
 on:
   push:
-    branches: [ "main", "feature/*" ]
+    branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-test-scan:

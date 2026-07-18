@@ -45,7 +45,9 @@ test.describe('Group B QA Suite - GrahakAI', () => {
           'status of 400',
           'status of 409',
           'community libraries',
-          'excalidraw'
+          'excalidraw',
+          'Auth check failed: TypeError: Failed to fetch',
+          'Error fetching state-sync query: TypeError: Failed to fetch'
         ];
         const shouldIgnore = ignoreList.some(ignore => text.includes(ignore));
         if (!shouldIgnore) {

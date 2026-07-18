@@ -48,6 +48,7 @@ interface DebounceEntry {
   timer: NodeJS.Timeout | null;
   mergedData: any;
   resolves: ((val: any) => void)[];
+  rejects: ((err: any) => void)[];
 }
 
 const debouncedWrites = new Map<string, DebounceEntry>();
@@ -60,12 +61,13 @@ async function debounceWrite(
   delay = 50,
   initialValue: any = null
 ): Promise<any> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const existing = debouncedWrites.get(key);
     if (existing) {
       if (existing.timer) clearTimeout(existing.timer);
       existing.mergedData = mergeFn(existing.mergedData, data);
       existing.resolves.push(resolve);
+      existing.rejects.push(reject);
       
       existing.timer = setTimeout(async () => {
         debouncedWrites.delete(key);
@@ -73,7 +75,7 @@ async function debounceWrite(
           const result = await writeFn(existing.mergedData);
           existing.resolves.forEach(res => res(result));
         } catch (err) {
-          existing.resolves.forEach(res => res(null));
+          existing.rejects.forEach(rej => rej(err));
         }
       }, delay);
     } else {
@@ -81,7 +83,8 @@ async function debounceWrite(
       const entry: DebounceEntry = {
         timer: null,
         mergedData: seededData,
-        resolves: [resolve]
+        resolves: [resolve],
+        rejects: [reject]
       };
       
       entry.timer = setTimeout(async () => {
@@ -90,7 +93,7 @@ async function debounceWrite(
           const result = await writeFn(entry.mergedData);
           entry.resolves.forEach(res => res(result));
         } catch (err) {
-          entry.resolves.forEach(res => res(null));
+          entry.rejects.forEach(rej => rej(err));
         }
       }, delay);
       

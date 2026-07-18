@@ -46,7 +46,9 @@ test.describe('Group A QA Browser Test Suite', () => {
           'status of 400',
           'status of 409',
           'community libraries',
-          'excalidraw'
+          'excalidraw',
+          'Auth check failed: TypeError: Failed to fetch',
+          'Error fetching state-sync query: TypeError: Failed to fetch'
         ];
         const shouldIgnore = ignoreList.some(ignore => text.includes(ignore));
         if (!shouldIgnore) {

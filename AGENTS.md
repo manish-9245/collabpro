@@ -9,6 +9,7 @@ This file outlines the absolute guidelines, architecture shortcuts, and safety g
 2. **ZERO BUILD FAILURES:** You must run and verify a clean compilation (`npm run build`) before pushing. Exit Code must be **0**.
 3. **STRICT DB AGNOSTICISM:** Do not write engine-specific Prisma fields (e.g., PostgreSQL `@db.Uuid` or arrays `String[]`). All database models inside `prisma/schema.prisma` must remain relational-generic.
 4. **PIPELINE INTEGRITY VERIFICATION:** You must programmatically verify that both the GitHub Actions CI pipeline and the Railway production deployment pipeline are fully green, active, and successful post-push/post-merge. Execute the verification script to validate both systems: `npm run verify-pipelines`.
+5. **MANDATORY REVIEW OF AI BOT REVIEWS (Cubic Dev & CodeRabbit):** Before performing any merge to `main`, you must proactively fetch, review, and address comments from Cubic Dev (`cubic-dev-ai[bot]`) and CodeRabbit. Any valid security (P1/P2), concurrency, or transactional integrity issues must be fully fixed and pushed to the branch first.
 
 ---
 
@@ -46,6 +47,12 @@ git checkout -b feature/issue-<number>
 ```bash
 npm run build
 ```
+
+### Step 4.5: AI Code Review Assessment (Cubic Dev & CodeRabbit)
+* Proactively fetch automated reviews, security warnings, and transactional feedback raised on the PR by `cubic-dev-ai[bot]` and `CodeRabbit`.
+* Interrogate and categorize findings:
+  - **P1/P2 Security & Integrity issues** (e.g. Broken Object Level Authorization, race conditions, seat limit bypasses) must be resolved immediately via local patches, verified with unit tests, and pushed.
+  - Reject incorrect or non-applicable recommendations, providing clear technical reasons.
 
 ### Step 5: Automated PR Submit
 Stage, commit, and push your changes to `origin`, then generate a clean PR:

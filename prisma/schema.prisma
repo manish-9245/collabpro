@@ -69,6 +69,8 @@ model TeamMember {
   createdAt DateTime @default(now())
   team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userEmail], references: [email], onDelete: Cascade)
+
+  @@unique([teamId, userEmail])
 }
 
 model FileVersion {
