@@ -30,11 +30,19 @@ export async function GET(
     const buffer = Buffer.from(uploadedFile.payload, "base64");
 
     // Return image with the original content type
+    const isSvg = uploadedFile.mimeType.toLowerCase().includes("svg") || uploadedFile.filename.toLowerCase().endsWith(".svg");
+    const headers: Record<string, string> = {
+      "Content-Type": uploadedFile.mimeType,
+      "Cache-Control": "public, max-age=31536000, immutable",
+    };
+
+    if (isSvg) {
+      headers["Content-Security-Policy"] = "default-src 'none';";
+      headers["Content-Disposition"] = "attachment; filename=\"" + uploadedFile.filename.replace(/"/g, "\\\"") + "\"";
+    }
+
     return new NextResponse(buffer, {
-      headers: {
-        "Content-Type": uploadedFile.mimeType,
-        "Cache-Control": "public, max-age=31536000, immutable", // Extremely fast cache
-      },
+      headers,
     });
   } catch (error: any) {
     console.error("[Get Uploaded File API] Error serving file:", error);

@@ -1,3 +1,5 @@
+import http from "http";
+import https from "https";
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
@@ -6,6 +8,33 @@ import { prisma } from "@/lib/db";
 import { uploadToS3 } from "@/lib/s3";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB limit
+
+function isSafeIp(ip: string): boolean {
+  if (!ip) return false;
+  
+  // Check loopback, link-local (AWS metadata), and empty IP
+  if (
+    ip.startsWith("127.") || 
+    ip.startsWith("169.254.") || 
+    ip === "0.0.0.0" || 
+    ip === "::1" || 
+    ip === "localhost"
+  ) {
+    return false;
+  }
+
+  // Check private IPv4 ranges
+  const parts = ip.split(".").map(Number);
+  if (parts.length === 4) {
+    // Class A: 10.0.0.0/8
+    if (parts[0] === 10) return false;
+    // Class B: 172.16.0.0/12
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return false;
+    // Class C: 192.168.0.0/16
+    if (parts[0] === 192 && parts[1] === 168) return false;
+  }
+  return true;
+}
 
 // Helper to validate IP address for SSRF protection
 async function isSafeUrl(urlStr: string): Promise<boolean> {
@@ -16,41 +45,86 @@ async function isSafeUrl(urlStr: string): Promise<boolean> {
     }
 
     const hostname = urlObj.hostname;
-    
     if (hostname.toLowerCase() === "localhost") {
       return false;
     }
 
     // Resolve hostname to IP address
     const lookup = await dns.promises.lookup(hostname);
-    const ip = lookup.address;
-
-    // Check loopback, link-local (AWS metadata), and empty IP
-    if (
-      ip.startsWith("127.") || 
-      ip.startsWith("169.254.") || 
-      ip === "0.0.0.0" || 
-      ip === "::1" || 
-      ip === "localhost"
-    ) {
-      return false;
-    }
-
-    // Check private IPv4 ranges
-    const parts = ip.split(".").map(Number);
-    if (parts.length === 4) {
-      // Class A: 10.0.0.0/8
-      if (parts[0] === 10) return false;
-      // Class B: 172.16.0.0/12
-      if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return false;
-      // Class C: 192.168.0.0/16
-      if (parts[0] === 192 && parts[1] === 168) return false;
-    }
-
-    return true;
+    return isSafeIp(lookup.address);
   } catch (error) {
-    return false; // Reject if DNS lookup or parsing fails
+    return false;
   }
+}
+
+// Perform DNS rebinding safe HTTP/HTTPS request by binding directly to safe IP
+async function safeFetch(urlStr: string): Promise<{ ok: boolean; statusText: string; headers: { get: (name: string) => string | null }; arrayBuffer: () => Promise<ArrayBuffer> }> {
+  const urlObj = new URL(urlStr);
+  const hostname = urlObj.hostname;
+  
+  const lookup = await dns.promises.lookup(hostname);
+  const ip = lookup.address;
+  
+  if (!isSafeIp(ip)) {
+    throw new Error("Restricted IP address resolved");
+  }
+  
+  const protocol = urlObj.protocol;
+  const port = urlObj.port || (protocol === "https:" ? "443" : "80");
+  const pathWithQuery = urlObj.pathname + urlObj.search;
+  
+  return new Promise((resolve, reject) => {
+    const options: any = {
+      hostname: ip,
+      port: port,
+      path: pathWithQuery,
+      method: "GET",
+      headers: {
+        "Host": hostname,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) CollabPro-Uploader",
+      }
+    };
+    
+    const transport = protocol === "https:" ? https : http;
+    if (protocol === "https:") {
+      options.servername = hostname;
+    }
+    
+    const req = transport.request(options, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (chunk) => {
+        chunks.push(chunk);
+      });
+      res.on("end", () => {
+        const buffer = Buffer.concat(chunks);
+        const headersMap = new Map<string, string>();
+        Object.entries(res.headers).forEach(([k, v]) => {
+          if (typeof v === "string") {
+            headersMap.set(k.toLowerCase(), v);
+          } else if (Array.isArray(v)) {
+            headersMap.set(k.toLowerCase(), v.join(", "));
+          }
+        });
+        
+        resolve({
+          ok: (res.statusCode || 200) >= 200 && (res.statusCode || 200) < 300,
+          statusText: res.statusMessage || "",
+          headers: {
+            get: (name: string) => headersMap.get(name.toLowerCase()) || null
+          },
+          arrayBuffer: async () => {
+            return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+          }
+        });
+      });
+    });
+    
+    req.on("error", (err) => {
+      reject(err);
+    });
+    
+    req.end();
+  });
 }
 
 // Magic bytes validation for image headers (PNG, JPEG, GIF, WebP, SVG)
@@ -148,12 +222,7 @@ export async function POST(request: NextRequest) {
       console.log(`[Upload API] Fetching image from URL: ${imageUrl}`);
       
       // Perform HTTP request
-      const res = await fetch(imageUrl, {
-        method: "GET",
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) CollabPro-Uploader",
-        },
-      });
+      const res = await safeFetch(imageUrl);
 
       if (!res.ok) {
         return NextResponse.json({ success: 0, message: `Failed to fetch image from URL: ${res.statusText}` }, { status: 400 });
@@ -213,6 +282,16 @@ export async function POST(request: NextRequest) {
     if (!isValidImageBuffer(bufferArray)) {
       console.error("[Upload API] Rejected file (failed image magic bytes validation)");
       return NextResponse.json({ success: 0, message: "Invalid or corrupted image file format." }, { status: 400 });
+    }
+
+    // SVG scripting check
+    const isSvg = mimeType.toLowerCase().includes("svg") || originalName.toLowerCase().endsWith(".svg");
+    if (isSvg) {
+      const svgText = new TextDecoder("utf-8").decode(bufferArray);
+      if (/<script/i.test(svgText)) {
+        console.error("[Upload API] Rejected SVG file containing script tag");
+        return NextResponse.json({ success: 0, message: "Invalid or restricted SVG content: scripts are not allowed." }, { status: 400 });
+      }
     }
 
     const sanitizedName = originalName.replace(/[^a-zA-Z0-9.-]/g, "_");

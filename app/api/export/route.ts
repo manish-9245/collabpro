@@ -1,7 +1,36 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { getServerSession } from "@/lib/session-auth/server";
+
+function escapeAttr(val: any): string {
+  return String(val || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
 
 export async function GET(request: Request) {
+  const session = getServerSession();
+  const sessionUser = await session.getUser();
+  if (!sessionUser || !sessionUser.email) {
+    return new NextResponse(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 150" width="400" height="150">
+        <rect width="400" height="150" rx="16" fill="#fcf8f8" stroke="#fecaca" stroke-width="2" />
+        <text x="20" y="55" font-family="sans-serif" font-size="14" font-weight="bold" fill="#991b1b">Unauthorized Access</text>
+        <text x="20" y="85" font-family="sans-serif" font-size="11" fill="#7f1d1d">You must be logged in to export this workspace.</text>
+      </svg>`,
+      {
+        status: 401,
+        headers: {
+          "Content-Type": "image/svg+xml",
+          "Cache-Control": "no-store, max-age=0"
+        }
+      }
+    );
+  }
+  const email = sessionUser.email;
   const { searchParams } = new URL(request.url);
   const fileId = searchParams.get("fileId");
 
@@ -36,6 +65,38 @@ export async function GET(request: Request) {
           <text x="20" y="110" font-family="sans-serif" font-size="9.5" font-weight="bold" fill="#b91c1c">Check ID or team permissions.</text>
         </svg>`,
         {
+          status: 404,
+          headers: {
+            "Content-Type": "image/svg+xml",
+            "Cache-Control": "no-store, max-age=0"
+          }
+        }
+      );
+    }
+
+    // Authorization check
+    let hasAccess = file.createdBy === email;
+    if (!hasAccess) {
+      const membership = await prisma.teamMember.findFirst({
+        where: {
+          teamId: file.teamId,
+          userEmail: email
+        }
+      });
+      if (membership) {
+        hasAccess = true;
+      }
+    }
+
+    if (!hasAccess) {
+      return new NextResponse(
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 150" width="400" height="150">
+          <rect width="400" height="150" rx="16" fill="#fcf8f8" stroke="#fecaca" stroke-width="2" />
+          <text x="20" y="55" font-family="sans-serif" font-size="14" font-weight="bold" fill="#991b1b">Access Forbidden</text>
+          <text x="20" y="85" font-family="sans-serif" font-size="11" fill="#7f1d1d">You do not have permission to view or export this whiteboard.</text>
+        </svg>`,
+        {
+          status: 403,
           headers: {
             "Content-Type": "image/svg+xml",
             "Cache-Control": "no-store, max-age=0"
@@ -98,8 +159,8 @@ export async function GET(request: Request) {
     svgContent += `  <rect x="${minX}" y="${minY}" width="${width}" height="${height}" fill="#fafafa" />\n`;
 
     activeElements.forEach((el: any) => {
-      const stroke = el.strokeColor || "#1e293b";
-      const fill = el.backgroundColor === "transparent" ? "none" : (el.backgroundColor || "none");
+      const stroke = escapeAttr(el.strokeColor || "#1e293b");
+      const fill = el.backgroundColor === "transparent" ? "none" : escapeAttr(el.backgroundColor || "none");
       const strokeWidth = el.strokeWidth || 2;
       const opacity = el.opacity !== undefined ? el.opacity / 100 : 1;
 

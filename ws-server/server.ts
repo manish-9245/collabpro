@@ -199,6 +199,28 @@ function authenticateRequest(req: any): any {
   return null;
 }
 
+async function hasFileAccess(fileId: string, email: string): Promise<boolean> {
+  if (!fileId || !email) return false;
+  try {
+    const file = await prisma.file.findUnique({
+      where: { id: fileId }
+    });
+    if (!file) return false;
+    if (file.createdBy === email) return true;
+    
+    const teamMember = await prisma.teamMember.findFirst({
+      where: {
+        teamId: file.teamId,
+        userEmail: email
+      }
+    });
+    return !!teamMember;
+  } catch (error) {
+    console.error(`[WS AUTH CHECK ERROR] Failed to check access:`, error);
+    return false;
+  }
+}
+
 server.on('upgrade', (request, socket, head) => {
   console.log('[WS HANDSHAKE] Upgrade request received...');
   const user = authenticateRequest(request);
@@ -241,6 +263,12 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
         case 'join': {
           const { fileId } = message;
           if (fileId) {
+            const hasAccess = await hasFileAccess(fileId, user.email);
+            if (!hasAccess) {
+              console.warn(`[WS ROOM SECURITY REJECT] User ${user.email} attempted unauthorized join to: ${fileId}`);
+              ws.send(JSON.stringify({ type: 'error', message: 'Forbidden: You do not have access to this room' }));
+              break;
+            }
             connection.joinedRooms.add(fileId);
             console.log(`[WS ROOM] User ${user.email} joined room: ${fileId}`);
             ws.send(JSON.stringify({ type: 'joined', fileId }));
@@ -251,6 +279,10 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
         case 'cursor': {
           const { fileId, x, y, name, color, isCanvas } = message;
           if (fileId) {
+            const hasAccess = await hasFileAccess(fileId, user.email);
+            if (!hasAccess) {
+              break;
+            }
             const cursorPayload = {
               type: 'cursor-update',
               fileId,
@@ -295,6 +327,15 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
 
         case 'subscribe': {
           const { path, args } = message;
+          if (path === 'files:getFileById') {
+            const fileId = args?._id || args?.fileId;
+            const hasAccess = await hasFileAccess(fileId, user.email);
+            if (!hasAccess) {
+              console.warn(`[WS SUB SECURITY REJECT] User ${user.email} attempted unauthorized subscription to: ${fileId}`);
+              ws.send(JSON.stringify({ type: 'error', message: 'Forbidden: You do not have access to this subscription' }));
+              break;
+            }
+          }
           const subKey = `${path}:${JSON.stringify(args || {})}`;
           connection.subscriptions.set(subKey, { path, args });
           console.log(`[WS SUB] User ${user.email} subscribed to: ${subKey}`);
@@ -314,6 +355,15 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
 
         case 'mutation': {
           const { path, args, fileId } = message;
+          const targetRoom = fileId || args?._id || args?.fileId;
+          if (targetRoom) {
+            const hasAccess = await hasFileAccess(targetRoom, user.email);
+            if (!hasAccess) {
+              console.warn(`[WS MUTATION SECURITY REJECT] User ${user.email} attempted unauthorized mutation "${path}" on: ${targetRoom}`);
+              ws.send(JSON.stringify({ type: 'error', message: 'Forbidden: You do not have access to this room' }));
+              break;
+            }
+          }
           console.log(`[WS MUTATION] Executing mutation "${path}" for fileId "${fileId}"`);
 
           try {
