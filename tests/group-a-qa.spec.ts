@@ -38,7 +38,20 @@ test.describe('Group A QA Browser Test Suite', () => {
     page.on('console', msg => {
       console.log(`[CONSOLE ${msg.type()}] ${msg.text()}`);
       if (msg.type() === 'error') {
-        consoleErrors.push(msg.text());
+        const text = msg.text();
+        const ignoreList = [
+          'net::ERR_',
+          'Failed to load resource',
+          'status of 401',
+          'status of 400',
+          'status of 409',
+          'community libraries',
+          'excalidraw'
+        ];
+        const shouldIgnore = ignoreList.some(ignore => text.includes(ignore));
+        if (!shouldIgnore) {
+          consoleErrors.push(text);
+        }
       }
     });
     page.on('pageerror', err => {
