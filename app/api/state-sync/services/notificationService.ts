@@ -95,7 +95,7 @@ export class NotificationService {
             const orgSettings = await tx.orgSetting.findUnique({
               where: { teamId: invite.teamId },
             });
-            const activeSeats = (await tx.teamMember.count({ where: { teamId: invite.teamId } })) + 1;
+            const activeSeats = await tx.teamMember.count({ where: { teamId: invite.teamId } });
             const limit = orgSettings ? orgSettings.seatLimit : 50;
             if (activeSeats >= limit) {
               throw new Error(`Seat limit reached: This team has reached its maximum seat capacity of ${limit} members.`);
