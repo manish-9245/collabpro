@@ -28,6 +28,28 @@ describe('Organization Admin Settings Control Center Suite (Issue 9)', () => {
     await prisma.invitation.deleteMany({});
     await prisma.teamMember.deleteMany({});
     await prisma.team.deleteMany({});
+    await prisma.notification.deleteMany({});
+    await prisma.user.deleteMany({});
+
+    // Seed required users to satisfy foreign key constraints for invitations and notifications
+    await prisma.user.create({
+      data: {
+        email: "owner@enterprise.com",
+        name: "Owner User",
+      },
+    });
+    await prisma.user.create({
+      data: {
+        email: "colleague@partner.com",
+        name: "Partner Colleague",
+      },
+    });
+    await prisma.user.create({
+      data: {
+        email: "colleague@enterprise.com",
+        name: "Enterprise Colleague",
+      },
+    });
   });
 
   it('should auto-generate default settings, retrieve active seats, and update organization policy rules', async () => {

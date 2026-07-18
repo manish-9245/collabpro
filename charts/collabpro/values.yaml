@@ -26,7 +26,7 @@ service:
 
 # Secret/Sensitive environment keys configuration
 secretEnv:
-  smtpPassword: "hzqq uzmb ldnl idjl"
+  smtpPassword: "${SMTP_PASSWORD}"
 
 # Common environment settings
 configEnv:
@@ -39,7 +39,7 @@ postgres:
   enabled: true
   image: "postgres:16-alpine"
   username: "collabpro"
-  password: "collabpro_secure_password"
+  password: "${DB_PASSWORD}"
   database: "collabpro_production"
   servicePort: 5432
   persistence:

@@ -109,5 +109,5 @@ kubectl logs -f deployment/collabpro-ws -n collabpro-prod
 ### Run DB Push/Migrations Manually
 The Next.js container automatically executes database migrations during startup via `prebuild`/`start` script triggers. If you ever need to manually force schema pushes, spin up a transient interactive pod:
 ```bash
-kubectl exec -it deploy/collabpro-web -n collabpro-prod -- npx prisma db push --accept-data-loss
+kubectl exec -it deploy/collabpro-web -n collabpro-prod -- npx prisma db push
 ```
