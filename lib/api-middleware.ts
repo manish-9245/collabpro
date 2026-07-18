@@ -35,7 +35,11 @@ export function withErrorHandler(handler: RouteHandler): RouteHandler {
       
       return NextResponse.json(
         {
-          error: "Internal Server Error",
+          error: process.env.NODE_ENV === "production"
+            ? "Internal Server Error"
+            : (error.message && (error.message.includes("is not authorized") || error.message.includes("Seat limit reached"))
+                ? error.message
+                : "Internal Server Error"),
           message: process.env.NODE_ENV === "production" 
             ? "An unexpected error occurred." 
             : error.message || String(error)

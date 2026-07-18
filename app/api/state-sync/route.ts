@@ -3,6 +3,8 @@ import { prisma } from '@/lib/db';
 import { getServerSession } from '@/lib/session-auth/server';
 import { verifyApiKey } from '@/lib/api-key-middleware';
 import { mapConvexIds } from './services/helpers';
+import { logger } from '@/lib/logger';
+import { withErrorHandler } from '@/lib/api-middleware';
 
 import { handleUserService } from './services/userService';
 import { handleTeamService } from './services/teamService';
@@ -42,13 +44,13 @@ async function checkTeamAccess(teamId: string, email: string): Promise<boolean> 
   return !!teamMember;
 }
 
-export async function POST(request: Request) {
+async function POST_handler(request: Request) {
   try {
     const ipAddress = (request && request.headers && typeof request.headers.get === 'function')
       ? (request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || '127.0.0.1')
       : '127.0.0.1';
     const { path, args } = await request.json();
-    console.log("Convex Mock Request: path =", path, "args =", JSON.stringify(args || {}));
+    logger.info("Convex Mock Request", { path, args });
 
     if (!path) {
       return NextResponse.json({ error: 'Path parameter required' }, { status: 400 });
@@ -240,15 +242,16 @@ export async function POST(request: Request) {
     } else if (path.startsWith('notifications:')) {
       result = await handleNotificationService(path, args, authUserEmail, ipAddress);
     } else {
-      console.error(`Convex Mock Error: Method ${path} not implemented`);
+      logger.error(`Convex Mock Error: Method ${path} not implemented`);
       return NextResponse.json({ error: `Method ${path} not implemented` }, { status: 404 });
     }
 
     const mappedResult = mapConvexIds(result);
-    console.log("Mapped output payload:", JSON.stringify(mappedResult));
+    logger.info("Mapped output payload", { result: mappedResult });
     return NextResponse.json({ data: mappedResult });
   } catch (error: any) {
-    console.error('Convex mock API Error:', error);
-    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
+    throw error;
   }
 }
+
+export const POST = withErrorHandler(POST_handler);
