@@ -1,9 +1,14 @@
-import crypto from 'crypto';
+import { sha256 } from 'js-sha256';
 
 const SECRET = process.env.SESSION_SECRET || 'super-secret-collabpro-key-12345678-abcdefgh';
 
-function base64url(str: Buffer | string): string {
-  const base64 = typeof str === 'string' ? Buffer.from(str).toString('base64') : str.toString('base64');
+function base64url(str: string | Uint8Array): string {
+  let binary = '';
+  const bytes = typeof str === 'string' ? new TextEncoder().encode(str) : str;
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  const base64 = btoa(binary);
   return base64.replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
 }
 
@@ -12,7 +17,20 @@ function base64urlDecode(str: string): string {
   while (base64.length % 4) {
     base64 += '=';
   }
-  return Buffer.from(base64, 'base64').toString('utf8');
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+function hexToBase64Url(hex: string): string {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < hex.length; i += 2) {
+    bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
+  }
+  return base64url(bytes);
 }
 
 export function signToken(payload: object): string {
@@ -21,12 +39,10 @@ export function signToken(payload: object): string {
   const encodedPayload = base64url(JSON.stringify(payload));
   const signatureInput = `${encodedHeader}.${encodedPayload}`;
   
-  const signature = crypto
-    .createHmac('sha256', SECRET)
-    .update(signatureInput)
-    .digest();
+  const signatureHex = sha256.hmac(SECRET, signatureInput);
+  const signatureBase64Url = hexToBase64Url(signatureHex);
   
-  return `${signatureInput}.${base64url(signature)}`;
+  return `${signatureInput}.${signatureBase64Url}`;
 }
 
 export function verifyToken(token: string): any {
@@ -37,12 +53,10 @@ export function verifyToken(token: string): any {
   const [encodedHeader, encodedPayload, signature] = parts;
   const signatureInput = `${encodedHeader}.${encodedPayload}`;
   
-  const expectedSignature = crypto
-    .createHmac('sha256', SECRET)
-    .update(signatureInput)
-    .digest();
+  const expectedSignatureHex = sha256.hmac(SECRET, signatureInput);
+  const expectedSignatureBase64Url = hexToBase64Url(expectedSignatureHex);
   
-  if (base64url(expectedSignature) !== signature) {
+  if (expectedSignatureBase64Url !== signature) {
     return null;
   }
   

@@ -102,15 +102,7 @@ test.describe('CollabPro Complete Feature Tour & Demonstration', () => {
       const msg = err.stack || err.message || '';
       console.error(`[BROWSER EXCEPTION]: ${msg}`);
       
-      // Ignore React hydration mismatches (Error #418/423) and minor window errors in testing environment
-      if (
-        msg.includes('Minified React error #418') || 
-        msg.includes('Minified React error #423') ||
-        msg.toLowerCase().includes('hydration')
-      ) {
-        console.warn(`[TEST SUITE GUARD] Ignored benign hydration mismatch: ${msg.split('\n')[0]}`);
-        return;
-      }
+
       
       uncaughtExceptions.push(err);
     });

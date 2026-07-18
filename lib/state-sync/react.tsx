@@ -91,6 +91,11 @@ const queryCache = {
 // Coalesce concurrent redundant query fetches into a single promise
 const inflightRequests = new Map<string, Promise<any>>();
 
+export function calculateBackoffWithJitter(attempt: number, baseDelay = 1000, maxDelay = 30000): number {
+  const maxBackoff = Math.min(maxDelay, baseDelay * Math.pow(2, attempt));
+  return Math.random() * maxBackoff;
+}
+
 export class StateSyncWSClient {
   private ws: WebSocket | null = null;
   private subscribers = new Map<string, Set<(data: any) => void>>();
@@ -303,17 +308,16 @@ export class StateSyncWSClient {
   private scheduleReconnect() {
     if (this.reconnectTimeout) return;
     
-    // If we've failed repeatedly, slow down reconnection to prevent resource thrashing
-    let delay = this.reconnectDelay;
-    if (this.consecutiveFailures > 5) {
-      delay = Math.max(delay, 15000); // Wait at least 15s between attempts on repeated failures
-      console.warn(`[CollabPro WS CLIENT] Consecutive failures (${this.consecutiveFailures}). Slowing reconnection delay to ${delay}ms.`);
-    }
+    // Calculate backoff using full-jitter exponential backoff to prevent "thundering herd"
+    const delay = calculateBackoffWithJitter(
+      this.consecutiveFailures,
+      1000,
+      this.maxReconnectDelay
+    );
 
-    console.log(`[CollabPro WS CLIENT] Scheduling reconnection in ${delay}ms`);
+    console.log(`[CollabPro WS CLIENT] Scheduling reconnection in ${delay.toFixed(0)}ms (attempt ${this.consecutiveFailures})`);
     this.reconnectTimeout = setTimeout(() => {
       this.reconnectTimeout = null;
-      this.reconnectDelay = Math.min(delay * 2, this.maxReconnectDelay);
       this.connect();
     }, delay);
   }
@@ -642,6 +646,55 @@ export function useQuery(queryReference: any, args?: any) {
   }, [queryPath, argsString, isConnected, intervalTime]);
 
   return data;
+}
+
+// GrahakAI Delta Sync Utilities (Issue #144)
+const lastTransmittedWhiteboard = new Map();
+
+function getWhiteboardElements(state: any): any[] {
+  if (!state) return [];
+  try {
+    if (typeof state === 'string') {
+      const parsed = JSON.parse(state);
+      if (Array.isArray(parsed)) return parsed;
+      if (parsed && parsed.elements) return parsed.elements;
+    } else {
+      if (Array.isArray(state)) return state;
+      if (state.elements) return state.elements;
+    }
+  } catch (e) {}
+  return [];
+}
+
+function diffWhiteboardElements(prev: any[], next: any[]): { updated: any[]; deleted: string[] } {
+  const prevMap = new Map<string, any>();
+  prev.forEach(el => { if (el && el.id) prevMap.set(el.id, el); });
+
+  const nextMap = new Map<string, any>();
+  next.forEach(el => { if (el && el.id) nextMap.set(el.id, el); });
+
+  const updated: any[] = [];
+  const deleted: string[] = [];
+
+  next.forEach(el => {
+    if (!el || !el.id) return;
+    const prevEl = prevMap.get(el.id);
+    if (!prevEl) {
+      updated.push(el);
+    } else {
+      if (prevEl.version !== el.version || prevEl.updatedAt !== el.updatedAt || JSON.stringify(prevEl) !== JSON.stringify(el)) {
+        updated.push(el);
+      }
+    }
+  });
+
+  prev.forEach(el => {
+    if (el && el.id && !nextMap.has(el.id)) {
+      deleted.push(el.id);
+    }
+  });
+
+  return { updated, deleted };
 }
 
 export function useMutation(mutationReference: any) {
