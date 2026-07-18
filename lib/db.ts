@@ -95,13 +95,16 @@ function getPrismaInstance(): PrismaClient {
       console.log("[db.ts] Reusing existing global database-agnostic PrismaClient instance");
       prismaInstance = globalForPrisma.prisma;
     } else {
-      console.log("[db.ts] Connection string is non-PostgreSQL. Instantiating standard database-agnostic PrismaClient...");
+      console.log("[db.ts] Connection string is non-PostgreSQL. Instantiating standard database-agnostic PrismaClient using better-sqlite3 adapter...");
       try {
-        prismaInstance = new PrismaClient();
+        const { PrismaBetterSqlite3 } = require("@prisma/adapter-better-sqlite3");
+        const adapter = new PrismaBetterSqlite3({ url: connectionString || "file:./dev.db" });
+        prismaInstance = new PrismaClient({ adapter });
+
         if (process.env.NODE_ENV !== "production") {
           globalForPrisma.prisma = prismaInstance;
         }
-        console.log("[db.ts] Database-agnostic PrismaClient created successfully");
+        console.log("[db.ts] Database-agnostic PrismaClient created successfully using better-sqlite3 driver adapter");
       } catch (err) {
         console.error("[db.ts] Error constructing database-agnostic PrismaClient:", err);
         throw err;
