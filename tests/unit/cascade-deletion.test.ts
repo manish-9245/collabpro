@@ -18,8 +18,9 @@ const mockTeamMemberDelete = vi.fn();
 const mockNotificationCreate = vi.fn();
 const mockAuditLogCreate = vi.fn();
 
-vi.mock('@/lib/db', () => ({
-  prisma: {
+vi.mock('@/lib/db', () => {
+  const mockPrisma = {
+    $transaction: async (cb: any) => cb(mockPrisma),
     team: {
       findUnique: (...args: any[]) => mockTeamFindUnique(...args),
       delete: (...args: any[]) => mockTeamDelete(...args),
@@ -55,8 +56,9 @@ vi.mock('@/lib/db', () => ({
     auditLog: {
       create: (...args: any[]) => mockAuditLogCreate(...args),
     },
-  },
-}));
+  };
+  return { prisma: mockPrisma };
+});
 
 const mockGetUser = vi.fn();
 vi.mock('@/lib/session-auth/server', () => ({
@@ -69,6 +71,7 @@ describe('Relational Database Cascading Deletion Verification Suite (Issue 59)',
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetUser.mockResolvedValue({ email: 'owner@example.com', name: 'Owner' });
+    mockTeamMemberDeleteMany.mockResolvedValue({ count: 1 });
   });
 
   it('should verify Team Space Demolition cascade rules', async () => {

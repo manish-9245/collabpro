@@ -140,24 +140,34 @@ export async function handleTeamService(path: string, args: any, authUserEmail: 
       if (!targetUserEmail) {
         throw new Error("Authentication required");
       }
-      // Owner cannot leave, they must delete or transfer (handled simply by verifying createdBy)
-      const team = await prisma.team.findUnique({
-        where: { id: teamId },
-      });
-      if (team?.createdBy === targetUserEmail) {
-        throw new Error("As team creator, you cannot leave. You can manage or delete the team.");
-      }
-      result = await prisma.teamMember.deleteMany({
-        where: { teamId, userEmail: targetUserEmail },
-      });
-      // Create notification for team owner
-      await prisma.notification.create({
-        data: {
-          userEmail: team?.createdBy || "",
-          title: "Member Left Team",
-          message: `${targetUserEmail} has left team ${team?.teamName}.`,
-          type: "response"
+
+      result = await prisma.$transaction(async (tx) => {
+        const team = await tx.team.findUnique({
+          where: { id: teamId },
+        });
+        if (!team) {
+          throw new Error("Team not found");
         }
+        if (team.createdBy === targetUserEmail) {
+          throw new Error("As team creator, you cannot leave. You can manage or delete the team.");
+        }
+
+        const deleteResult = await tx.teamMember.deleteMany({
+          where: { teamId, userEmail: targetUserEmail },
+        });
+
+        if (deleteResult?.count > 0) {
+          // Create notification for team owner
+          await tx.notification.create({
+            data: {
+              userEmail: team.createdBy,
+              title: "Member Left Team",
+              message: `${targetUserEmail} has left team "${team.teamName}".`,
+              type: "response"
+            }
+          });
+        }
+        return deleteResult;
       });
       break;
     }
@@ -167,23 +177,34 @@ export async function handleTeamService(path: string, args: any, authUserEmail: 
       if (!targetOwnerEmail) {
         throw new Error("Authentication required");
       }
-      const team = await prisma.team.findUnique({
-        where: { id: teamId },
-      });
-      if (team?.createdBy !== targetOwnerEmail) {
-        throw new Error("Only the team owner can remove members.");
-      }
-      result = await prisma.teamMember.deleteMany({
-        where: { teamId, userEmail },
-      });
-      // Create notification for removed member
-      await prisma.notification.create({
-        data: {
-          userEmail,
-          title: "Removed from Team",
-          message: `You have been removed from team ${team?.teamName} by the owner.`,
-          type: "system"
+
+      result = await prisma.$transaction(async (tx) => {
+        const team = await tx.team.findUnique({
+          where: { id: teamId },
+        });
+        if (!team) {
+          throw new Error("Team not found");
         }
+        if (team.createdBy !== targetOwnerEmail) {
+          throw new Error("Only the team owner can remove members.");
+        }
+
+        const deleteResult = await tx.teamMember.deleteMany({
+          where: { teamId, userEmail },
+        });
+
+        if (deleteResult?.count > 0) {
+          // Create notification for removed member
+          await tx.notification.create({
+            data: {
+              userEmail,
+              title: "Removed from Team",
+              message: `You have been removed from team "${team.teamName}" by the owner.`,
+              type: "system"
+            }
+          });
+        }
+        return deleteResult;
       });
 
       await logAuditEvent(
@@ -193,7 +214,6 @@ export async function handleTeamService(path: string, args: any, authUserEmail: 
         { removedUserEmail: userEmail },
         ipAddress
       );
-
       break;
     }
     case 'teams:getTeamMembers': {

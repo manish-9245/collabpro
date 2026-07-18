@@ -57,6 +57,10 @@ export async function handleNotificationService(path: string, args: any, authUse
     case 'notifications:respondToInvitation': {
       const { invitationId, response } = args || {}; // response: "accept" or "decline"
       
+      if (response !== 'accept' && response !== 'decline') {
+        throw new Error("Invalid response value: Must be 'accept' or 'decline'.");
+      }
+      
       const resultData = await prisma.$transaction(async (tx) => {
         const invite = await tx.invitation.findUnique({
           where: { id: invitationId },
