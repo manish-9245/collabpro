@@ -5,7 +5,9 @@ import fs from "fs";
 import path from "path";
 import dns from "dns";
 import { prisma } from "@/lib/db";
-import { uploadToS3 } from "@/lib/s3";
+import { logger } from "@/lib/logger";
+import { withErrorHandler } from "@/lib/api-middleware";
+import { UploadService, UploadRepository, S3StorageService, LocalStorageService } from "@/lib/services/upload-service";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB limit
 
@@ -197,169 +199,130 @@ function isValidImageBuffer(buffer: Uint8Array): boolean {
   return false;
 }
 
-export async function POST(request: NextRequest) {
-  try {
-    const contentType = request.headers.get("content-type") || "";
-    let arrayBuffer: ArrayBuffer;
-    let originalName = "image.png";
-    let mimeType = "image/png";
+async function handlePost(request: NextRequest) {
+  const contentType = request.headers.get("content-type") || "";
+  let arrayBuffer: ArrayBuffer;
+  let originalName = "image.png";
+  let mimeType = "image/png";
 
-    if (contentType.includes("application/json")) {
-      const body = await request.json();
-      const imageUrl = body.url;
+  if (contentType.includes("application/json")) {
+    const body = await request.json();
+    const imageUrl = body.url;
 
-      if (!imageUrl) {
-        return NextResponse.json({ success: 0, message: "No image URL provided" }, { status: 400 });
-      }
-
-      // 1. SSRF URL validation
-      const safe = await isSafeUrl(imageUrl);
-      if (!safe) {
-        console.error(`[Upload API] Rejected unsafe URL (SSRF Prevention): ${imageUrl}`);
-        return NextResponse.json({ success: 0, message: "Invalid or restricted URL provided" }, { status: 400 });
-      }
-
-      console.log(`[Upload API] Fetching image from URL: ${imageUrl}`);
-      
-      // Perform HTTP request
-      const res = await safeFetch(imageUrl);
-
-      if (!res.ok) {
-        return NextResponse.json({ success: 0, message: `Failed to fetch image from URL: ${res.statusText}` }, { status: 400 });
-      }
-
-      // Check content-type header of remote resource
-      const remoteContentType = res.headers.get("content-type") || "";
-      mimeType = remoteContentType || "application/octet-stream";
-
-      // DoS: Pre-check content-length header
-      const contentLengthHeader = res.headers.get("content-length");
-      if (contentLengthHeader) {
-        const sizeBytes = parseInt(contentLengthHeader, 10);
-        if (sizeBytes > MAX_FILE_SIZE) {
-          return NextResponse.json({ success: 0, message: "The remote file exceeds the maximum allowed limit of 10MB." }, { status: 400 });
-        }
-      }
-
-      arrayBuffer = await res.arrayBuffer();
-      
-      try {
-        const urlObj = new URL(imageUrl);
-        const baseName = path.basename(urlObj.pathname);
-        if (baseName && baseName.includes(".")) {
-          originalName = baseName;
-        }
-      } catch (e) {
-        // Fallback
-      }
-    } else {
-      const formData = await request.formData();
-      const file = (formData.get("image") || formData.get("file")) as File | null;
-
-      if (!file) {
-        return NextResponse.json({ success: 0, message: "No file provided" }, { status: 400 });
-      }
-
-      // DoS: File size limit check
-      if (file.size > MAX_FILE_SIZE) {
-        return NextResponse.json({ success: 0, message: "The file exceeds the maximum allowed limit of 10MB." }, { status: 400 });
-      }
-
-      arrayBuffer = await file.arrayBuffer();
-      originalName = file.name;
-      mimeType = file.type || "application/octet-stream";
+    if (!imageUrl) {
+      return NextResponse.json({ success: 0, message: "No image URL provided" }, { status: 400 });
     }
 
-    // DoS: Check byteLength of array buffer in memory
-    if (arrayBuffer.byteLength > MAX_FILE_SIZE) {
-      return NextResponse.json({ success: 0, message: "The file size exceeds the maximum allowed limit of 10MB." }, { status: 400 });
+    // 1. SSRF URL validation
+    const safe = await isSafeUrl(imageUrl);
+    if (!safe) {
+      logger.error(`[Upload API] Rejected unsafe URL (SSRF Prevention): ${imageUrl}`, null, { imageUrl });
+      return NextResponse.json({ success: 0, message: "Invalid or restricted URL provided" }, { status: 400 });
     }
 
-    // Convert to typed Uint8Array
-    const bufferArray = new Uint8Array(arrayBuffer);
+    logger.info(`[Upload API] Fetching image from URL: ${imageUrl}`, { imageUrl });
+    
+    // Perform HTTP request
+    const res = await safeFetch(imageUrl);
 
-    // Validate magic bytes to resolve Issue #118
-    if (!isValidImageBuffer(bufferArray)) {
-      console.error("[Upload API] Rejected file (failed image magic bytes validation)");
-      return NextResponse.json({ success: 0, message: "Invalid or corrupted image file format." }, { status: 400 });
+    if (!res.ok) {
+      return NextResponse.json({ success: 0, message: `Failed to fetch image from URL: ${res.statusText}` }, { status: 400 });
     }
 
-    // SVG scripting check
-    const isSvg = mimeType.toLowerCase().includes("svg") || originalName.toLowerCase().endsWith(".svg");
-    if (isSvg) {
-      const svgText = new TextDecoder("utf-8").decode(bufferArray);
-      if (/<script/i.test(svgText)) {
-        console.error("[Upload API] Rejected SVG file containing script tag");
-        return NextResponse.json({ success: 0, message: "Invalid or restricted SVG content: scripts are not allowed." }, { status: 400 });
+    // Check content-type header of remote resource
+    const remoteContentType = res.headers.get("content-type") || "";
+    mimeType = remoteContentType || "application/octet-stream";
+
+    // DoS: Pre-check content-length header
+    const contentLengthHeader = res.headers.get("content-length");
+    if (contentLengthHeader) {
+      const sizeBytes = parseInt(contentLengthHeader, 10);
+      if (sizeBytes > MAX_FILE_SIZE) {
+        return NextResponse.json({ success: 0, message: "The remote file exceeds the maximum allowed limit of 10MB." }, { status: 400 });
       }
     }
 
-    const sanitizedName = originalName.replace(/[^a-zA-Z0-9.-]/g, "_");
-    let uploadedRecord;
-
-    // Check if S3 / MinIO environment is configured
-    if (process.env.S3_ENDPOINT) {
-      console.log(`[Upload API] S3_ENDPOINT is configured. Uploading file "${sanitizedName}" to S3 storage...`);
-      try {
-        const s3Url = await uploadToS3(bufferArray, originalName, mimeType);
-        
-        // Persist S3 reference in DB (highly efficient, no heavy base64 payload)
-        uploadedRecord = await prisma.uploadedFile.create({
-          data: {
-            filename: sanitizedName,
-            mimeType: mimeType,
-            payload: s3Url, // Store URL string directly
-          },
-        });
-      } catch (s3Err: any) {
-        console.error("[Upload API] S3 upload failed:", s3Err);
-        return NextResponse.json({ success: 0, message: `S3 Upload failed: ${s3Err.message}` }, { status: 500 });
+    arrayBuffer = await res.arrayBuffer();
+    
+    try {
+      const urlObj = new URL(imageUrl);
+      const baseName = path.basename(urlObj.pathname);
+      if (baseName && baseName.includes(".")) {
+        originalName = baseName;
       }
-    } else {
-      // Fallback: Local filesystem and base64 DB persistence
-      console.log("[Upload API] S3_ENDPOINT not configured. Falling back to local filesystem and base64 database persistence...");
-      
-      const uploadDir = path.join(process.cwd(), "public/uploads");
-      if (!fs.existsSync(uploadDir)) {
-        fs.mkdirSync(uploadDir, { recursive: true });
-      }
+    } catch (e) {
+      // Fallback
+    }
+  } else {
+    const formData = await request.formData();
+    const file = (formData.get("image") || formData.get("file")) as File | null;
 
-      const filename = `${Date.now()}_${sanitizedName}`;
-      const filePath = path.join(uploadDir, filename);
-
-      try {
-        fs.writeFileSync(filePath, bufferArray);
-        console.log(`[Upload API] Image saved successfully to local filesystem: ${filePath}`);
-      } catch (fsErr: any) {
-        console.warn("[Upload API] Local filesystem write failed:", fsErr.message);
-      }
-
-      const base64Payload = Buffer.from(bufferArray).toString("base64");
-
-      uploadedRecord = await prisma.uploadedFile.create({
-        data: {
-          filename: sanitizedName,
-          mimeType: mimeType,
-          payload: base64Payload,
-        },
-      });
+    if (!file) {
+      return NextResponse.json({ success: 0, message: "No file provided" }, { status: 400 });
     }
 
-    // Return direct S3 URL if available for blazing-fast loading (bypassing the server redirect)
-    const returnedUrl = (process.env.S3_ENDPOINT && uploadedRecord.payload.startsWith("http"))
-      ? uploadedRecord.payload
-      : `/api/upload/${uploadedRecord.id}`;
+    // DoS: File size limit check
+    if (file.size > MAX_FILE_SIZE) {
+      return NextResponse.json({ success: 0, message: "The file exceeds the maximum allowed limit of 10MB." }, { status: 400 });
+    }
 
-    console.log(`[Upload API] Image persisted successfully: id=${uploadedRecord.id}, url=${returnedUrl}`);
-
-    return NextResponse.json({
-      success: 1,
-      file: {
-        url: returnedUrl,
-      },
-    });
-  } catch (error: any) {
-    console.error("[Upload API] Error saving file:", error);
-    return NextResponse.json({ success: 0, message: error.message || "Upload failed" }, { status: 500 });
+    arrayBuffer = await file.arrayBuffer();
+    originalName = file.name;
+    mimeType = file.type || "application/octet-stream";
   }
+
+  // DoS: Check byteLength of array buffer in memory
+  if (arrayBuffer.byteLength > MAX_FILE_SIZE) {
+    return NextResponse.json({ success: 0, message: "The file size exceeds the maximum allowed limit of 10MB." }, { status: 400 });
+  }
+
+  // Convert to typed Uint8Array
+  const bufferArray = new Uint8Array(arrayBuffer);
+
+  // Validate magic bytes
+  if (!isValidImageBuffer(bufferArray)) {
+    logger.error("[Upload API] Rejected file (failed image magic bytes validation)", null, { filename: originalName });
+    return NextResponse.json({ success: 0, message: "Invalid or corrupted image file format." }, { status: 400 });
+  }
+
+  // SVG scripting check
+  const isSvg = mimeType.toLowerCase().includes("svg") || originalName.toLowerCase().endsWith(".svg");
+  if (isSvg) {
+    const svgText = new TextDecoder("utf-8").decode(bufferArray);
+    if (/<script/i.test(svgText)) {
+      logger.error("[Upload API] Rejected SVG file containing script tag", null, { filename: originalName });
+      return NextResponse.json({ success: 0, message: "Invalid or restricted SVG content: scripts are not allowed." }, { status: 400 });
+    }
+  }
+
+  const sanitizedName = originalName.replace(/[^a-zA-Z0-9.-]/g, "_");
+
+  // Inject dependencies dynamically using Dependency Inversion (SOLID Principle)
+  const uploadRepo = new UploadRepository(prisma);
+  const storageService = process.env.S3_ENDPOINT 
+    ? new S3StorageService() 
+    : new LocalStorageService();
+  const uploadService = new UploadService(uploadRepo, storageService);
+
+  logger.info(`[Upload API] Persisting file using injectable services: ${sanitizedName}`, { sanitizedName, mimeType });
+  const uploadedRecord = await uploadService.handleUpload(sanitizedName, mimeType, bufferArray);
+
+  // Return direct S3 URL if available for blazing-fast loading
+  const returnedUrl = (process.env.S3_ENDPOINT && uploadedRecord.payload.startsWith("http"))
+    ? uploadedRecord.payload
+    : `/api/upload/${uploadedRecord.id}`;
+
+  logger.info(`[Upload API] Image persisted successfully: id=${uploadedRecord.id}, url=${returnedUrl}`, { 
+    id: uploadedRecord.id, 
+    url: returnedUrl 
+  });
+
+  return NextResponse.json({
+    success: 1,
+    file: {
+      url: returnedUrl,
+    },
+  });
 }
+
+export const POST = withErrorHandler(handlePost);

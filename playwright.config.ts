@@ -3,6 +3,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests',
+  testMatch: '**/*.spec.ts',
   workers: 1, // Enforce single worker to prevent parallel database transaction collisions
   retries: 0,
   timeout: 180000, // 3 minutes timeout per test (to accommodate slow typing cinematic views)

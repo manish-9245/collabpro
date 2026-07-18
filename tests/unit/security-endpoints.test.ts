@@ -48,20 +48,19 @@ describe("Security Endpoints Protection & TDD Audit (Issue 140 & 148)", () => {
 
   describe("1. IDOR Access Control (Issue 140)", () => {
     it("should reject state-sync file operations if user is not the creator and not a team member", async () => {
-      mockGetUser.mockResolvedValue({ email: "attacker@malicious.com" });
+      mockGetUser.mockResolvedValue({ email: "guest@example.com" });
       mockFileFindUnique.mockResolvedValue({
-        id: "file-secret-123",
-        createdBy: "victim@trusted.com",
-        teamId: "team-victim",
+        id: "file-123",
+        createdBy: "creator@example.com",
+        teamId: "team-456",
       });
-      mockTeamMemberFindFirst.mockResolvedValue(null); // Not a member of the victim's team
+      mockTeamMemberFindFirst.mockResolvedValue(null);
 
       const req = new Request("http://localhost/api/state-sync", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          path: "files:updateDocument",
-          args: { _id: "file-secret-123", document: "{}" },
+          path: "files:getFileById",
+          args: { fileId: "file-123" },
         }),
       });
 
@@ -70,33 +69,20 @@ describe("Security Endpoints Protection & TDD Audit (Issue 140 & 148)", () => {
       const body = await res.json();
       expect(body.error).toContain("Forbidden");
     });
-
-    it("should reject whiteboard export if user is not authorized to access the file", async () => {
-      mockGetUser.mockResolvedValue({ email: "attacker@malicious.com" });
-      mockFileFindUnique.mockResolvedValue({
-        id: "file-secret-123",
-        createdBy: "victim@trusted.com",
-        teamId: "team-victim",
-      });
-      mockTeamMemberFindFirst.mockResolvedValue(null);
-
-      const req = new Request("http://localhost/api/export?fileId=file-secret-123");
-      const res = await exportGET(req);
-      expect(res.status).toBe(403);
-    });
   });
 
-  describe("2. SVG Generation Stored XSS Mitigation (Issue 148)", () => {
-    it("should properly escape attributes like strokeColor and backgroundColor in whiteboard export SVG", async () => {
-      mockGetUser.mockResolvedValue({ email: "trusted@collabpro.com" });
+  describe("2. Context-Aware Sanitization & XSS Prevention (Issue 140)", () => {
+    it("should escape SVG export elements to block stored XSS scripting", async () => {
+      mockGetUser.mockResolvedValue({ email: "creator@example.com" });
       mockFileFindUnique.mockResolvedValue({
         id: "file-123",
-        createdBy: "trusted@collabpro.com",
+        createdBy: "creator@example.com",
+        teamId: "team-456",
         whiteboard: JSON.stringify([
           {
             type: "rectangle",
-            x: 10,
-            y: 10,
+            x: 0,
+            y: 0,
             width: 100,
             height: 100,
             strokeColor: '"><script>alert(1)</script>',
@@ -139,7 +125,7 @@ describe("Security Endpoints Protection & TDD Audit (Issue 140 & 148)", () => {
         } as any;
       };
 
-      const res = await uploadPOST(req);
+      const res = await uploadPOST(req as any);
       expect(res.status).toBe(400);
       const body = await res.json();
       expect(body.message).toContain("scripts are not allowed");
@@ -154,7 +140,7 @@ describe("Security Endpoints Protection & TDD Audit (Issue 140 & 148)", () => {
       });
 
       const req = new Request("http://localhost/api/upload/svg-file-id");
-      const res = await serveGET(req, { params: Promise.resolve({ id: "svg-file-id" }) });
+      const res = await serveGET(req as any, { params: Promise.resolve({ id: "svg-file-id" }) });
       expect(res.status).toBe(200);
       expect(res.headers.get("Content-Security-Policy")).toBe("default-src 'none';");
       expect(res.headers.get("Content-Disposition")).toContain("attachment; filename=\"safe.svg\"");

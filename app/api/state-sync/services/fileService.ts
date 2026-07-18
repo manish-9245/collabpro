@@ -12,6 +12,92 @@ import {
   mergeWhiteboardById,
   ConflictStrategy,
 } from './helpers';
+import * as Y from 'yjs';
+
+function mergeWhiteboardPayloads(currentStr: string, incomingStr: string): string {
+  try {
+    const currentParsed = parseJsonIfString(currentStr);
+    const incomingParsed = parseJsonIfString(incomingStr);
+
+    if (currentParsed && typeof currentParsed === 'object' && (currentParsed as any).yjs && (currentParsed as any).data && 
+        incomingParsed && typeof incomingParsed === 'object' && (incomingParsed as any).yjs && (incomingParsed as any).data) {
+      const currentUpdate = Buffer.from((currentParsed as any).data, 'base64');
+      const incomingUpdate = Buffer.from((incomingParsed as any).data, 'base64');
+      const mergedUpdate = Y.mergeUpdates([new Uint8Array(currentUpdate), new Uint8Array(incomingUpdate)]);
+      const base64 = Buffer.from(mergedUpdate).toString('base64');
+      return JSON.stringify({
+        yjs: true,
+        data: base64
+      });
+    }
+  } catch (e) {
+    // Fallback to elements-based merge
+  }
+
+  try {
+    const currentElements = asWhiteboardElements(currentStr || '[]');
+    const incomingElements = asWhiteboardElements(incomingStr);
+    const mergedElements = mergeWhiteboardById(currentElements, incomingElements);
+    return JSON.stringify(mergedElements);
+  } catch (e) {
+    return incomingStr;
+  }
+}
+
+interface DebounceEntry {
+  timer: NodeJS.Timeout | null;
+  mergedData: any;
+  resolves: ((val: any) => void)[];
+}
+
+const debouncedWrites = new Map<string, DebounceEntry>();
+
+async function debounceWrite(
+  key: string,
+  data: any,
+  mergeFn: (curr: any, inc: any) => any,
+  writeFn: (finalData: any) => Promise<any>,
+  delay = 50,
+  initialValue: any = null
+): Promise<any> {
+  return new Promise((resolve) => {
+    const existing = debouncedWrites.get(key);
+    if (existing) {
+      if (existing.timer) clearTimeout(existing.timer);
+      existing.mergedData = mergeFn(existing.mergedData, data);
+      existing.resolves.push(resolve);
+      
+      existing.timer = setTimeout(async () => {
+        debouncedWrites.delete(key);
+        try {
+          const result = await writeFn(existing.mergedData);
+          existing.resolves.forEach(res => res(result));
+        } catch (err) {
+          existing.resolves.forEach(res => res(null));
+        }
+      }, delay);
+    } else {
+      const seededData = initialValue !== null ? mergeFn(initialValue, data) : data;
+      const entry: DebounceEntry = {
+        timer: null,
+        mergedData: seededData,
+        resolves: [resolve]
+      };
+      
+      entry.timer = setTimeout(async () => {
+        debouncedWrites.delete(key);
+        try {
+          const result = await writeFn(entry.mergedData);
+          entry.resolves.forEach(res => res(result));
+        } catch (err) {
+          entry.resolves.forEach(res => res(null));
+        }
+      }, delay);
+      
+      debouncedWrites.set(key, entry);
+    }
+  });
+}
 
 export async function handleFileService(path: string, args: any, authUserEmail: string | null, ipAddress: string): Promise<any> {
   let result: any = null;
@@ -98,13 +184,63 @@ export async function handleFileService(path: string, args: any, authUserEmail: 
       break;
     }
     case 'files:updateDocument': {
-      const { _id, document } = args || {};
-      result = await FileService.updateFile(_id, { document });
+      const { _id, fileId, id, document } = args || {};
+      const targetFileId = _id || fileId || id;
+      if (!targetFileId) throw new Error("Missing file id. Pass `_id`, `fileId`, or `id`.");
+
+      const file = await prisma.file.findUnique({
+        where: { id: targetFileId },
+        select: { document: true }
+      });
+      const currentDocStr = file ? file.document : '';
+
+      result = await debounceWrite(`doc:${targetFileId}`, document, (curr, inc) => {
+        try {
+          return JSON.stringify(mergeDocumentBlocks(asEditorDocument(curr || '{"blocks":[]}'), asEditorDocument(inc)));
+        } catch {
+          return inc;
+        }
+      }, async (finalDoc) => {
+        return FileService.updateFile(targetFileId, { document: finalDoc });
+      }, 50, currentDocStr);
       break;
     }
     case 'files:updateWhiteboard': {
-      const { _id, whiteboard } = args || {};
-      result = await FileService.updateFile(_id, { whiteboard });
+      const { _id, fileId, id, whiteboard } = args || {};
+      const targetFileId = _id || fileId || id;
+      if (!targetFileId) throw new Error("Missing file id. Pass `_id`, `fileId`, or `id`.");
+
+      const file = await prisma.file.findUnique({
+        where: { id: targetFileId },
+        select: { whiteboard: true }
+      });
+      const currentWhiteboardStr = file ? file.whiteboard : '[]';
+
+      result = await debounceWrite(`whiteboard:${targetFileId}`, whiteboard, (curr, inc) => {
+        try {
+          const parsedIncoming = parseJsonIfString(inc);
+          if (parsedIncoming && typeof parsedIncoming === 'object' && (parsedIncoming as any).isDelta) {
+            const delta = parsedIncoming as any;
+            const updated = Array.isArray(delta.updated) ? delta.updated : [];
+            const deleted = Array.isArray(delta.deleted) ? delta.deleted : [];
+
+            const currentElements = asWhiteboardElements(curr || '[]');
+            const currentMap = new Map<string, any>();
+            currentElements.forEach((el: any) => { if (el && el.id) currentMap.set(el.id, el); });
+            
+            deleted.forEach((id: string) => { currentMap.delete(id); });
+            updated.forEach((el: any) => { if (el && el.id) currentMap.set(el.id, el); });
+
+            return JSON.stringify(Array.from(currentMap.values()));
+          } else {
+            return mergeWhiteboardPayloads(curr || '[]', inc);
+          }
+        } catch (e) {
+          return inc;
+        }
+      }, async (finalWhiteboard) => {
+        return FileService.updateFile(targetFileId, { whiteboard: finalWhiteboard });
+      }, 50, currentWhiteboardStr);
       break;
     }
     case 'collabpro_update_document': {

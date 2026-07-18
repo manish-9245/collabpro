@@ -75,13 +75,13 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       # 7. Execute E2E Showcase Tests
-      - name: 🎬 Run Cinematic Showcase Test Suite
+      - name: 🎬 Run Comprehensive and Cinematic E2E Test Suite
         id: playwright_tests
         env:
           DATABASE_URL: postgresql://postgres:postgres_password@localhost:5432/collabpro
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SNYK_ORG_ID: ${{ secrets.SNYK_ORG_ID }}
-        run: npx playwright test tests/showcase.spec.ts
+        run: npx playwright test
 
       # 8. Upload showcase.webm video as safe GitHub workflow artifact
       - name: 💾 Archive Showcase Video Artifact

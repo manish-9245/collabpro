@@ -10,6 +10,38 @@ import { handleFileService } from './services/fileService';
 import { handleOrgService } from './services/orgService';
 import { handleNotificationService } from './services/notificationService';
 
+async function checkFileAccess(fileId: string, email: string): Promise<boolean> {
+  if (!fileId) return false;
+  const file = await prisma.file.findUnique({
+    where: { id: fileId }
+  });
+  if (!file) return false;
+  if (file.createdBy === email) return true;
+  const teamMember = await prisma.teamMember.findFirst({
+    where: {
+      teamId: file.teamId,
+      userEmail: email
+    }
+  });
+  return !!teamMember;
+}
+
+async function checkTeamAccess(teamId: string, email: string): Promise<boolean> {
+  if (!teamId) return false;
+  const team = await prisma.team.findUnique({
+    where: { id: teamId }
+  });
+  if (!team) return false;
+  if (team.createdBy === email) return true;
+  const teamMember = await prisma.teamMember.findFirst({
+    where: {
+      teamId,
+      userEmail: email
+    }
+  });
+  return !!teamMember;
+}
+
 export async function POST(request: Request) {
   try {
     const ipAddress = (request && request.headers && typeof request.headers.get === 'function')
@@ -111,6 +143,76 @@ export async function POST(request: Request) {
       }
     }
 
+    // Enforce file-level access controls for authenticated users (Issue 140)
+    const filePaths = [
+      'files:getFileById',
+      'files:updateDocument',
+      'files:updateWhiteboard',
+      'collabpro_update_document',
+      'collabpro_update_whiteboard',
+      'files:updateFileName',
+      'files:updateFileFolder',
+      'files:archiveFile',
+      'files:deleteFile',
+      'files:createVersion',
+      'files:getVersions',
+      'files:restoreVersion',
+      'files:updateVersionNote',
+      'files:upsertPresence',
+      'files:clearPresence',
+      'files:getActiveCollaborators'
+    ];
+
+    if (filePaths.includes(path)) {
+      let targetFileId = args?._id || args?.fileId || args?.id;
+      if (!targetFileId && args?.versionId) {
+        const version = await prisma.fileVersion.findUnique({
+          where: { id: args.versionId }
+        });
+        if (version) {
+          targetFileId = version.fileId;
+        }
+      }
+      if (!targetFileId) {
+        return NextResponse.json({ error: 'Bad Request: Missing file context' }, { status: 400 });
+      }
+
+      if (isGuest) {
+        if (targetFileId !== guestFileId) {
+          return NextResponse.json({ error: 'Forbidden: This shared link does not grant access to the requested file.' }, { status: 403 });
+        }
+      } else {
+        const hasAccess = await checkFileAccess(targetFileId, authUserEmail);
+        if (!hasAccess) {
+          return NextResponse.json({ error: 'Forbidden: You do not have access to this file' }, { status: 403 });
+        }
+      }
+    }
+
+    // Enforce team-level access controls (Issue 140)
+    const teamPaths = [
+      'teams:getTeamProfile',
+      'teams:updateTeamProfile',
+      'teams:getTeamMembers',
+      'teams:inviteMember',
+      'teams:removeMember',
+      'teams:leaveTeam',
+      'files:getFiles',
+      'files:createFile',
+    ];
+
+    if (teamPaths.includes(path)) {
+      const targetTeamId = args?.teamId || args?.id;
+      if (!targetTeamId) {
+        return NextResponse.json({ error: 'Bad Request: Missing team context' }, { status: 400 });
+      }
+
+      const hasAccess = await checkTeamAccess(targetTeamId, authUserEmail);
+      if (!hasAccess) {
+        return NextResponse.json({ error: 'Forbidden: You do not have access to this team' }, { status: 403 });
+      }
+    }
+
     // Auto-default email arguments to the authenticated user's email if missing
     if (args && typeof args === 'object') {
       if (!args.userEmail) {
@@ -133,7 +235,7 @@ export async function POST(request: Request) {
       result = await handleTeamService(path, args, authUserEmail, ipAddress);
     } else if (path.startsWith('files:') || path === 'collabpro_update_whiteboard') {
       result = await handleFileService(path, args, authUserEmail, ipAddress);
-    } else if (path.startsWith('org:')) {
+    } else if (path.startsWith('org:') || path.startsWith('orgSettings:') || path.startsWith('securityAudit:') || path.startsWith('sharedLibrary:')) {
       result = await handleOrgService(path, args, authUserEmail, ipAddress);
     } else if (path.startsWith('notifications:')) {
       result = await handleNotificationService(path, args, authUserEmail, ipAddress);
