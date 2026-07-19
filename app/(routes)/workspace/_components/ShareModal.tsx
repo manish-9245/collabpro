@@ -226,7 +226,7 @@ export default function ShareModal({ isOpen, onClose, fileId, fileName }: ShareM
                   <input
                     type="password"
                     required
-                    placeholder="Enter secure link password..."
+                    placeholder="Enter secure link password… (e.g. secret123)"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="w-full text-xs font-medium px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-800 dark:text-zinc-200"
@@ -312,7 +312,7 @@ export default function ShareModal({ isOpen, onClose, fileId, fileName }: ShareM
               {isLoadingLinks ? (
                 <div className="flex flex-col items-center justify-center py-10 space-y-2">
                   <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
-                  <p className="text-xs font-semibold text-slate-400">Loading sharing channels...</p>
+                  <p className="text-xs font-semibold text-slate-400">Loading sharing channels…</p>
                 </div>
               ) : activeLinks.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-10 text-center space-y-2.5">

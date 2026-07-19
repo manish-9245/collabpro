@@ -175,7 +175,7 @@ function WorkspaceHeader({
   const handleRestoreVersion = async (versionId: string) => {
     try {
       await restoreVersion({ versionId })
-      toast.success('Version restored successfully! Re-syncing and loading...')
+      toast.success('Version restored successfully! Re-syncing and loading…')
       triggerQueryRefetch('files:getFileById', fileData._id)
     } catch (err) {
       console.error(err)
@@ -520,7 +520,7 @@ function WorkspaceHeader({
           {savingStatus === 'saving' ? (
             <div className="flex items-center gap-1.5 text-amber-500 dark:text-amber-400">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              <span>Saving...</span>
+              <span>Saving…</span>
             </div>
           ) : savingStatus === 'saved' ? (
             <div className="flex items-center gap-1.5 text-emerald-500 dark:text-emerald-400">
@@ -611,7 +611,7 @@ function WorkspaceHeader({
                   <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Create Custom Savepoint</h3>
                   <div className="flex gap-2">
                     <Input
-                      placeholder="E.g., Final draft, Meeting notes..."
+                      placeholder="E.g., Final draft, Meeting notes…"
                       value={versionNote}
                       onChange={(e) => setVersionNote(e.target.value)}
                       className="h-9 text-xs border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 dark:text-slate-100 focus:ring-1 focus:ring-blue-500"
