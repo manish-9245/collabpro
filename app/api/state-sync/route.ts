@@ -12,6 +12,7 @@ import { handleFileService } from './services/fileService';
 import { handleOrgService } from './services/orgService';
 import { handleNotificationService } from './services/notificationService';
 import { handleSnykService } from './services/snykService';
+import { handleSonarcloudService } from './services/sonarcloudService';
 
 async function checkFileAccess(fileId: string, email: string): Promise<boolean> {
   if (!fileId) return false;
@@ -251,6 +252,8 @@ async function POST_handler(request: Request) {
       result = await handleNotificationService(path, args, authUserEmail, ipAddress);
     } else if (path.startsWith('snyk:')) {
       result = await handleSnykService(path, args, authUserEmail, ipAddress);
+    } else if (path.startsWith('sonarcloud:')) {
+      result = await handleSonarcloudService(path, args, authUserEmail, ipAddress);
     } else {
       logger.error(`Convex Mock Error: Method ${path} not implemented`);
       return NextResponse.json({ error: `Method ${path} not implemented` }, { status: 404 });

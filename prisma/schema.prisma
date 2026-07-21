@@ -196,6 +196,16 @@ model SnykSettings {
   token  String
 }
 
+model SonarcloudSettings {
+  id           String   @id @default(uuid())
+  userId       String   @unique
+  organization String   @default("")
+  projectKey   String   @default("")
+  token        String   @default("")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
 model UploadedFile {
   id        String   @id @default(uuid())
   filename  String
