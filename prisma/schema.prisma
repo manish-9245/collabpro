@@ -189,6 +189,13 @@ model AuditLog {
   @@index([teamId, createdAt])
 }
 
+model SnykSettings {
+  id     String @id @default(uuid())
+  userId String @unique
+  orgId  String
+  token  String
+}
+
 model UploadedFile {
   id        String   @id @default(uuid())
   filename  String

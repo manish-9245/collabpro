@@ -8,6 +8,7 @@ import FileList from './_components/FileList'
 import AdBanner from './../../_components/AdBanner'
 import { FileListContext } from '@/app/_context/FilesListContext'
 import { ActiveTeamContext } from '@/app/_context/ActiveTeamContext'
+import SnykWidget from './_components/SnykWidget'
 import { Sparkles, FileText, Users, Award, ShieldAlert, Layers } from 'lucide-react'
 
 function Dashboard() {
@@ -137,6 +138,9 @@ function Dashboard() {
             <span className='text-xs text-emerald-500 font-semibold'>100% Free</span>
           </div>
         </div>
+
+        {/* Metric 5 - Snyk Security */}
+        <SnykWidget />
       </div>
 
       {/* Files List Panel */}
