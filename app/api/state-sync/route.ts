@@ -11,6 +11,7 @@ import { handleTeamService } from './services/teamService';
 import { handleFileService } from './services/fileService';
 import { handleOrgService } from './services/orgService';
 import { handleNotificationService } from './services/notificationService';
+import { handleSnykService } from './services/snykService';
 
 async function checkFileAccess(fileId: string, email: string): Promise<boolean> {
   if (!fileId) return false;
@@ -248,6 +249,8 @@ async function POST_handler(request: Request) {
       result = await handleOrgService(path, args, authUserEmail, ipAddress);
     } else if (path.startsWith('notifications:')) {
       result = await handleNotificationService(path, args, authUserEmail, ipAddress);
+    } else if (path.startsWith('snyk:')) {
+      result = await handleSnykService(path, args, authUserEmail, ipAddress);
     } else {
       logger.error(`Convex Mock Error: Method ${path} not implemented`);
       return NextResponse.json({ error: `Method ${path} not implemented` }, { status: 404 });
