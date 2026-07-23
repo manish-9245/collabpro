@@ -4,6 +4,13 @@ const { google } = require('googleapis');
 
 async function upload() {
   console.log('🎬 Initializing YouTube Upload via Google API...');
+
+  const hasCredentials = !!(process.env.YOUTUBE_CLIENT_ID && process.env.YOUTUBE_CLIENT_SECRET && process.env.YOUTUBE_REFRESH_TOKEN);
+  console.log(`   Credentials configured: ${hasCredentials ? 'YES' : 'NO'}`);
+  if (!hasCredentials) {
+    console.log('   Skipping upload — set YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, and YOUTUBE_REFRESH_TOKEN secrets.');
+    return;
+  }
   
   const oauth2Client = new google.auth.OAuth2(
     process.env.YOUTUBE_CLIENT_ID,
@@ -22,7 +29,8 @@ async function upload() {
   const videoPath = path.resolve(__dirname, '../test-results/showcase.webm');
   if (!fs.existsSync(videoPath)) {
     console.error('❌ Video file not found at:', videoPath);
-    process.exit(1);
+    console.error('   The E2E Playwright test did not produce showcase.webm.');
+    return;
   }
 
   console.log('🚀 Uploading cinematic test video of size', fs.statSync(videoPath).size, 'bytes...');
@@ -94,6 +102,10 @@ async function upload() {
 }
 
 upload().catch(err => {
-  console.error('❌ Error uploading video to YouTube:', err);
-  process.exit(0); // Exit with 0 so API quota errors or rate-limits do not block the pipeline
+  console.error('❌ YouTube upload failed:', err.message);
+  console.error('   Possible causes: YOUTUBE_CLIENT_ID/YOUTUBE_REFRESH_TOKEN secrets not set,');
+  console.error('   refresh token expired, video file missing, or API quota exceeded.');
+  console.error('   See: https://console.cloud.google.com/apis/credentials');
+  // Exit 0 to not block the CI pipeline, but error is visible in logs
+  process.exit(0);
 });
