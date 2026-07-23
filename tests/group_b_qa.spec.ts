@@ -162,8 +162,8 @@ test.describe('Group B QA Suite - GrahakAI', () => {
 
     // Fill File Name: "System Design Specs" and Folder Name: "Core-Specs"
     console.log('Filling valid file and folder names...');
-    await slowType('input[placeholder="Enter File Name"]', fileName);
-    await slowType('input[placeholder="Enter Folder Name (Optional)"]', folderName);
+    await slowType('input[name="filename"]', fileName);
+    await slowType('input[name="foldername"]', folderName);
     
     // Verify submit button is now enabled
     const isEnabledNow = await submitBtn.isEnabled();
