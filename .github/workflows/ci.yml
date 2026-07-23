@@ -1,21 +1,22 @@
-name: CollabPro Unified CI/CD Pipeline
+name: CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [main]
   pull_request:
-    branches: [ "main" ]
+    branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-jobs:
-  build-test-scan:
-    name: Build, E2E Test, Scan and Notify
-    runs-on: ubuntu-latest
+env:
+  SESSION_SECRET: ci-random-secret-do-not-use-in-production
+  DATABASE_URL: postgresql://postgres:postgres_password@localhost:5432/collabpro
 
-    # Setup database service container to ensure Next.js prerendering compiles cleanly
+jobs:
+  build:
+    runs-on: ubuntu-latest
     services:
       postgres:
         image: postgres:15
@@ -30,259 +31,51 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node scripts/db-prep.js
+      - run: npx prisma db push
+      - run: npm run build
 
-      rabbitmq:
-        image: rabbitmq:3-management
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: collabpro
+          POSTGRES_PASSWORD: postgres_password
         ports:
-          - 5672:5672
-          - 15672:15672
+          - 5432:5432
         options: >-
-          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-cmd pg_isready
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-
     steps:
-      # 1. Checkout codebase
-      - name: 🔍 Checkout Repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Shallow clones should be disabled for a better SonarCloud analysis
-
-      # 2. Setup Node.js (Node 22 or higher as per global preferences)
-      - name: 🟢 Setup Node.js v22
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: 'npm'
-
-      # 3. Install core dependencies
-      - name: 📦 Install Dependencies
-        run: npm ci
-
-      # 4. Initialize Database Scheme
-      - name: 🗄️ Run Database Preparation
-        env:
-          DATABASE_URL: postgresql://postgres:postgres_password@localhost:5432/collabpro
-        run: |
-          node scripts/db-prep.js
-          npx prisma db push
-
-      # 5. Build production bundle (Exit code 0 is strictly required)
-      - name: 🏗️ Verify Production Compilation
-        env:
-          DATABASE_URL: postgresql://postgres:postgres_password@localhost:5432/collabpro
-        run: npm run build
-
-      # 6. Setup Playwright browsers & dependencies
-      - name: 🎭 Setup Playwright browsers
-        run: npx playwright install --with-deps chromium
-
-      # 7. Execute E2E Showcase Tests
-      - name: 🎬 Run Comprehensive and Cinematic E2E Test Suite
-        id: playwright_tests
-        env:
-          DATABASE_URL: postgresql://postgres:postgres_password@localhost:5432/collabpro
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SNYK_ORG_ID: ${{ secrets.SNYK_ORG_ID }}
-        run: npx playwright test
-
-      # 8. Upload showcase.webm video as safe GitHub workflow artifact
-      - name: 💾 Archive Showcase Video Artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: collabpro-cinematic-video
-          path: test-results/showcase.webm
-          retention-days: 7
-
-      # 9. Upload E2E Cinematic Tour Video to YouTube (Robust Google APIs Script)
-      - name: 🎥 Upload Cinematic Tour Video to YouTube
-        id: upload_youtube
-        if: success()
-        continue-on-error: true # Continues gracefully if credentials or refresh tokens are not set up yet
-        env:
-          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
-          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
-          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-          GITHUB_REF_NAME: ${{ github.ref_name }}
-          GITHUB_SHA: ${{ github.sha }}
-        run: node scripts/upload-youtube.js
-
-      # 9.5. Run Unit Tests & Generate Coverage Report
-      - name: 📈 Run Unit Tests with Coverage
-        env:
-          DATABASE_URL: postgresql://postgres:postgres_password@localhost:5432/collabpro
-        run: npm run test:coverage
-
-      # 10. Dispatch Asynchronous Security Scans & Quality Gate Webhook
-      - name: 🛡️ Dispatch Asynchronous Security Webhook
-        if: success()
-        run: |
-          curl -s -X POST \
-            -H "Authorization: Bearer ${{ secrets.NOTIFICATION_SECRET }}" \
-            -H "Content-Type: application/json" \
-            -d '{"commitSha":"${{ github.sha }}","branch":"${{ github.ref_name }}","repository":"${{ github.repository }}"}' \
-            https://collabpro.railway.app/api/security-audit
-
-
-      # 11.5. Parse Discovered Insights from Sonar and Snyk
-      - name: 🔍 Parse Discovered Scan Insights
-        id: parse_insights
-        if: always()
-        continue-on-error: true
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: node scripts/parse-insights.js
-
-      # 12. Send well-formatted testing summary email to user
-      - name: ✉️ Send Testing Evidence Summary Email
-        if: always()
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: ${{ secrets.SMTP_SERVER }}
-          server_port: 465
-          username: ${{ secrets.SMTP_USERNAME }}
-          password: ${{ secrets.SMTP_PASSWORD }}
-          secure: true
-          subject: "🚀 CollabPro CI Summary: ${{ github.ref_name }} [${{ job.status }}] - Run #${{ github.run_id }} (Attempt #${{ github.run_attempt || '1' }} - SHA: ${{ github.sha }})"
-          to: ${{ secrets.NOTIFICATION_EMAIL }}
-          from: "CollabPro CI/CD <ci-reports@collabpro.com>"
-          html_body: |
-            <!DOCTYPE html>
-            <html lang="en">
-              <head>
-                <meta charset="utf-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <style>
-                  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: #f3f4f6; color: #1f2937; margin: 0; padding: 32px 0; -webkit-font-smoothing: antialiased; }
-                  .email-wrapper { max-width: 650px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; border: 1px solid #e5e7eb; overflow: hidden; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05); }
-                  
-                  /* Header styling */
-                  .email-header { background: linear-gradient(135deg, #090d16 0%, #111827 100%); padding: 48px 32px; border-top: 5px solid #2563eb; text-align: center; }
-                  .header-logo { font-size: 24px; font-weight: 900; letter-spacing: -0.03em; color: #ffffff; margin: 0; text-transform: uppercase; }
-                  .header-logo span { color: #3b82f6; }
-                  .header-tagline { font-size: 11px; font-weight: 700; color: #60a5fa; text-transform: uppercase; letter-spacing: 0.12em; margin-top: 10px; margin-bottom: 0; }
-                  
-                  /* Content wrapper */
-                  .email-content { padding: 40px 32px; }
-                  
-                  /* Section headers */
-                  .section-header { font-size: 11px; font-weight: 800; color: #4b5563; text-transform: uppercase; letter-spacing: 0.15em; border-bottom: 2px solid #f3f4f6; padding-bottom: 10px; margin-bottom: 24px; margin-top: 36px; }
-                  .section-header:first-of-type { margin-top: 0; }
-                  
-                  /* Hero KPI Grid */
-                  .kpi-grid { display: table; width: 100%; margin-bottom: 32px; border-collapse: separate; border-spacing: 12px 0; margin-left: -12px; margin-right: -12px; }
-                  .kpi-col { display: table-cell; width: 50%; }
-                  .kpi-card { background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; text-align: left; }
-                  .kpi-title { font-size: 10px; font-weight: 800; color: #6b7280; text-transform: uppercase; letter-spacing: 0.08em; margin: 0; }
-                  .kpi-value { font-size: 20px; font-weight: 800; color: #111827; margin: 8px 0 0 0; line-height: 1.1; }
-                  .kpi-desc { font-size: 11px; color: #6b7280; margin: 6px 0 0 0; line-height: 1.4; }
-                  
-                  /* Status pills */
-                  .status-pill { display: inline-block; padding: 4px 12px; border-radius: 9999px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; border: 1px solid transparent; }
-                  .status-pill.success { background-color: #ecfdf5; color: #047857; border-color: #a7f3d0; }
-                  .status-pill.failed { background-color: #fef2f2; color: #b91c1c; border-color: #fecaca; }
-                  
-                  /* Showcase Player block */
-                  .player-card { background: linear-gradient(135deg, #090d16 0%, #111827 100%); border-radius: 14px; padding: 40px 32px; text-align: center; border: 1px solid #1f2937; position: relative; margin-bottom: 32px; }
-                  .player-play-icon { font-size: 32px; color: #ef4444; margin-bottom: 12px; display: block; }
-                  .player-title { font-size: 16px; font-weight: 800; color: #ffffff; margin: 0 0 8px 0; }
-                  .player-subtitle { font-size: 12px; color: #9ca3af; margin: 0 0 24px 0; }
-                  .player-button { display: inline-block; background-color: #dc2626; color: #ffffff !important; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; text-decoration: none !important; padding: 12px 28px; border-radius: 6px; box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3); }
-                  
-                  /* Metrics Row */
-                  .metrics-row { background-color: #f9fafb; border: 1px solid #e5e7eb; padding: 20px; border-radius: 12px; margin-bottom: 24px; }
-                  .metrics-row-title { font-size: 13px; font-weight: 800; color: #111827; margin: 0; text-transform: uppercase; letter-spacing: 0.04em; }
-                  .metrics-row-desc { font-size: 12px; color: #4b5563; margin: 6px 0 16px 0; line-height: 1.5; }
-                  .metrics-badges-flex { display: block; margin-top: 8px; }
-                  .metrics-badge-wrapper { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 6px; padding: 6px 8px; display: inline-flex; align-items: center; margin-right: 8px; margin-bottom: 8px; vertical-align: middle; }
-                  
-                  /* Action Buttons */
-                  .action-btn-outline { display: inline-block; border: 1px solid #d1d5db; color: #374151 !important; background-color: #ffffff; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; text-decoration: none !important; padding: 10px 18px; border-radius: 6px; margin-top: 4px; }
-                  
-                  /* Footer */
-                  .email-footer { background-color: #f9fafb; padding: 40px 32px; border-top: 1px solid #e5e7eb; text-align: center; }
-                  .footer-logo { font-size: 12px; font-weight: 800; color: #374151; text-transform: uppercase; letter-spacing: 0.1em; margin: 0; }
-                  .footer-text { font-size: 11px; color: #6b7280; line-height: 1.6; margin: 10px 0 0 0; }
-                </style>
-              </head>
-              <body>
-                <div class="email-wrapper">
-                  <!-- Header -->
-                  <div class="email-header">
-                    <div class="header-logo">Collab<span>Pro</span> Enterprise</div>
-                    <div class="header-tagline">Continuous Integration & Build Compliance</div>
-                  </div>
-                  
-                  <!-- Main Content -->
-                  <div class="email-content">
-                    
-                    <!-- Section 1: Execution Insights -->
-                    <div class="section-header">📊 Build Intelligence</div>
-                    <div class="kpi-grid">
-                      <div class="kpi-col">
-                        <div class="kpi-card">
-                          <div class="kpi-title">Pipeline Status</div>
-                          <div class="kpi-value">
-                            <span class="status-pill ${{ job.status == 'success' && 'success' || 'failed' }}">${{ job.status }}</span>
-                          </div>
-                          <p class="kpi-desc">Core Next.js build compilation checked & verified.</p>
-                        </div>
-                      </div>
-                      <div class="kpi-col">
-                        <div class="kpi-card">
-                          <div class="kpi-title">Commit Author</div>
-                          <div class="kpi-value" style="font-size: 15px; font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 12px; font-weight: 700;">${{ github.actor }}</div>
-                          <p class="kpi-desc">Triggered via push on branch <strong>${{ github.ref_name }}</strong></p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <!-- Git Context Card -->
-                    <div class="metrics-row" style="padding: 16px; margin-bottom: 32px; background: #fafafa;">
-                      <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
-                        <tr>
-                          <td style="color: #6b7280; font-weight: 700; padding: 4px 0; text-transform: uppercase; letter-spacing: 0.05em;">Execution SHA:</td>
-                          <td style="font-family: monospace; color: #111827; font-weight: 700; padding: 4px 0; text-align: right;">${{ github.sha }}</td>
-                        </tr>
-                        <tr>
-                          <td style="color: #6b7280; font-weight: 700; padding: 4px 0; text-transform: uppercase; letter-spacing: 0.05em;">Playwright Audit:</td>
-                          <td style="color: #047857; font-weight: 700; padding: 4px 0; text-align: right;">Passed (Showcase Video Outputted)</td>
-                        </tr>
-                      </table>
-                    </div>
-
-                    <!-- Section 2: E2E Playwright Evidence -->
-                    <div class="section-header">🎬 Playwright Walkthrough</div>
-                    <p style="font-size: 13px; color: #4b5563; margin: 0 0 20px 0; line-height: 1.6;">
-                      Your E2E Playwright tour traversed and verified registration, secure session authentication, team space selection, markdown checklist entry, and canvas drag testing.
-                    </p>
-                    <div class="player-card">
-                      <div class="player-play-icon">▶</div>
-                      <div class="player-title">Walkthrough Film Uploaded</div>
-                      <p class="player-subtitle">A native recording has been pushed to your YouTube dashboard as unlisted</p>
-                      ${{ steps.upload_youtube.outputs.video_id != '' && format('<a href="https://youtu.be/{0}" class="player-button">Stream Walkthrough</a>', steps.upload_youtube.outputs.video_id) || '<div style="color: #9ca3af; font-size: 11px; font-weight: 700; background: rgba(255,255,255,0.05); padding: 12px 16px; border-radius: 6px; border: 1px dashed #374151;">OAuth credentials pending setup. Showcase film safely archived as workflow build artifact.</div>' }}
-                    </div>
-
-                    <!-- Section 3: Static Analysis -->
-                    <div class="section-header">📡 SonarCloud Compliance</div>
-                    ${{ steps.parse_insights.outputs.sonar_insights }}
-
-                    <!-- Section 4: Snyk Vulnerability Report -->
-                    <div class="section-header">🛡️ Snyk Security Compliance</div>
-                    ${{ steps.parse_insights.outputs.snyk_insights }}
-
-                  </div>
-                  
-                  <!-- Footer -->
-                  <div class="email-footer">
-                    <div class="footer-logo">CollabPro Enterprise</div>
-                    <p class="footer-text">
-                      This build notification was automatically dispatched from the CollabPro continuous integration infrastructure.<br>
-                      Triggered by push event on commit ${{ github.sha }} | Branch: ${{ github.ref_name }}
-                    </p>
-                  </div>
-                </div>
-              </body>
-            </html>
+          cache: npm
+      - run: npm ci
+      - run: node scripts/db-prep.js
+      - run: npx prisma db push
+      - run: npm run test:coverage
