@@ -133,9 +133,12 @@ function SideNavBottomSection({onFileCreate,totalFiles}:any) {
   return (
     <div>
       {menuList.map((menu,index)=>(
-        <h2 
+        <div 
           key={index} 
           onClick={menu.action}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); menu.action(); } }}
           className={`flex gap-2 p-2 px-3 text-[14px] rounded-lg cursor-pointer transition-all duration-150 items-center justify-between mb-1 ${
             menu.isActive
               ? 'bg-blue-50 text-blue-600 font-semibold dark:bg-blue-950/40 dark:text-blue-400'
@@ -155,7 +158,7 @@ function SideNavBottomSection({onFileCreate,totalFiles}:any) {
               {menu.badge}
             </span>
           )}
-        </h2>
+        </div>
       ))}
 
       {/* Add New File Button  */}
@@ -168,16 +171,22 @@ function SideNavBottomSection({onFileCreate,totalFiles}:any) {
     <DialogHeader>
       <DialogTitle className="text-xl font-bold bg-gradient-to-r from-white to-zinc-400 bg-clip-text text-transparent">Create New File</DialogTitle>
       <DialogDescription className="text-zinc-400">
-          <Input placeholder='Enter File Name' 
-          className='mt-3 bg-zinc-900/80 border-zinc-800 text-white placeholder-zinc-500 focus:border-blue-500'
-          onChange={(e)=>setFileInput(e.target.value)}
+          <Input 
+            name="filename"
+            autoComplete="off"
+            placeholder="Enter file name… (e.g. Q3 Roadmap)" 
+            className='mt-3 bg-zinc-900/80 border-zinc-800 text-white placeholder-zinc-500 focus:border-blue-500'
+            onChange={(e)=>setFileInput(e.target.value)}
           />
           
-          <Input placeholder='Enter Folder Name (Optional)' 
-          list='existing-folders'
-          className='mt-3 bg-zinc-900/80 border-zinc-800 text-white placeholder-zinc-500 focus:border-blue-500'
-          onChange={(e)=>setFolderInput(e.target.value)}
-          value={folderInput}
+          <Input 
+            name="foldername"
+            autoComplete="off"
+            placeholder="Enter folder name… (e.g. Design)" 
+            list='existing-folders'
+            className='mt-3 bg-zinc-900/80 border-zinc-800 text-white placeholder-zinc-500 focus:border-blue-500'
+            onChange={(e)=>setFolderInput(e.target.value)}
+            value={folderInput}
           />
           <datalist id='existing-folders'>
             {folders.map(folder => (
