@@ -18,8 +18,8 @@ export async function POST(request: Request) {
     // Keying the per-account bucket on the IP as well means an attacker cannot
     // lock a victim out of their own account from elsewhere.
     const ip = getClientIp(request);
-    const ipLimit = checkRateLimit(`login:ip:${ip}`, LIMITS.LOGIN_PER_IP);
-    const accountLimit = checkRateLimit(`login:ip-account:${ip}:${email}`, LIMITS.LOGIN);
+    const ipLimit = await checkRateLimit(`login:ip:${ip}`, LIMITS.LOGIN_PER_IP);
+    const accountLimit = await checkRateLimit(`login:ip-account:${ip}:${email}`, LIMITS.LOGIN);
     if (!ipLimit.allowed || !accountLimit.allowed) {
       const resetAt = Math.max(ipLimit.resetAt, accountLimit.resetAt);
       return NextResponse.json(

@@ -88,11 +88,13 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
     const [sidebarMoveInput, setSidebarMoveInput] = useState('');
     const [sidebarFileToMove, setSidebarFileToMove] = useState<any>(null);
 
-    // Use state-sync engine real-time reactive query for sidebar files
-    const sidebarFiles = useQuery(
-        api.files.getFiles, 
+    // Use state-sync engine real-time reactive query for sidebar files.
+    // files:getFiles now returns { items, nextCursor } (Issue 190).
+    const sidebarFilesPage = useQuery(
+        api.files.getFiles,
         activeTeam?._id ? { teamId: activeTeam._id as string } : 'skip' as any
-    ) || [];
+    );
+    const sidebarFiles = sidebarFilesPage?.items ?? [];
 
     const updateFileName = useMutation(api.files.updateFileName);
     const deleteFile = useMutation(api.files.deleteFile);
@@ -211,7 +213,8 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
                 userEmail: user?.email,
                 scope: fileScope
             });
-            setFileList_(result);
+            // files:getFiles now returns { items, nextCursor } (Issue 190).
+            setFileList_(result?.items ?? []);
         }
     };
 

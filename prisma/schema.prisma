@@ -53,6 +53,8 @@ model Team {
   orgSetting   OrgSetting?
   auditLogs    AuditLog[]
   owner        User?               @relation("TeamOwner", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([createdBy])
 }
 
 model File {
@@ -70,6 +72,9 @@ model File {
   versions       FileVersion[]
   presences      FilePresence[]
   sharedLinks    SharedLink[]
+
+  @@index([teamId])
+  @@index([createdBy])
 }
 
 model TeamMember {
@@ -85,6 +90,7 @@ model TeamMember {
 
   @@unique([teamId, userEmail])
   @@unique([teamId, userId])
+  @@index([userEmail])
 }
 
 model FileVersion {
@@ -98,6 +104,8 @@ model FileVersion {
   note           String   @default("")
   createdAt      DateTime @default(now())
   file           File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@index([fileId, version])
 }
 
 model FilePresence {
@@ -116,6 +124,7 @@ model FilePresence {
 
   @@unique([fileId, userEmail])
   @@unique([fileId, userId])
+  @@index([fileId, lastSeenAt])
 }
 
 model Invitation {
@@ -146,6 +155,8 @@ model Notification {
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userEmail], references: [email], onDelete: Cascade)
   userById  User?    @relation("Notifications", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userEmail, createdAt])
 }
 
 model SharedLibraryItem {
@@ -175,6 +186,8 @@ model ApiKey {
   scope     String    @default("read-write")
   user      User      @relation(fields: [userEmail], references: [email], onDelete: Cascade)
   userById  User?     @relation("ApiKeys", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userEmail])
 }
 
 model SharedLink {

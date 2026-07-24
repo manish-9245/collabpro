@@ -48,9 +48,11 @@ function SideNav() {
       userEmail:user?.email,
       scope:fileScope
     });
-    console.log(result);
-    setFileList_(result);
-    setTotalFiles(result?.length)
+    // files:getFiles now returns { items, nextCursor } (Issue 190).
+    const items = result?.items ?? [];
+    console.log(items);
+    setFileList_(items);
+    setTotalFiles(items.length)
   }
 
   return (

@@ -98,12 +98,13 @@ function FileList() {
 
   const getFiles = async () => {
     if (activeTeam?._id) {
-      const result = await sync.query(api.files.getFiles, { 
+      const result = await sync.query(api.files.getFiles, {
         teamId: activeTeam._id as string,
         userEmail: user?.email,
         scope: fileScope
       });
-      setFileList_(result);
+      // files:getFiles now returns { items, nextCursor } (Issue 190).
+      setFileList_(result?.items ?? []);
     }
   }
 

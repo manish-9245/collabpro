@@ -1,3 +1,5 @@
+import { getRedisClient } from './redis-cache'
+
 interface RateLimitEntry {
   count: number
   resetAt: number
@@ -58,7 +60,12 @@ export function getClientIp(request: Request): string {
   return request.headers.get('x-real-ip')?.trim() || 'unknown'
 }
 
-export function checkRateLimit(
+/**
+ * In-process fallback, correct at exactly one replica. Used whenever Redis is
+ * unset or unreachable so a single-instance deployment (or local dev) keeps
+ * working exactly as before Redis-backing was added.
+ */
+function checkRateLimitInMemory(
   key: string,
   config: RateLimitConfig,
 ): { allowed: boolean; remaining: number; resetAt: number } {
@@ -76,4 +83,52 @@ export function checkRateLimit(
 
   entry.count++
   return { allowed: true, remaining: config.maxAttempts - entry.count, resetAt: entry.resetAt }
+}
+
+/**
+ * Redis-backed counter shared by every replica. Mirrors the fallback pattern
+ * used by `ResilientQueue` in `lib/queue.ts`: try Redis first, and let the
+ * caller (`checkRateLimit`) fall back to the in-memory store on any error so
+ * a Redis outage degrades to per-replica limiting instead of failing closed
+ * or open.
+ */
+async function checkRateLimitRedis(
+  client: NonNullable<ReturnType<typeof getRedisClient>>,
+  key: string,
+  config: RateLimitConfig,
+): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
+  const redisKey = `ratelimit:${key}`
+  const count = await client.incr(redisKey)
+
+  if (count === 1) {
+    // Only the request that created the counter sets its expiry, so later
+    // requests in the same window don't keep pushing the reset time out.
+    await client.expire(redisKey, Math.ceil(config.windowMs / 1000))
+  }
+
+  const ttlMs = await client.pttl(redisKey)
+  const resetAt = Date.now() + (ttlMs && ttlMs > 0 ? ttlMs : config.windowMs)
+
+  return {
+    allowed: count <= config.maxAttempts,
+    remaining: Math.max(0, config.maxAttempts - count),
+    resetAt,
+  }
+}
+
+export async function checkRateLimit(
+  key: string,
+  config: RateLimitConfig,
+): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
+  const client = getRedisClient()
+
+  if (client) {
+    try {
+      return await checkRateLimitRedis(client, key, config)
+    } catch (err: any) {
+      console.warn(`⚠️ Redis rate limit check failed for ${key}, falling back to in-memory: `, err.message)
+    }
+  }
+
+  return checkRateLimitInMemory(key, config)
 }

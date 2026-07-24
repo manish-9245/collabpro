@@ -83,8 +83,12 @@ function WorkspaceHeader({
     }
   }
 
-  // Fetch previous checkpoints
-  const versions = useQuery(api.files.getVersions, fileData?._id ? { fileId: fileData._id } : 'skip' as any) || []
+  // Fetch previous checkpoints. files:getVersions now returns a lightweight,
+  // paginated { items, nextCursor } page (no document/whiteboard blobs) so
+  // that opening the checkpoint list doesn't ship every historical full
+  // document/whiteboard snapshot to the client (Issue 200).
+  const versionsPage = useQuery(api.files.getVersions, fileData?._id ? { fileId: fileData._id } : 'skip' as any)
+  const versions = versionsPage?.items || []
   const activeCollaborators = useQuery(
     api.files.getActiveCollaborators,
     fileData?._id ? { fileId: fileData._id, currentUserEmail: user?.email } : 'skip' as any
