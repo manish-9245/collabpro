@@ -12,7 +12,7 @@ CREATE TABLE "User" (
     "linkedin" TEXT NOT NULL DEFAULT '',
     "portfolio" TEXT NOT NULL DEFAULT '',
     "isPrivate" BOOLEAN NOT NULL DEFAULT false,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- CreateTable
@@ -25,7 +25,7 @@ CREATE TABLE "Team" (
     "website" TEXT NOT NULL DEFAULT '',
     "github" TEXT NOT NULL DEFAULT '',
     "isPrivate" BOOLEAN NOT NULL DEFAULT false,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- CreateTable
@@ -38,7 +38,7 @@ CREATE TABLE "File" (
     "document" TEXT NOT NULL DEFAULT '',
     "whiteboard" TEXT NOT NULL DEFAULT '',
     "folder" TEXT,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "whiteboardText" TEXT NOT NULL DEFAULT '',
     CONSTRAINT "File_teamId_fkey" FOREIGN KEY ("teamId") REFERENCES "Team" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
@@ -49,7 +49,7 @@ CREATE TABLE "TeamMember" (
     "teamId" TEXT NOT NULL,
     "userEmail" TEXT NOT NULL,
     "role" TEXT NOT NULL DEFAULT 'member',
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "TeamMember_teamId_fkey" FOREIGN KEY ("teamId") REFERENCES "Team" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT "TeamMember_userEmail_fkey" FOREIGN KEY ("userEmail") REFERENCES "User" ("email") ON DELETE CASCADE ON UPDATE CASCADE
 );
@@ -64,7 +64,7 @@ CREATE TABLE "FileVersion" (
     "createdByName" TEXT NOT NULL DEFAULT 'Author',
     "createdByImage" TEXT NOT NULL DEFAULT '',
     "note" TEXT NOT NULL DEFAULT '',
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "FileVersion_fileId_fkey" FOREIGN KEY ("fileId") REFERENCES "File" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
@@ -77,7 +77,7 @@ CREATE TABLE "FilePresence" (
     "userImage" TEXT NOT NULL DEFAULT '',
     "userColor" TEXT NOT NULL DEFAULT '#6366f1',
     "workspaceStatus" TEXT NOT NULL DEFAULT 'Viewing workspace',
-    "lastSeenAt" DATETIME NOT NULL,
+    "lastSeenAt" TIMESTAMP NOT NULL,
     CONSTRAINT "FilePresence_fileId_fkey" FOREIGN KEY ("fileId") REFERENCES "File" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT "FilePresence_userEmail_fkey" FOREIGN KEY ("userEmail") REFERENCES "User" ("email") ON DELETE CASCADE ON UPDATE CASCADE
 );
@@ -90,7 +90,7 @@ CREATE TABLE "Invitation" (
     "inviterEmail" TEXT NOT NULL,
     "inviteeEmail" TEXT NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'pending',
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "Invitation_teamId_fkey" FOREIGN KEY ("teamId") REFERENCES "Team" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
@@ -102,7 +102,7 @@ CREATE TABLE "Notification" (
     "message" TEXT NOT NULL,
     "type" TEXT NOT NULL DEFAULT 'info',
     "read" BOOLEAN NOT NULL DEFAULT false,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "Notification_userEmail_fkey" FOREIGN KEY ("userEmail") REFERENCES "User" ("email") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
@@ -115,8 +115,8 @@ CREATE TABLE "SharedLibraryItem" (
     "sourceUrl" TEXT NOT NULL DEFAULT '',
     "author" TEXT NOT NULL DEFAULT '',
     "payload" TEXT NOT NULL,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL,
+    "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP NOT NULL,
     CONSTRAINT "SharedLibraryItem_teamId_fkey" FOREIGN KEY ("teamId") REFERENCES "Team" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
@@ -125,8 +125,8 @@ CREATE TABLE "ApiKey" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "userEmail" TEXT NOT NULL,
     "name" TEXT NOT NULL,
-    "expiresAt" DATETIME,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "expiresAt" TIMESTAMP,
+    "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "hashedKey" TEXT NOT NULL,
     "maskedKey" TEXT NOT NULL DEFAULT '',
     "scope" TEXT NOT NULL DEFAULT 'read-write',
@@ -139,9 +139,9 @@ CREATE TABLE "SharedLink" (
     "fileId" TEXT NOT NULL,
     "role" TEXT NOT NULL DEFAULT 'viewer',
     "passwordHash" TEXT,
-    "expiresAt" DATETIME,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL,
+    "expiresAt" TIMESTAMP,
+    "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP NOT NULL,
     "isActive" BOOLEAN NOT NULL DEFAULT true,
     CONSTRAINT "SharedLink_fileId_fkey" FOREIGN KEY ("fileId") REFERENCES "File" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
@@ -155,7 +155,7 @@ CREATE TABLE "OrgSetting" (
     "ssoProvider" TEXT NOT NULL DEFAULT 'saml',
     "ssoMetadataUrl" TEXT NOT NULL DEFAULT '',
     "seatLimit" INTEGER NOT NULL DEFAULT 50,
-    "updatedAt" DATETIME NOT NULL,
+    "updatedAt" TIMESTAMP NOT NULL,
     CONSTRAINT "OrgSetting_teamId_fkey" FOREIGN KEY ("teamId") REFERENCES "Team" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
@@ -167,7 +167,7 @@ CREATE TABLE "AuditLog" (
     "ipAddress" TEXT NOT NULL DEFAULT '',
     "action" TEXT NOT NULL,
     "context" TEXT NOT NULL DEFAULT '',
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "AuditLog_teamId_fkey" FOREIGN KEY ("teamId") REFERENCES "Team" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
@@ -186,8 +186,8 @@ CREATE TABLE "SonarcloudSettings" (
     "organization" TEXT NOT NULL DEFAULT '',
     "projectKey" TEXT NOT NULL DEFAULT '',
     "token" TEXT NOT NULL DEFAULT '',
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL
+    "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP NOT NULL
 );
 
 -- CreateTable
@@ -196,7 +196,7 @@ CREATE TABLE "UploadedFile" (
     "filename" TEXT NOT NULL,
     "mimeType" TEXT NOT NULL,
     "payload" TEXT NOT NULL DEFAULT '',
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- CreateIndex

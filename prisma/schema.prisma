@@ -24,12 +24,20 @@ model User {
   presences   FilePresence[]
   notifications Notification[]
   apiKeys     ApiKey[]
+  ownedTeams  Team[]         @relation("TeamOwner")
+  teamMembers TeamMember[]   @relation("TeamMembers")
+  filePresences FilePresence[] @relation("FilePresences")
+  invitationsSent Invitation[] @relation("InvitationsSent")
+  invitationsReceived Invitation[] @relation("InvitationsReceived")
+  notificationsById Notification[] @relation("Notifications")
+  apiKeysById ApiKey[]       @relation("ApiKeys")
 }
 
 model Team {
   id           String              @id @default(uuid())
   teamName     String
   createdBy    String
+  userId       String?
   description  String              @default("")
   industry     String              @default("")
   website      String              @default("")
@@ -42,6 +50,7 @@ model Team {
   libraryItems SharedLibraryItem[]
   orgSetting   OrgSetting?
   auditLogs    AuditLog[]
+  owner        User?               @relation("TeamOwner", fields: [userId], references: [id], onDelete: SetNull)
 }
 
 model File {
@@ -65,12 +74,15 @@ model TeamMember {
   id        String   @id @default(uuid())
   teamId    String
   userEmail String
+  userId    String?
   role      String   @default("member")
   createdAt DateTime @default(now())
   team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userEmail], references: [email], onDelete: Cascade)
+  userById  User?    @relation("TeamMembers", fields: [userId], references: [id], onDelete: SetNull)
 
   @@unique([teamId, userEmail])
+  @@unique([teamId, userId])
 }
 
 model FileVersion {
@@ -90,6 +102,7 @@ model FilePresence {
   id              String   @id @default(uuid())
   fileId          String
   userEmail       String
+  userId          String?
   userName        String
   userImage       String   @default("")
   userColor       String   @default("#6366f1")
@@ -97,8 +110,10 @@ model FilePresence {
   lastSeenAt      DateTime @updatedAt
   file            File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
   user            User     @relation(fields: [userEmail], references: [email], onDelete: Cascade)
+  userById        User?    @relation("FilePresences", fields: [userId], references: [id], onDelete: SetNull)
 
   @@unique([fileId, userEmail])
+  @@unique([fileId, userId])
 }
 
 model Invitation {
@@ -107,20 +122,28 @@ model Invitation {
   teamName     String
   inviterEmail String
   inviteeEmail String
+  inviterId    String?
+  inviteeId    String?
   status       String   @default("pending")
   createdAt    DateTime @default(now())
   team         Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  inviter      User?    @relation("InvitationInviter", fields: [inviterEmail], references: [email], onDelete: SetNull)
+  invitee      User?    @relation("InvitationInvitee", fields: [inviteeEmail], references: [email], onDelete: SetNull)
+  inviterById  User?    @relation("InvitationsSent", fields: [inviterId], references: [id], onDelete: SetNull)
+  inviteeById  User?    @relation("InvitationsReceived", fields: [inviteeId], references: [id], onDelete: SetNull)
 }
 
 model Notification {
   id        String   @id @default(uuid())
   userEmail String
+  userId    String?
   title     String
   message   String
   type      String   @default("info")
   read      Boolean  @default(false)
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userEmail], references: [email], onDelete: Cascade)
+  userById  User?    @relation("Notifications", fields: [userId], references: [id], onDelete: SetNull)
 }
 
 model SharedLibraryItem {
@@ -141,6 +164,7 @@ model SharedLibraryItem {
 model ApiKey {
   id        String    @id @default(uuid())
   userEmail String
+  userId    String?
   name      String
   expiresAt DateTime?
   createdAt DateTime  @default(now())
@@ -148,6 +172,7 @@ model ApiKey {
   maskedKey String    @default("")
   scope     String    @default("read-write")
   user      User      @relation(fields: [userEmail], references: [email], onDelete: Cascade)
+  userById  User?     @relation("ApiKeys", fields: [userId], references: [id], onDelete: SetNull)
 }
 
 model SharedLink {
