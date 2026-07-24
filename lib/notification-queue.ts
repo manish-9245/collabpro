@@ -83,92 +83,206 @@ export async function processNotificationQueue(options?: { forceDeliveryFailure?
 }
 
 /**
- * Renders a gorgeous modern, state-of-the-art build status template
+ * Renders a responsive email template following email design best practices:
+ * table-based layout, bulletproof buttons, inline styles, mobile-first
  */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function safeCommit(commit: string | undefined): string {
+  if (typeof commit !== 'string') return 'unknown';
+  return commit.substring(0, 12);
+}
+
 function compileEmailTemplate(payload: NotificationPayload): string {
   const buildSuccess = payload.build.status === 'success';
   const statusColor = buildSuccess ? '#10B981' : '#EF4444';
   const statusBadge = buildSuccess ? 'SUCCESS' : 'FAILED';
+  const statusText = buildSuccess ? 'passed all checks' : 'encountered failures';
   const durationMin = (payload.build.durationMs / 60000).toFixed(2);
   const testPct = payload.tests.total > 0 ? ((payload.tests.passed / payload.tests.total) * 100).toFixed(0) : '0';
 
-  return `
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <meta charset="utf-8">
-        <title>CollabPro Build Intelligence Report</title>
-      </head>
-      <body style="font-family: 'Inter', system-ui, sans-serif; background-color: #0A0F1D; color: #F3F4F6; margin: 0; padding: 40px 20px;">
-        <div style="max-width: 600px; margin: 0 auto; background-color: #111827; border-radius: 16px; border: 1px solid #1F2937; overflow: hidden; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);">
-          <!-- Header Banner -->
-          <div style="background: linear-gradient(135deg, #1E1B4B, #0F172A); padding: 32px; border-bottom: 1px solid #1F2937; text-align: center;">
-            <h1 style="color: #6366F1; margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.5px;">CollabPro Build Intelligence</h1>
-            <p style="color: #9CA3AF; margin: 8px 0 0 0; font-size: 14px;">Decoupled Serverless Delivery Engine</p>
-          </div>
+  const repository = escapeHtml(payload.repository);
+  const branch = escapeHtml(payload.branch);
+  const author = escapeHtml(payload.author);
+  const commit = escapeHtml(safeCommit(payload.commit));
 
-          <!-- Status Highlight Banner -->
-          <div style="padding: 24px; text-align: center; border-bottom: 1px solid #1F2937;">
-            <span style="display: inline-block; background-color: ${statusColor}1F; border: 1px solid ${statusColor}; color: ${statusColor}; padding: 8px 16px; border-radius: 9999px; font-weight: 700; font-size: 14px; letter-spacing: 0.5px;">
-              BUILD ${statusBadge}
-            </span>
-          </div>
-
-          <!-- Build Metadata -->
-          <div style="padding: 32px;">
-            <table style="width: 100%; border-collapse: collapse; margin-bottom: 24px;">
-              <tr>
-                <td style="padding: 8px 0; color: #9CA3AF; font-size: 14px; width: 40%;">Repository</td>
-                <td style="padding: 8px 0; color: #F3F4F6; font-size: 14px; font-weight: 600;">${payload.repository}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px 0; color: #9CA3AF; font-size: 14px;">Branch / Commit</td>
-                <td style="padding: 8px 0; color: #F3F4F6; font-size: 14px; font-weight: 600; font-family: monospace;">${payload.branch} (${payload.commit})</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px 0; color: #9CA3AF; font-size: 14px;">Workflow Author</td>
-                <td style="padding: 8px 0; color: #F3F4F6; font-size: 14px; font-weight: 600;">${payload.author}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px 0; color: #9CA3AF; font-size: 14px;">Execution Duration</td>
-                <td style="padding: 8px 0; color: #F3F4F6; font-size: 14px; font-weight: 600;">${durationMin} minutes</td>
-              </tr>
-            </table>
-
-            <!-- Test Results Meter -->
-            <div style="background-color: #1F2937; border-radius: 12px; padding: 20px; border: 1px solid #374151; margin-bottom: 24px;">
-              <div style="display: flex; justify-content: space-between; margin-bottom: 12px; align-items: center; width: 100%;">
-                <span style="color: #F3F4F6; font-weight: 700; font-size: 15px;">Unit & Integration Tests</span>
-                <span style="color: #6366F1; font-weight: 700; font-size: 15px; margin-left: auto;">${payload.tests.passed}/${payload.tests.total} Passed (${testPct}%)</span>
-              </div>
-              <div style="width: 100%; background-color: #374151; height: 8px; border-radius: 9999px; overflow: hidden; margin-top: 8px;">
-                <div style="width: ${testPct}%; background-color: #6366F1; height: 100%; border-radius: 9999px;"></div>
-              </div>
-            </div>
-
-            <!-- Vulnerability Diagnostics -->
-            <div style="background-color: #1F2937; border-radius: 12px; padding: 20px; border: 1px solid #374151;">
-              <h3 style="margin: 0 0 12px 0; font-size: 15px; font-weight: 700; color: #F3F4F6;">Security Vulnerability (Snyk)</h3>
-              <div style="display: flex; gap: 16px; width: 100%;">
-                <div style="flex: 1; text-align: center; background-color: #111827; padding: 12px; border-radius: 8px; border: 1px solid #374151; margin-right: 8px;">
-                  <div style="color: #EF4444; font-size: 20px; font-weight: 800;">${payload.snyk.high}</div>
-                  <div style="color: #9CA3AF; font-size: 11px; font-weight: 600; text-transform: uppercase; margin-top: 4px;">High</div>
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Build ${statusBadge} — ${repository}</title>
+    <style>
+      @media only screen and (max-width: 480px) {
+        .responsive-table { width: 100% !important; }
+        .responsive-padding { padding: 16px !important; }
+        .responsive-stack { display: block !important; width: 100% !important; }
+        .responsive-gap { margin-bottom: 12px !important; }
+        .responsive-hide { display: none !important; }
+        .responsive-text-center { text-align: center !important; }
+        .responsive-fs-14 { font-size: 14px !important; }
+      }
+    </style>
+  </head>
+  <body style="margin:0;padding:0;background-color:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#f3f4f6;">
+      <tr>
+        <td align="center" style="padding:40px 16px;">
+          <!--[if mso]><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600"><tr><td><![endif]-->
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:600px;" class="responsive-table">
+            <tr>
+              <td style="background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
+                <!-- Hidden preheader -->
+                <div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">
+                  Build ${statusBadge} — ${repository}: ${statusText}
                 </div>
-                <div style="flex: 1; text-align: center; background-color: #111827; padding: 12px; border-radius: 8px; border: 1px solid #374151;">
-                  <div style="color: #F59E0B; font-size: 20px; font-weight: 800;">${payload.snyk.medium}</div>
-                  <div style="color: #9CA3AF; font-size: 11px; font-weight: 600; text-transform: uppercase; margin-top: 4px;">Medium</div>
-                </div>
-              </div>
-            </div>
-          </div>
 
-          <!-- Footer Legal -->
-          <div style="background-color: #111827; padding: 24px; text-align: center; border-top: 1px solid #1F2937; font-size: 12px; color: #6B7280;">
-            This build update was initiated by continuous integration triggers on collabpro.<br>
-            Powered by CollabPro &middot; Decoupled Delivery Layer
-          </div>
-        </div>
-      </body>
-    </html>
-  `;
+                <!-- Header -->
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                  <tr>
+                    <td style="background:linear-gradient(135deg,#1E1B4B,#0F172A);padding:32px;text-align:center;">
+                      <h1 style="margin:0;font-size:22px;font-weight:800;color:#6366F1;letter-spacing:-0.5px;">CollabPro Build</h1>
+                      <p style="margin:6px 0 0 0;font-size:13px;color:#9CA3AF;">Continuous Integration Report</p>
+                    </td>
+                  </tr>
+                </table>
+
+                <!-- Status badge -->
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                  <tr>
+                    <td style="padding:24px;text-align:center;border-bottom:1px solid #e5e7eb;">
+                      <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center">
+                        <tr>
+                          <td style="background-color:${statusColor}1A;border:1px solid ${statusColor};border-radius:9999px;padding:6px 16px;">
+                            <span style="color:${statusColor};font-weight:700;font-size:13px;letter-spacing:0.5px;">BUILD ${statusBadge}</span>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                </table>
+
+                <!-- Build metadata -->
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                  <tr>
+                    <td style="padding:24px 24px 8px;" class="responsive-padding">
+                      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                        <tr>
+                          <td style="padding:6px 0;color:#6B7280;font-size:13px;width:35%;">Repository</td>
+                          <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;">${repository}</td>
+                        </tr>
+                        <tr>
+                          <td style="padding:6px 0;color:#6B7280;font-size:13px;">Branch</td>
+                          <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;font-family:monospace;">${branch}</td>
+                        </tr>
+                        <tr>
+                          <td style="padding:6px 0;color:#6B7280;font-size:13px;">Commit</td>
+                          <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;font-family:monospace;">${commit}</td>
+                        </tr>
+                        <tr>
+                          <td style="padding:6px 0;color:#6B7280;font-size:13px;">Author</td>
+                          <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;">${author}</td>
+                        </tr>
+                        <tr>
+                          <td style="padding:6px 0;color:#6B7280;font-size:13px;">Duration</td>
+                          <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;">${durationMin} min</td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                </table>
+
+                <!-- Test results -->
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                  <tr>
+                    <td style="padding:8px 24px 24px;" class="responsive-padding">
+                      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#F9FAFB;border:1px solid #E5E7EB;border-radius:8px;">
+                        <tr>
+                          <td style="padding:16px;">
+                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                              <tr>
+                                <td style="font-size:14px;font-weight:700;color:#111827;">Unit & Integration Tests</td>
+                                <td align="right" style="font-size:14px;font-weight:700;color:#6366F1;">${payload.tests.passed}/${payload.tests.total} passed</td>
+                              </tr>
+                            </table>
+                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:10px;background-color:#E5E7EB;border-radius:9999px;height:8px;">
+                              <tr>
+                                <td width="${testPct}%" style="background-color:#6366F1;border-radius:9999px;height:8px;line-height:8px;font-size:8px;">&nbsp;</td>
+                              </tr>
+                            </table>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                </table>
+
+                <!-- Vulnerability diagnostics -->
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                  <tr>
+                    <td style="padding:0 24px 24px;" class="responsive-padding">
+                      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#F9FAFB;border:1px solid #E5E7EB;border-radius:8px;">
+                        <tr>
+                          <td style="padding:16px;">
+                            <h3 style="margin:0 0 12px 0;font-size:14px;font-weight:700;color:#111827;">Security Vulnerabilities (Snyk)</h3>
+                            <!--[if mso]><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr><td><![endif]-->
+                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                              <tr>
+                                <td width="50%" style="vertical-align:top;padding-right:6px;" class="responsive-stack responsive-gap">
+                                  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#ffffff;border:1px solid #E5E7EB;border-radius:6px;">
+                                    <tr>
+                                      <td align="center" style="padding:12px;">
+                                        <div style="color:#EF4444;font-size:20px;font-weight:800;">${payload.snyk.high}</div>
+                                        <div style="color:#6B7280;font-size:11px;font-weight:600;text-transform:uppercase;margin-top:4px;">High</div>
+                                      </td>
+                                    </tr>
+                                  </table>
+                                </td>
+                                <td width="50%" style="vertical-align:top;padding-left:6px;" class="responsive-stack">
+                                  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#ffffff;border:1px solid #E5E7EB;border-radius:6px;">
+                                    <tr>
+                                      <td align="center" style="padding:12px;">
+                                        <div style="color:#F59E0B;font-size:20px;font-weight:800;">${payload.snyk.medium}</div>
+                                        <div style="color:#6B7280;font-size:11px;font-weight:600;text-transform:uppercase;margin-top:4px;">Medium</div>
+                                      </td>
+                                    </tr>
+                                  </table>
+                                </td>
+                              </tr>
+                            </table>
+                            <!--[if mso]></td></tr></table><![endif]-->
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                </table>
+
+                <!-- Footer -->
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                  <tr>
+                    <td style="background-color:#F9FAFB;padding:24px;text-align:center;border-top:1px solid #E5E7EB;">
+                      <p style="margin:0;font-size:12px;color:#6B7280;line-height:1.5;">
+                        This build notification was automatically dispatched from CollabPro CI.<br>
+                        Commit ${commit} &middot; ${branch}
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+          <!--[if mso]></td></tr></table><![endif]-->
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
 }
