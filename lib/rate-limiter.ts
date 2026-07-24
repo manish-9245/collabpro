@@ -5,14 +5,28 @@ interface RateLimitEntry {
 
 const store = new Map<string, RateLimitEntry>()
 
-setInterval(() => {
-  const now = Date.now()
-  for (const [key, entry] of store.entries()) {
-    if (entry.resetAt <= now) {
-      store.delete(key)
+let intervalHandle: ReturnType<typeof setInterval> | null = null
+
+function startCleanup() {
+  if (intervalHandle) return
+  intervalHandle = setInterval(() => {
+    const now = Date.now()
+    for (const [key, entry] of store.entries()) {
+      if (entry.resetAt <= now) {
+        store.delete(key)
+      }
     }
+  }, 60_000)
+}
+
+export function stopCleanup() {
+  if (intervalHandle) {
+    clearInterval(intervalHandle)
+    intervalHandle = null
   }
-}, 60_000)
+}
+
+startCleanup()
 
 export interface RateLimitConfig {
   windowMs: number

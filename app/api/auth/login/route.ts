@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { prisma } from '@/lib/db';
 import bcrypt from 'bcryptjs';
 import { signToken } from '@/lib/session-auth/jwt';
+import { checkRateLimit, LIMITS } from '@/lib/rate-limiter';
 
 export async function POST(request: Request) {
   try {
@@ -10,6 +11,11 @@ export async function POST(request: Request) {
 
     if (!email || !password) {
       return NextResponse.json({ error: 'Email and password are required' }, { status: 400 });
+    }
+
+    const rateLimit = checkRateLimit(email, LIMITS.LOGIN)
+    if (!rateLimit.allowed) {
+      return NextResponse.json({ error: 'Too many login attempts. Please try again later.' }, { status: 429 });
     }
 
     const user = await prisma.user.findUnique({
