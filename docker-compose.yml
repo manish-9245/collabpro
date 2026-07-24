@@ -75,7 +75,7 @@ services:
       - DATABASE_URL=postgresql://collabpro:${DB_PASSWORD}@postgres:5432/collabpro_production?schema=public
       - REDIS_URL=redis://redis:6379
       - SMTP_SERVER=smtp.gmail.com
-      - SMTP_USERNAME=manisht9245@gmail.com
+      - SMTP_USERNAME=${SMTP_USERNAME}
       - SMTP_PASSWORD=${SMTP_PASSWORD}
       - NOTIFICATION_EMAIL=manishsit13@gmail.com
       - NEXT_TELEMETRY_DISABLED=1

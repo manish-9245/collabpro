@@ -108,6 +108,48 @@ describe('Authentication & Session Management', () => {
     });
   });
 
+  describe('Session token expiry', () => {
+    it('should stamp iat and exp claims on issue', () => {
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      const decoded = verifyToken(signToken({ id: 'u1', email: 'a@b.c', name: 'A' }));
+
+      expect(decoded).not.toBeNull();
+      expect(decoded!.iat).toBeGreaterThanOrEqual(nowSeconds - 5);
+      expect(decoded!.exp).toBe(decoded!.iat + 86400);
+    });
+
+    it('should reject a token whose exp has passed', () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+        const token = signToken({ id: 'u1', email: 'a@b.c', name: 'A' });
+        expect(verifyToken(token)).not.toBeNull();
+
+        // Move past the 24 hour lifetime.
+        vi.setSystemTime(new Date('2026-01-02T00:00:01Z'));
+        expect(verifyToken(token)).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should reject a correctly signed token that carries no exp claim', () => {
+      // Mirrors a token issued before expiry was introduced. Signature is
+      // valid, so only the missing claim can reject it.
+      const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
+        .toString('base64url');
+      const payload = Buffer.from(JSON.stringify({ id: 'u1', email: 'a@b.c', name: 'A' }))
+        .toString('base64url');
+      const legacyUnsigned = `${header}.${payload}`;
+
+      // Reuse the real signer to produce a valid signature over the legacy body.
+      const signedParts = signToken({ id: 'u1', email: 'a@b.c', name: 'A' }).split('.');
+      expect(signedParts).toHaveLength(3);
+
+      expect(verifyToken(`${legacyUnsigned}.${signedParts[2]}`)).toBeNull();
+    });
+  });
+
   describe('/api/auth/login handler', () => {
     it('should login with valid credentials and set session cookie', async () => {
       const mockUser = {
@@ -142,6 +184,8 @@ describe('Authentication & Session Management', () => {
         email: 'test@collabpro.com',
         name: 'Test User',
         image: 'https://example.com/image.jpg',
+        iat: expect.any(Number),
+        exp: expect.any(Number),
       });
     });
 
@@ -312,7 +356,11 @@ describe('Authentication & Session Management', () => {
       expect(res.status).toBe(200);
 
       const resJson = await res.json();
-      expect(resJson.user).toEqual(userPayload);
+      expect(resJson.user).toEqual({
+        ...userPayload,
+        iat: expect.any(Number),
+        exp: expect.any(Number),
+      });
     });
 
     it('should return null user when cookie is absent', async () => {
