@@ -29,6 +29,8 @@ model User {
   filePresences FilePresence[] @relation("FilePresences")
   invitationsSent Invitation[] @relation("InvitationsSent")
   invitationsReceived Invitation[] @relation("InvitationsReceived")
+  invitationsAsInviter Invitation[] @relation("InvitationInviter")
+  invitationsAsInvitee Invitation[] @relation("InvitationInvitee")
   notificationsById Notification[] @relation("Notifications")
   apiKeysById ApiKey[]       @relation("ApiKeys")
 }
