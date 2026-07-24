@@ -57,3 +57,6 @@ dev.db
 # test artifacts
 /playwright-report/
 /test-results/
+
+# agent scratch directories
+/.kilo/

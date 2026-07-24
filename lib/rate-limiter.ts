@@ -36,6 +36,26 @@ export interface RateLimitConfig {
 export const LIMITS = {
   LOGIN: { windowMs: 15 * 60 * 1000, maxAttempts: 5 },
   REGISTER: { windowMs: 60 * 60 * 1000, maxAttempts: 3 },
+  // Per-source ceiling. Higher than the per-account limit so that shared
+  // egress IPs (offices, mobile carriers, CGNAT) are not locked out by a few
+  // users mistyping passwords, while still capping credential stuffing.
+  LOGIN_PER_IP: { windowMs: 15 * 60 * 1000, maxAttempts: 30 },
+  REGISTER_PER_IP: { windowMs: 60 * 60 * 1000, maxAttempts: 10 },
+}
+
+/**
+ * Resolves the client IP from proxy headers. Railway terminates TLS upstream,
+ * so the socket address is always the proxy; x-forwarded-for is the only
+ * signal available. It is client-spoofable, which is why it is used as a
+ * coarse ceiling rather than the sole control.
+ */
+export function getClientIp(request: Request): string {
+  const forwarded = request.headers.get('x-forwarded-for')
+  if (forwarded) {
+    const first = forwarded.split(',')[0]?.trim()
+    if (first) return first
+  }
+  return request.headers.get('x-real-ip')?.trim() || 'unknown'
 }
 
 export function checkRateLimit(

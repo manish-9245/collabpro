@@ -3,7 +3,7 @@ import { cookies } from 'next/headers';
 import { prisma } from '@/lib/db';
 import bcrypt from 'bcryptjs';
 import { signToken } from '@/lib/session-auth/jwt';
-import { checkRateLimit, LIMITS } from '@/lib/rate-limiter';
+import { checkRateLimit, getClientIp, LIMITS } from '@/lib/rate-limiter';
 
 export async function POST(request: Request) {
   try {
@@ -13,9 +13,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Name, email, and password are required' }, { status: 400 });
     }
 
-    const rateLimit = checkRateLimit(email, LIMITS.REGISTER)
-    if (!rateLimit.allowed) {
-      return NextResponse.json({ error: 'Too many registration attempts. Please try again later.' }, { status: 429 });
+    // Keyed on the source IP so that bulk account creation is capped. Keying
+    // on the submitted email alone would let one attacker register unlimited
+    // accounts simply by varying the address.
+    const ip = getClientIp(request);
+    const ipLimit = checkRateLimit(`register:ip:${ip}`, LIMITS.REGISTER_PER_IP);
+    const emailLimit = checkRateLimit(`register:ip-email:${ip}:${email}`, LIMITS.REGISTER);
+    if (!ipLimit.allowed || !emailLimit.allowed) {
+      const resetAt = Math.max(ipLimit.resetAt, emailLimit.resetAt);
+      return NextResponse.json(
+        { error: 'Too many registration attempts. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(Math.max(1, Math.ceil((resetAt - Date.now()) / 1000))) } }
+      );
     }
 
     const existingUser = await prisma.user.findUnique({
