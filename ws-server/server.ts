@@ -155,12 +155,23 @@ try {
     lazyConnect: true,
   });
 
+  // A subscriber connection cannot issue regular commands, so idempotency
+  // markers need their own client.
+  writeClient = new Redis(REDIS_URL, {
+    maxRetriesPerRequest: 1,
+    connectTimeout: 1000,
+    lazyConnect: true,
+  });
+
   // Gracefully handle connection offline states to prevent crashing or performance bottlenecks
   pubClient.on('error', (err) => {
     isRedisAvailable = false;
   });
   subClient.on('error', (err) => {
     isRedisAvailable = false;
+  });
+  writeClient.on('error', (err) => {
+    console.error('Redis write client error:', err.message);
   });
 
   pubClient.on('connect', () => {
@@ -193,6 +204,7 @@ try {
   // Trigger lazy connections
   pubClient.connect().catch((err) => { isRedisAvailable = false; console.error("Redis pub client connect failed:", err); });
   subClient.connect().catch((err) => { console.error("Redis sub client connect failed:", err); });
+  writeClient.connect().catch((err) => { console.error("Redis write client connect failed:", err); });
 
 } catch (err: any) {
   console.warn('⚠️ [Redis Pub/Sub Warning] Operating in standalone memory mode:', err.message);
@@ -560,9 +572,14 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
         case 'mutation': {
           const { path, args, fileId } = message;
           const targetId = args?._id || args?.fileId;
+          // Only clients that supply an explicit, stable mutationId can be
+          // de-duplicated. Synthesising one here would make every retry look
+          // like a new mutation and cost two Redis round-trips for nothing.
+          const mutationId: string | null = args?.mutationId
+            ? `${user.id}:${path}:${targetId}:${args.mutationId}`
+            : null;
           if (targetId) {
-            const mutationId = args?.mutationId || `${user.id}:${path}:${targetId}:${Date.now()}`;
-            if (await isMutationProcessed(mutationId)) {
+            if (mutationId && await isMutationProcessed(mutationId)) {
               ws.send(JSON.stringify({ type: 'mutation-result', path, success: true, data: { skipped: true } }));
               break;
             }
@@ -577,9 +594,7 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
 
           try {
             const result = await executeMutation(path, args);
-            const targetId = args?._id || args?.fileId;
-            if (targetId) {
-              const mutationId = args?.mutationId || `${user.id}:${path}:${targetId}:${Date.now()}`;
+            if (mutationId) {
               await markMutationProcessed(mutationId);
             }
             ws.send(JSON.stringify({ type: 'mutation-result', path, success: true, data: result }));
