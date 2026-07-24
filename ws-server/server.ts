@@ -102,7 +102,9 @@ function mergeWhiteboardPayloads(currentStr: string, incomingStr: string): strin
         data: base64
       });
     }
-  } catch (e) {}
+  } catch (e) {
+    console.error("Yjs merge failed in mergeWhiteboardPayloads:", e);
+  }
 
   try {
     const currentElements = asWhiteboardElements(currentStr || '[]');
@@ -153,12 +155,23 @@ try {
     lazyConnect: true,
   });
 
+  // A subscriber connection cannot issue regular commands, so idempotency
+  // markers need their own client.
+  writeClient = new Redis(REDIS_URL, {
+    maxRetriesPerRequest: 1,
+    connectTimeout: 1000,
+    lazyConnect: true,
+  });
+
   // Gracefully handle connection offline states to prevent crashing or performance bottlenecks
   pubClient.on('error', (err) => {
     isRedisAvailable = false;
   });
   subClient.on('error', (err) => {
     isRedisAvailable = false;
+  });
+  writeClient.on('error', (err) => {
+    console.error('Redis write client error:', err.message);
   });
 
   pubClient.on('connect', () => {
@@ -168,7 +181,7 @@ try {
 
   subClient.on('connect', () => {
     console.log('📡 [Redis Pub/Sub] Sub client connected successfully');
-    subClient?.subscribe('collabpro:channel:canvas').catch(() => {});
+    subClient?.subscribe('collabpro:channel:canvas').catch((err) => { console.error('Redis subscribe failed:', err); });
   });
 
   subClient.on('message', (channel, messageStr) => {
@@ -178,19 +191,20 @@ try {
         const { type, fileId, senderEmail, payload } = parsed;
 
         activeConnections.forEach((conn) => {
-          if (conn.user.email !== senderEmail && conn.joinedRooms.has(fileId)) {
+          if (conn.user.id !== senderEmail && conn.joinedRooms.has(fileId)) {
             conn.ws.send(JSON.stringify(payload));
           }
         });
       } catch (err: any) {
-        // Silent catch
+        console.error("Redis message handler failed:", err);
       }
     }
   });
 
   // Trigger lazy connections
-  pubClient.connect().catch(() => { isRedisAvailable = false; });
-  subClient.connect().catch(() => {});
+  pubClient.connect().catch((err) => { isRedisAvailable = false; console.error("Redis pub client connect failed:", err); });
+  subClient.connect().catch((err) => { console.error("Redis sub client connect failed:", err); });
+  writeClient.connect().catch((err) => { console.error("Redis write client connect failed:", err); });
 
 } catch (err: any) {
   console.warn('⚠️ [Redis Pub/Sub Warning] Operating in standalone memory mode:', err.message);
@@ -285,22 +299,40 @@ async function initRabbitMQ() {
 
 initRabbitMQ();
 
-// Durable RabbitMQ-backed database write-back commit queue helper
-async function queueDbWrite(fileId: string, type: 'document' | 'whiteboard' | 'fileName', value: string, executeSave: () => Promise<any>) {
+const PROCESSED_MUTATIONS_KEY = 'collabpro:ws:processed-mutations';
+
+async function isMutationProcessed(mutationId: string): Promise<boolean> {
+  if (!writeClient || !isRedisAvailable) return false;
+  try {
+    const exists = await writeClient.exists(`${PROCESSED_MUTATIONS_KEY}:${mutationId}`);
+    return exists === 1;
+  } catch {
+    return false;
+  }
+}
+
+async function markMutationProcessed(mutationId: string): Promise<void> {
+  if (!writeClient || !isRedisAvailable) return;
+  try {
+    await writeClient.setex(`${PROCESSED_MUTATIONS_KEY}:${mutationId}`, 3600, '1');
+  } catch {
+    // best-effort idempotency marker
+  }
+}
+
+async function queueDbWrite(fileId: string, type: 'document' | 'whiteboard' | 'fileName', value: string, executeSave: () => Promise<any>): Promise<any> {
   if (mqChannel) {
     try {
       const payload = { fileId, type, value, timestamp: Date.now() };
       mqChannel.sendToQueue(QUEUE_NAME, Buffer.from(JSON.stringify(payload)), {
         persistent: true
       });
+      return;
     } catch (err) {
-      console.warn('⚠️ [RabbitMQ Queue Error] Failed to publish message, falling back to direct save');
-      await executeSave();
+      console.warn('[RabbitMQ Queue Error] Failed to publish message, direct save will handle the write:', err);
     }
-  } else {
-    // Fallback to direct save
-    await executeSave();
   }
+  return await executeSave();
 }
 
 const server = createServer((req, res) => {
@@ -371,6 +403,40 @@ async function hasFileAccess(fileId: string, email: string): Promise<boolean> {
   }
 }
 
+async function checkMutationAuth(fileId: string, email: string): Promise<{ allowed: boolean; error?: string }> {
+  const hasAccess = await hasFileAccess(fileId, email);
+  if (!hasAccess) {
+    return { allowed: false, error: 'Forbidden: You do not have access to this file' };
+  }
+
+  try {
+    const file = await prisma.file.findUnique({
+      where: { id: fileId },
+      select: { createdBy: true, teamId: true }
+    });
+    if (!file) return { allowed: false, error: 'File not found' };
+
+    if (file.createdBy === email) return { allowed: true };
+
+    const teamMember = await prisma.teamMember.findFirst({
+      where: { teamId: file.teamId, userEmail: email },
+      select: { role: true }
+    });
+
+    if (teamMember) {
+      if (teamMember.role === 'viewer') {
+        return { allowed: false, error: 'Forbidden: Viewers cannot modify files' };
+      }
+      return { allowed: true };
+    }
+
+    return { allowed: true };
+  } catch (error) {
+    console.error(`[WS MUTATION AUTH ERROR] Failed to check mutation auth:`, error);
+    return { allowed: false, error: 'Internal auth check error' };
+  }
+}
+
 server.on('upgrade', (request, socket, head) => {
   console.log('[WS HANDSHAKE] Upgrade request received...');
   const user = authenticateRequest(request);
@@ -407,7 +473,7 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
   ws.on('message', async (messageData) => {
     try {
       const message = JSON.parse(messageData.toString());
-      console.log(`[WS MESSAGE] Received action of type "${message.type}" from ${user.email}`);
+      console.log(`[WS MESSAGE] Received action of type "${message.type}" from ${user.id}`);
 
       switch (message.type) {
         case 'join': {
@@ -415,12 +481,12 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
           if (fileId) {
             const hasAccess = await hasFileAccess(fileId, user.email);
             if (!hasAccess) {
-              console.warn(`[WS ROOM SECURITY REJECT] User ${user.email} attempted unauthorized join to: ${fileId}`);
+              console.warn(`[WS ROOM SECURITY REJECT] User ${user.id} attempted unauthorized join to: ${fileId}`);
               ws.send(JSON.stringify({ type: 'error', message: 'Forbidden: You do not have access to this room' }));
               break;
             }
             connection.joinedRooms.add(fileId);
-            console.log(`[WS ROOM] User ${user.email} joined room: ${fileId}`);
+            console.log(`[WS ROOM] User ${user.id} joined room: ${fileId}`);
             ws.send(JSON.stringify({ type: 'joined', fileId }));
           }
           break;
@@ -436,7 +502,7 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
             const cursorPayload = {
               type: 'cursor-update',
               fileId,
-              email: user.email,
+              email: user.id,
               name: name || user.name || user.email.split('@')[0],
               color: color || '#2563eb',
               x,
@@ -457,9 +523,9 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
               pubClient.publish('collabpro:channel:canvas', JSON.stringify({
                 type: 'cursor',
                 fileId,
-                senderEmail: user.email,
+                senderEmail: user.id,
                 payload: cursorPayload
-              })).catch(() => {});
+              })).catch((err) => { console.error("Redis cursor publish failed:", err); });
             }
           }
           break;
@@ -469,7 +535,7 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
           const { fileId } = message;
           if (fileId) {
             connection.joinedRooms.delete(fileId);
-            console.log(`[WS ROOM] User ${user.email} left room: ${fileId}`);
+            console.log(`[WS ROOM] User ${user.id} left room: ${fileId}`);
             ws.send(JSON.stringify({ type: 'left', fileId }));
           }
           break;
@@ -481,7 +547,7 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
             const fileId = args?._id || args?.fileId;
             const hasAccess = await hasFileAccess(fileId, user.email);
             if (!hasAccess) {
-              console.warn(`[WS SUB SECURITY REJECT] User ${user.email} attempted unauthorized subscription to: ${fileId}`);
+              console.warn(`[WS SUB SECURITY REJECT] User ${user.id} attempted unauthorized subscription to: ${fileId}`);
               ws.send(JSON.stringify({ type: 'error', message: 'Forbidden: You do not have access to this subscription' }));
               break;
             }
@@ -505,12 +571,22 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
 
         case 'mutation': {
           const { path, args, fileId } = message;
-          const targetRoom = fileId || args?._id || args?.fileId;
-          if (targetRoom) {
-            const hasAccess = await hasFileAccess(targetRoom, user.email);
-            if (!hasAccess) {
-              console.warn(`[WS MUTATION SECURITY REJECT] User ${user.email} attempted unauthorized mutation "${path}" on: ${targetRoom}`);
-              ws.send(JSON.stringify({ type: 'error', message: 'Forbidden: You do not have access to this room' }));
+          const targetId = args?._id || args?.fileId;
+          // Only clients that supply an explicit, stable mutationId can be
+          // de-duplicated. Synthesising one here would make every retry look
+          // like a new mutation and cost two Redis round-trips for nothing.
+          const mutationId: string | null = args?.mutationId
+            ? `${user.id}:${path}:${targetId}:${args.mutationId}`
+            : null;
+          if (targetId) {
+            if (mutationId && await isMutationProcessed(mutationId)) {
+              ws.send(JSON.stringify({ type: 'mutation-result', path, success: true, data: { skipped: true } }));
+              break;
+            }
+            const auth = await checkMutationAuth(targetId, user.email);
+            if (!auth.allowed) {
+              console.warn(`[WS MUTATION SECURITY REJECT] User ${user.id} attempted unauthorized mutation "${path}" on: ${targetId}: ${auth.error}`);
+              ws.send(JSON.stringify({ type: 'error', message: auth.error }));
               break;
             }
           }
@@ -518,6 +594,9 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
 
           try {
             const result = await executeMutation(path, args);
+            if (mutationId) {
+              await markMutationProcessed(mutationId);
+            }
             ws.send(JSON.stringify({ type: 'mutation-result', path, success: true, data: result }));
 
             const targetRoom = fileId || args?._id || args?.fileId;
@@ -531,14 +610,14 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
                 pubClient.publish('collabpro:channel:canvas', JSON.stringify({
                   type: 'mutation-update',
                   fileId: targetRoom,
-                  senderEmail: user.email,
+                  senderEmail: user.id,
                   payload: {
                     type: 'query-update',
                     path: 'files:getFileById',
                     args: { _id: targetRoom },
                     data: updatedData,
                   }
-                })).catch(() => {});
+                })).catch((err) => { console.error("Redis mutation publish failed:", err); });
               }
             }
           } catch (err: any) {
@@ -559,12 +638,12 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
   });
 
   ws.on('close', () => {
-    console.log(`[WS DISCONNECTED] User disconnected: ${user.name} (${user.email})`);
+    console.log(`[WS DISCONNECTED] User disconnected: ${user.name} (${user.id})`);
     activeConnections.delete(connection);
   });
 
   ws.on('error', (err) => {
-    console.error(`[WS ERROR] Socket error for ${user.email}:`, err);
+    console.error(`[WS ERROR] Socket error for connection:`, err);
   });
 });
 
@@ -612,7 +691,7 @@ async function executeMutation(path: string, args: any): Promise<any> {
     case 'files:updateDocument': {
       const { _id, document } = args || {};
 
-      queueDbWrite(_id, 'document', document, async () => {
+      await queueDbWrite(_id, 'document', document, async () => {
         const file = await prisma.file.findUnique({
           where: { id: _id },
           select: { document: true }
@@ -623,7 +702,9 @@ async function executeMutation(path: string, args: any): Promise<any> {
             const currentDoc = asEditorDocument(file.document || '{"blocks":[]}');
             const incomingDoc = asEditorDocument(document);
             nextValue = JSON.stringify(mergeDocumentBlocks(currentDoc, incomingDoc));
-          } catch {}
+          } catch (e) {
+            console.error("Document merge failed in executeMutation:", e);
+          }
         }
         return prisma.file.update({
           where: { id: _id },
@@ -636,7 +717,7 @@ async function executeMutation(path: string, args: any): Promise<any> {
     case 'files:updateWhiteboard': {
       const { _id, whiteboard } = args || {};
 
-      queueDbWrite(_id, 'whiteboard', whiteboard, async () => {
+      await queueDbWrite(_id, 'whiteboard', whiteboard, async () => {
         const file = await prisma.file.findUnique({
           where: { id: _id },
           select: { whiteboard: true }
@@ -660,7 +741,9 @@ async function executeMutation(path: string, args: any): Promise<any> {
             } else {
               nextValue = mergeWhiteboardPayloads(file.whiteboard || '[]', whiteboard);
             }
-          } catch {}
+          } catch (e) {
+            console.error("Whiteboard merge failed in executeMutation:", e);
+          }
         }
         return prisma.file.update({
           where: { id: _id },
@@ -673,7 +756,7 @@ async function executeMutation(path: string, args: any): Promise<any> {
     case 'files:updateFileName': {
       const { _id, fileName } = args || {};
 
-      queueDbWrite(_id, 'fileName', fileName, async () => {
+      await queueDbWrite(_id, 'fileName', fileName, async () => {
         return prisma.file.update({
           where: { id: _id },
           data: { fileName },
