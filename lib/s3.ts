@@ -79,9 +79,10 @@ async function ensureBucketExists(client: S3Client, bucketName: string) {
  * Returns the public URL of the uploaded image.
  */
 export async function uploadToS3(
-  buffer: Uint8Array, 
-  filename: string, 
-  mimeType: string
+  buffer: Uint8Array,
+  filename: string,
+  mimeType: string,
+  contentDisposition?: string
 ): Promise<string> {
   const client = getS3Client();
   const bucketName = process.env.S3_BUCKET_NAME || "collabpro-images";
@@ -102,6 +103,7 @@ export async function uploadToS3(
       Key: uniqueKey,
       Body: buffer,
       ContentType: mimeType,
+      ...(contentDisposition ? { ContentDisposition: contentDisposition } : {}),
     })
   );
 

@@ -139,7 +139,6 @@ function isValidImageBuffer(buffer: Uint8Array): boolean {
     const trimmedHeader = headerText.trim().toLowerCase();
     if (
       trimmedHeader.startsWith("<svg") ||
-      trimmedHeader.includes("<svg") ||
       trimmedHeader.startsWith("<?xml") ||
       trimmedHeader.startsWith("<!doctype svg")
     ) {
@@ -297,15 +296,27 @@ async function handlePost(request: NextRequest) {
 
   const sanitizedName = originalName.replace(/[^a-zA-Z0-9.-]/g, "_");
 
+  // Security (issue #195): SVG is an XML document format that can carry executable
+  // content (onload/onerror handlers, javascript: URIs, <foreignObject> HTML, nested
+  // <iframe>, etc.) that the <script> tag check above cannot exhaustively enumerate.
+  // Rather than trying to pattern-match every dangerous construct, we ensure SVGs are
+  // NEVER served in a way a browser will render as a live document: they are always
+  // stored/served with a generic binary content type and a forced attachment
+  // disposition, so the browser downloads the file instead of executing it inline.
+  const effectiveMimeType = isSvg ? "application/octet-stream" : mimeType;
+  const contentDisposition = isSvg
+    ? `attachment; filename="${sanitizedName.replace(/"/g, '\\"')}"`
+    : undefined;
+
   // Inject dependencies dynamically using Dependency Inversion (SOLID Principle)
   const uploadRepo = new UploadRepository(prisma);
-  const storageService = process.env.S3_ENDPOINT 
-    ? new S3StorageService() 
+  const storageService = process.env.S3_ENDPOINT
+    ? new S3StorageService()
     : new LocalStorageService();
   const uploadService = new UploadService(uploadRepo, storageService);
 
-  logger.info(`[Upload API] Persisting file using injectable services: ${sanitizedName}`, { sanitizedName, mimeType });
-  const uploadedRecord = await uploadService.handleUpload(sanitizedName, mimeType, bufferArray);
+  logger.info(`[Upload API] Persisting file using injectable services: ${sanitizedName}`, { sanitizedName, mimeType: effectiveMimeType });
+  const uploadedRecord = await uploadService.handleUpload(sanitizedName, effectiveMimeType, bufferArray, contentDisposition);
 
   // Return direct S3 URL if available for blazing-fast loading
   const returnedUrl = (process.env.S3_ENDPOINT && uploadedRecord.payload.startsWith("http"))
