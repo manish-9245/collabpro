@@ -41,6 +41,10 @@ export const LIMITS = {
   // users mistyping passwords, while still capping credential stuffing.
   LOGIN_PER_IP: { windowMs: 15 * 60 * 1000, maxAttempts: 30 },
   REGISTER_PER_IP: { windowMs: 60 * 60 * 1000, maxAttempts: 10 },
+  // Share-link password verification: unauthenticated by design, so it is
+  // keyed on ip+linkId rather than an account to stop brute-forcing a
+  // single link's password without punishing everyone else on that IP.
+  SHARE_VERIFY: { windowMs: 15 * 60 * 1000, maxAttempts: 10 },
 }
 
 /**
