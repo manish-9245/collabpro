@@ -86,6 +86,20 @@ export async function processNotificationQueue(options?: { forceDeliveryFailure?
  * Renders a responsive email template following email design best practices:
  * table-based layout, bulletproof buttons, inline styles, mobile-first
  */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function safeCommit(commit: string | undefined): string {
+  if (typeof commit !== 'string') return 'unknown';
+  return commit.substring(0, 12);
+}
+
 function compileEmailTemplate(payload: NotificationPayload): string {
   const buildSuccess = payload.build.status === 'success';
   const statusColor = buildSuccess ? '#10B981' : '#EF4444';
@@ -94,14 +108,17 @@ function compileEmailTemplate(payload: NotificationPayload): string {
   const durationMin = (payload.build.durationMs / 60000).toFixed(2);
   const testPct = payload.tests.total > 0 ? ((payload.tests.passed / payload.tests.total) * 100).toFixed(0) : '0';
 
+  const repository = escapeHtml(payload.repository);
+  const branch = escapeHtml(payload.branch);
+  const author = escapeHtml(payload.author);
+  const commit = escapeHtml(safeCommit(payload.commit));
+
   return `<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="color-scheme" content="light dark">
-    <meta name="supported-color-schemes" content="light dark">
-    <title>Build ${statusBadge} — ${payload.repository}</title>
+    <title>Build ${statusBadge} — ${repository}</title>
     <style>
       @media only screen and (max-width: 480px) {
         .responsive-table { width: 100% !important; }
@@ -111,13 +128,6 @@ function compileEmailTemplate(payload: NotificationPayload): string {
         .responsive-hide { display: none !important; }
         .responsive-text-center { text-align: center !important; }
         .responsive-fs-14 { font-size: 14px !important; }
-      }
-      @media (prefers-color-scheme: dark) {
-        .dark-bg { background-color: #0A0F1D !important; }
-        .dark-card { background-color: #111827 !important; }
-        .dark-border { border-color: #1F2937 !important; }
-        .dark-text { color: #F3F4F6 !important; }
-        .dark-text-muted { color: #9CA3AF !important; }
       }
     </style>
   </head>
@@ -131,7 +141,7 @@ function compileEmailTemplate(payload: NotificationPayload): string {
               <td style="background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
                 <!-- Hidden preheader -->
                 <div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">
-                  Build ${statusBadge} — ${payload.repository}: ${statusText}
+                  Build ${statusBadge} — ${repository}: ${statusText}
                 </div>
 
                 <!-- Header -->
@@ -166,19 +176,19 @@ function compileEmailTemplate(payload: NotificationPayload): string {
                       <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                         <tr>
                           <td style="padding:6px 0;color:#6B7280;font-size:13px;width:35%;">Repository</td>
-                          <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;">${payload.repository}</td>
+                          <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;">${repository}</td>
                         </tr>
                         <tr>
                           <td style="padding:6px 0;color:#6B7280;font-size:13px;">Branch</td>
-                          <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;font-family:monospace;">${payload.branch}</td>
+                          <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;font-family:monospace;">${branch}</td>
                         </tr>
                         <tr>
                           <td style="padding:6px 0;color:#6B7280;font-size:13px;">Commit</td>
-                          <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;font-family:monospace;">${payload.commit.substring(0, 12)}</td>
+                          <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;font-family:monospace;">${commit}</td>
                         </tr>
                         <tr>
                           <td style="padding:6px 0;color:#6B7280;font-size:13px;">Author</td>
-                          <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;">${payload.author}</td>
+                          <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;">${author}</td>
                         </tr>
                         <tr>
                           <td style="padding:6px 0;color:#6B7280;font-size:13px;">Duration</td>
@@ -222,7 +232,7 @@ function compileEmailTemplate(payload: NotificationPayload): string {
                         <tr>
                           <td style="padding:16px;">
                             <h3 style="margin:0 0 12px 0;font-size:14px;font-weight:700;color:#111827;">Security Vulnerabilities (Snyk)</h3>
-                            <!--[if mso]><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr><![endif]-->
+                            <!--[if mso]><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr><td><![endif]-->
                             <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                               <tr>
                                 <td width="50%" style="vertical-align:top;padding-right:6px;" class="responsive-stack responsive-gap">
@@ -247,7 +257,7 @@ function compileEmailTemplate(payload: NotificationPayload): string {
                                 </td>
                               </tr>
                             </table>
-                            <!--[if mso]></tr></table><![endif]-->
+                            <!--[if mso]></td></tr></table><![endif]-->
                           </td>
                         </tr>
                       </table>
@@ -261,10 +271,7 @@ function compileEmailTemplate(payload: NotificationPayload): string {
                     <td style="background-color:#F9FAFB;padding:24px;text-align:center;border-top:1px solid #E5E7EB;">
                       <p style="margin:0;font-size:12px;color:#6B7280;line-height:1.5;">
                         This build notification was automatically dispatched from CollabPro CI.<br>
-                        Commit ${payload.commit} &middot; ${payload.branch}
-                      </p>
-                      <p style="margin:12px 0 0 0;font-size:11px;color:#9CA3AF;">
-                        <a href="{{unsubscribe_url}}" style="color:#6B7280;text-decoration:underline;">Unsubscribe from build notifications</a>
+                        Commit ${commit} &middot; ${branch}
                       </p>
                     </td>
                   </tr>

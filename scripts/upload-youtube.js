@@ -102,7 +102,7 @@ async function upload() {
 }
 
 upload().catch(err => {
-  console.error('❌ YouTube upload failed:', err.message);
+  console.error('❌ YouTube upload failed:', err);
   console.error('   Possible causes: YOUTUBE_CLIENT_ID/YOUTUBE_REFRESH_TOKEN secrets not set,');
   console.error('   refresh token expired, video file missing, or API quota exceeded.');
   console.error('   See: https://console.cloud.google.com/apis/credentials');

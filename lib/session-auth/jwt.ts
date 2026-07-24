@@ -39,6 +39,15 @@ function hexToBase64Url(hex: string): string {
   return base64url(bytes);
 }
 
+export interface SessionTokenPayload {
+  id: string
+  email: string
+  name: string
+  image?: string
+  iat: number
+  exp: number
+}
+
 export function signToken(payload: object): string {
   const header = { alg: 'HS256', typ: 'JWT' };
   const tokenPayload = {
@@ -56,7 +65,7 @@ export function signToken(payload: object): string {
   return `${signatureInput}.${signatureBase64Url}`;
 }
 
-export function verifyToken(token: string): any {
+export function verifyToken(token: string): SessionTokenPayload | null {
   if (!token) return null;
   const parts = token.split('.');
   if (parts.length !== 3) return null;
@@ -73,9 +82,13 @@ export function verifyToken(token: string): any {
 
   try {
     const payloadStr = base64urlDecode(encodedPayload);
-    const payload = JSON.parse(payloadStr);
+    const payload = JSON.parse(payloadStr) as SessionTokenPayload;
 
-    if (payload.exp && Date.now() / 1000 > payload.exp) {
+    if (typeof payload.iat !== 'number' || !Number.isFinite(payload.iat)) {
+      return null;
+    }
+
+    if (typeof payload.exp !== 'number' || !Number.isFinite(payload.exp) || Date.now() / 1000 >= payload.exp) {
       return null;
     }
 
