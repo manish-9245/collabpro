@@ -8,6 +8,7 @@ import { prisma } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { withErrorHandler } from "@/lib/api-middleware";
 import { UploadService, UploadRepository, S3StorageService, LocalStorageService } from "@/lib/services/upload-service";
+import { isSvgContent } from "@/lib/security/svg-content";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB limit
 
@@ -133,19 +134,11 @@ async function safeFetch(urlStr: string): Promise<{ ok: boolean; statusText: str
 function isValidImageBuffer(buffer: Uint8Array): boolean {
   if (buffer.length < 4) return false;
 
-  // SVG Check (text-based XML format)
-  try {
-    const headerText = new TextDecoder("utf-8").decode(buffer.slice(0, Math.min(buffer.length, 512)));
-    const trimmedHeader = headerText.trim().toLowerCase();
-    if (
-      trimmedHeader.startsWith("<svg") ||
-      trimmedHeader.startsWith("<?xml") ||
-      trimmedHeader.startsWith("<!doctype svg")
-    ) {
-      return true;
-    }
-  } catch (e) {
-    // Ignore and proceed to binary magic bytes checks
+  // SVG Check (text-based XML format). Delegates to isSvgContent, the single source of
+  // truth for "is this buffer SVG" used everywhere in the upload pipeline, which
+  // requires the actual root element to be <svg> rather than just any XML document.
+  if (isSvgContent(buffer)) {
+    return true;
   }
 
   if (buffer.length < 12) return false;
@@ -284,8 +277,13 @@ async function handlePost(request: NextRequest) {
     return NextResponse.json({ success: 0, message: "Invalid or corrupted image file format." }, { status: 400 });
   }
 
-  // SVG scripting check
-  const isSvg = mimeType.toLowerCase().includes("svg") || originalName.toLowerCase().endsWith(".svg");
+  // Single source of truth: classify SVG from the *validated buffer content*, never
+  // from client-supplied filename/mimetype. Those are attacker-controlled and can be
+  // spoofed independently of the bytes (e.g. real SVG content with onload/onerror
+  // handlers uploaded as "evil.png" with Content-Type: image/png, or as "evil.html"
+  // with Content-Type: text/html) to bypass the safe-SVG handling entirely — see
+  // issue #195 follow-up.
+  const isSvg = isSvgContent(bufferArray);
   if (isSvg) {
     const svgText = new TextDecoder("utf-8").decode(bufferArray);
     if (/<script/i.test(svgText)) {

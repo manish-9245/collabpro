@@ -120,3 +120,115 @@ describe("Issue #195: SVG upload XSS validation bypass", () => {
     expect(mockUploadedFileCreate).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("Issue #195 follow-up: filename/mimetype spoofing bypass (cubic + CodeRabbit findings)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUploadedFileCreate.mockImplementation(async ({ data }: any) => ({
+      id: "new-id",
+      ...data,
+    }));
+  });
+
+  const maliciousSvgBody = `<svg xmlns="http://www.w3.org/2000/svg" onload="alert(document.domain)"/>`;
+
+  it("cubic bypass: real SVG bytes uploaded as evil.png / image/png must still get safe SVG treatment", async () => {
+    const req = buildUploadRequest("evil.png", "image/png", maliciousSvgBody);
+    const res = await uploadPOST(req as any);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(1);
+
+    // The SVG classification must come from the validated buffer content, not the
+    // client-supplied filename/mimetype — so this must be stored exactly like any
+    // other detected SVG: forced to a generic, non-renderable content type.
+    expect(mockUploadedFileCreate).toHaveBeenCalledTimes(1);
+    const createCall = mockUploadedFileCreate.mock.calls[0][0];
+    expect(createCall.data.mimeType).toBe("application/octet-stream");
+
+    mockUploadedFileFindUnique.mockResolvedValue({
+      id: "evil-id",
+      filename: createCall.data.filename,
+      mimeType: createCall.data.mimeType,
+      payload: createCall.data.payload,
+    });
+    const getReq = new Request("http://localhost/api/upload/evil-id");
+    const getRes = await serveGET(getReq as any, {
+      params: Promise.resolve({ id: "evil-id" }),
+    });
+    expect(getRes.headers.get("Content-Type")).toBe("application/octet-stream");
+    expect(getRes.headers.get("Content-Disposition")).toContain("attachment");
+  });
+
+  it("CodeRabbit bypass: real SVG bytes uploaded as evil.html / text/html must never be served as text/html", async () => {
+    const req = buildUploadRequest("evil.html", "text/html", maliciousSvgBody);
+    const res = await uploadPOST(req as any);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(1);
+
+    expect(mockUploadedFileCreate).toHaveBeenCalledTimes(1);
+    const createCall = mockUploadedFileCreate.mock.calls[0][0];
+    expect(createCall.data.mimeType).toBe("application/octet-stream");
+    expect(createCall.data.mimeType).not.toMatch(/html/i);
+
+    mockUploadedFileFindUnique.mockResolvedValue({
+      id: "evil-id-2",
+      filename: createCall.data.filename,
+      mimeType: createCall.data.mimeType,
+      payload: createCall.data.payload,
+    });
+    const getReq = new Request("http://localhost/api/upload/evil-id-2");
+    const getRes = await serveGET(getReq as any, {
+      params: Promise.resolve({ id: "evil-id-2" }),
+    });
+    expect(getRes.headers.get("Content-Type")).toBe("application/octet-stream");
+    expect(getRes.headers.get("Content-Type")).not.toMatch(/html/i);
+    expect(getRes.headers.get("Content-Disposition")).toContain("attachment");
+  });
+
+  it("CodeRabbit finding: a non-SVG XML document is rejected, not given SVG treatment just for starting with <?xml", async () => {
+    const nonSvgXml = `<?xml version="1.0" encoding="UTF-8"?><catalog><book>Not an SVG</book></catalog>`;
+    const req = buildUploadRequest("fake.xml", "application/xml", nonSvgXml);
+    const res = await uploadPOST(req as any);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.success).toBe(0);
+    expect(body.message).toContain("Invalid or corrupted image file format");
+    expect(mockUploadedFileCreate).not.toHaveBeenCalled();
+  });
+
+  it("S3 redirect bypass: a legacy SVG-labeled S3 object is proxied with safe headers instead of redirected", async () => {
+    const fetchSpy = vi
+      .spyOn(global, "fetch")
+      .mockResolvedValue(
+        new Response(maliciousSvgBody, {
+          status: 200,
+          headers: { "Content-Type": "image/svg+xml" },
+        })
+      );
+
+    // Simulates a record created before this fix: unsafe metadata already stored on S3.
+    mockUploadedFileFindUnique.mockResolvedValue({
+      id: "legacy-svg-id",
+      filename: "legacy.svg",
+      mimeType: "image/svg+xml",
+      payload: "https://s3.example.com/collabpro-images/legacy.svg",
+    });
+
+    const getReq = new Request("http://localhost/api/upload/legacy-svg-id");
+    const getRes = await serveGET(getReq as any, {
+      params: Promise.resolve({ id: "legacy-svg-id" }),
+    });
+
+    // Must NOT be a redirect straight to the (unsafe) S3 object — the browser would
+    // receive S3's own unsafe headers if we redirected.
+    expect(getRes.status).not.toBe(302);
+    expect(getRes.status).not.toBe(307);
+    expect(getRes.headers.get("Content-Type")).toBe("application/octet-stream");
+    expect(getRes.headers.get("Content-Disposition")).toContain("attachment");
+    expect(getRes.headers.get("X-Content-Type-Options")).toBe("nosniff");
+
+    fetchSpy.mockRestore();
+  });
+});
