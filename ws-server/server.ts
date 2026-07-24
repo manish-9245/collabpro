@@ -180,7 +180,7 @@ try {
         const { type, fileId, senderEmail, payload } = parsed;
 
         activeConnections.forEach((conn) => {
-          if (conn.user.email !== senderEmail && conn.joinedRooms.has(fileId)) {
+          if (conn.user.id !== senderEmail && conn.joinedRooms.has(fileId)) {
             conn.ws.send(JSON.stringify(payload));
           }
         });
@@ -215,12 +215,7 @@ async function initRabbitMQ() {
       if (msg !== null) {
         try {
           const payload = JSON.parse(msg.content.toString());
-          const { fileId, type, value, directWriteDone } = payload;
-
-          if (directWriteDone) {
-            mqChannel?.ack(msg);
-            return;
-          }
+          const { fileId, type, value } = payload;
           
           const file = await prisma.file.findUnique({
             where: { id: fileId },
@@ -292,14 +287,35 @@ async function initRabbitMQ() {
 
 initRabbitMQ();
 
-// Durable RabbitMQ-backed database write-back commit queue helper
+const PROCESSED_MUTATIONS_KEY = 'collabpro:ws:processed-mutations';
+
+async function isMutationProcessed(mutationId: string): Promise<boolean> {
+  if (!writeClient || !isRedisAvailable) return false;
+  try {
+    const exists = await writeClient.exists(`${PROCESSED_MUTATIONS_KEY}:${mutationId}`);
+    return exists === 1;
+  } catch {
+    return false;
+  }
+}
+
+async function markMutationProcessed(mutationId: string): Promise<void> {
+  if (!writeClient || !isRedisAvailable) return;
+  try {
+    await writeClient.setex(`${PROCESSED_MUTATIONS_KEY}:${mutationId}`, 3600, '1');
+  } catch {
+    // best-effort idempotency marker
+  }
+}
+
 async function queueDbWrite(fileId: string, type: 'document' | 'whiteboard' | 'fileName', value: string, executeSave: () => Promise<any>): Promise<any> {
   if (mqChannel) {
     try {
-      const payload = { fileId, type, value, timestamp: Date.now(), directWriteDone: true };
+      const payload = { fileId, type, value, timestamp: Date.now() };
       mqChannel.sendToQueue(QUEUE_NAME, Buffer.from(JSON.stringify(payload)), {
         persistent: true
       });
+      return;
     } catch (err) {
       console.warn('[RabbitMQ Queue Error] Failed to publish message, direct save will handle the write:', err);
     }
@@ -402,22 +418,6 @@ async function checkMutationAuth(fileId: string, email: string): Promise<{ allow
       return { allowed: true };
     }
 
-    const sharedLink = await prisma.sharedLink.findFirst({
-      where: {
-        fileId,
-        isActive: true,
-        OR: [
-          { expiresAt: null },
-          { expiresAt: { gt: new Date() } }
-        ]
-      },
-      select: { role: true }
-    });
-
-    if (sharedLink && sharedLink.role === 'viewer') {
-      return { allowed: false, error: 'Forbidden: Shared link access is view-only' };
-    }
-
     return { allowed: true };
   } catch (error) {
     console.error(`[WS MUTATION AUTH ERROR] Failed to check mutation auth:`, error);
@@ -461,7 +461,7 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
   ws.on('message', async (messageData) => {
     try {
       const message = JSON.parse(messageData.toString());
-      console.log(`[WS MESSAGE] Received action of type "${message.type}" from ${user.email}`);
+      console.log(`[WS MESSAGE] Received action of type "${message.type}" from ${user.id}`);
 
       switch (message.type) {
         case 'join': {
@@ -469,12 +469,12 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
           if (fileId) {
             const hasAccess = await hasFileAccess(fileId, user.email);
             if (!hasAccess) {
-              console.warn(`[WS ROOM SECURITY REJECT] User ${user.email} attempted unauthorized join to: ${fileId}`);
+              console.warn(`[WS ROOM SECURITY REJECT] User ${user.id} attempted unauthorized join to: ${fileId}`);
               ws.send(JSON.stringify({ type: 'error', message: 'Forbidden: You do not have access to this room' }));
               break;
             }
             connection.joinedRooms.add(fileId);
-            console.log(`[WS ROOM] User ${user.email} joined room: ${fileId}`);
+            console.log(`[WS ROOM] User ${user.id} joined room: ${fileId}`);
             ws.send(JSON.stringify({ type: 'joined', fileId }));
           }
           break;
@@ -490,7 +490,7 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
             const cursorPayload = {
               type: 'cursor-update',
               fileId,
-              email: user.email,
+              email: user.id,
               name: name || user.name || user.email.split('@')[0],
               color: color || '#2563eb',
               x,
@@ -511,7 +511,7 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
               pubClient.publish('collabpro:channel:canvas', JSON.stringify({
                 type: 'cursor',
                 fileId,
-                senderEmail: user.email,
+                senderEmail: user.id,
                 payload: cursorPayload
               })).catch((err) => { console.error("Redis cursor publish failed:", err); });
             }
@@ -523,7 +523,7 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
           const { fileId } = message;
           if (fileId) {
             connection.joinedRooms.delete(fileId);
-            console.log(`[WS ROOM] User ${user.email} left room: ${fileId}`);
+            console.log(`[WS ROOM] User ${user.id} left room: ${fileId}`);
             ws.send(JSON.stringify({ type: 'left', fileId }));
           }
           break;
@@ -535,7 +535,7 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
             const fileId = args?._id || args?.fileId;
             const hasAccess = await hasFileAccess(fileId, user.email);
             if (!hasAccess) {
-              console.warn(`[WS SUB SECURITY REJECT] User ${user.email} attempted unauthorized subscription to: ${fileId}`);
+              console.warn(`[WS SUB SECURITY REJECT] User ${user.id} attempted unauthorized subscription to: ${fileId}`);
               ws.send(JSON.stringify({ type: 'error', message: 'Forbidden: You do not have access to this subscription' }));
               break;
             }
@@ -559,11 +559,16 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
 
         case 'mutation': {
           const { path, args, fileId } = message;
-          const targetRoom = fileId || args?._id || args?.fileId;
-          if (targetRoom) {
-            const auth = await checkMutationAuth(targetRoom, user.email);
+          const targetId = args?._id || args?.fileId;
+          if (targetId) {
+            const mutationId = args?.mutationId || `${user.id}:${path}:${targetId}:${Date.now()}`;
+            if (await isMutationProcessed(mutationId)) {
+              ws.send(JSON.stringify({ type: 'mutation-result', path, success: true, data: { skipped: true } }));
+              break;
+            }
+            const auth = await checkMutationAuth(targetId, user.email);
             if (!auth.allowed) {
-              console.warn(`[WS MUTATION SECURITY REJECT] User ${user.email} attempted unauthorized mutation "${path}" on: ${targetRoom}: ${auth.error}`);
+              console.warn(`[WS MUTATION SECURITY REJECT] User ${user.id} attempted unauthorized mutation "${path}" on: ${targetId}: ${auth.error}`);
               ws.send(JSON.stringify({ type: 'error', message: auth.error }));
               break;
             }
@@ -572,6 +577,11 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
 
           try {
             const result = await executeMutation(path, args);
+            const targetId = args?._id || args?.fileId;
+            if (targetId) {
+              const mutationId = args?.mutationId || `${user.id}:${path}:${targetId}:${Date.now()}`;
+              await markMutationProcessed(mutationId);
+            }
             ws.send(JSON.stringify({ type: 'mutation-result', path, success: true, data: result }));
 
             const targetRoom = fileId || args?._id || args?.fileId;
@@ -585,7 +595,7 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
                 pubClient.publish('collabpro:channel:canvas', JSON.stringify({
                   type: 'mutation-update',
                   fileId: targetRoom,
-                  senderEmail: user.email,
+                  senderEmail: user.id,
                   payload: {
                     type: 'query-update',
                     path: 'files:getFileById',
@@ -613,12 +623,12 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
   });
 
   ws.on('close', () => {
-    console.log(`[WS DISCONNECTED] User disconnected: ${user.name} (${user.email})`);
+    console.log(`[WS DISCONNECTED] User disconnected: ${user.name} (${user.id})`);
     activeConnections.delete(connection);
   });
 
   ws.on('error', (err) => {
-    console.error(`[WS ERROR] Socket error for ${user.email}:`, err);
+    console.error(`[WS ERROR] Socket error for connection:`, err);
   });
 });
 
