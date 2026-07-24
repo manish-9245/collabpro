@@ -205,15 +205,16 @@ model OrgSetting {
 
 model AuditLog {
   id        String   @id @default(uuid())
-  teamId    String
+  teamId    String?
   userEmail String
   ipAddress String   @default("")
   action    String
   context   String   @default("")
   createdAt DateTime @default(now())
-  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  team      Team?    @relation(fields: [teamId], references: [id], onDelete: SetNull)
 
   @@index([teamId, createdAt])
+  @@index([userEmail, createdAt])
 }
 
 model SnykSettings {

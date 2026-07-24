@@ -34,8 +34,9 @@ describe('GrahakAI Platform & Database Integrity Security Audit Suite', () => {
     expect(content).toMatch(/SharedLink\s+{[^}]*file\s+File\s+@relation\(/);
     // 12. OrgSetting to Team relationship
     expect(content).toMatch(/OrgSetting\s+{[^}]*team\s+Team\s+@relation\(/);
-    // 13. AuditLog to Team relationship
-    expect(content).toMatch(/AuditLog\s+{[^}]*team\s+Team\s+@relation\(/);
+    // 13. AuditLog to Team relationship (optional: authentication events such
+    // as login/logout/register have no team context, so the FK is nullable)
+    expect(content).toMatch(/AuditLog\s+{[^}]*team\s+Team\?\s+@relation\(/);
   });
 
   it('should not contain destructive schema push commands in package.json start routine', () => {

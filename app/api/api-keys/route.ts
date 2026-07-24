@@ -3,6 +3,8 @@ import { prisma } from '@/lib/db';
 import { getServerSession } from '@/lib/session-auth/server';
 import { randomBytes } from 'crypto';
 import { hashApiKey } from '@/lib/api-key-middleware';
+import { logAuditEvent } from '@/lib/audit';
+import { getClientIp } from '@/lib/rate-limiter';
 
 export async function GET() {
   try {
@@ -72,6 +74,15 @@ export async function POST(request: Request) {
       }
     });
 
+    // Never log the raw key — only the name and the already-masked value.
+    await logAuditEvent(
+      null,
+      user.email,
+      'apikey:create',
+      { name: apiKey.name, maskedKey: apiKey.maskedKey, scope: apiKey.scope },
+      getClientIp(request)
+    );
+
     // For POST, we return the raw secret key exactly once
     return NextResponse.json({
       apiKey: {
@@ -115,6 +126,14 @@ export async function DELETE(request: Request) {
     await prisma.apiKey.delete({
       where: { id }
     });
+
+    await logAuditEvent(
+      null,
+      user.email,
+      'apikey:revoke',
+      { name: keyToDelete.name, maskedKey: keyToDelete.maskedKey },
+      getClientIp(request)
+    );
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

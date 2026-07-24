@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getServerSession } from '@/lib/session-auth/server';
+import { logAuditEvent } from '@/lib/audit';
+import { getClientIp } from '@/lib/rate-limiter';
 
 // helper to secure passwords simply
 import { createHash } from 'crypto';
@@ -88,6 +90,11 @@ export async function POST(request: Request) {
       expiresDateTime = new Date(expiresAt);
     }
 
+    // Share events do have a team context via the file being shared, so
+    // resolve it and attach it to the audit record (unlike auth events).
+    const file = await prisma.file.findUnique({ where: { id: fileId } });
+    const ip = getClientIp(request);
+
     let link;
     if (sharedLinkId) {
       // Update existing link
@@ -100,6 +107,14 @@ export async function POST(request: Request) {
           isActive: typeof isActive === 'boolean' ? isActive : undefined
         }
       });
+
+      await logAuditEvent(
+        file?.teamId ?? null,
+        user.email,
+        'share:role-change',
+        { fileId, sharedLinkId, role: link.role },
+        ip
+      );
     } else {
       // Create new share link
       link = await prisma.sharedLink.create({
@@ -111,6 +126,14 @@ export async function POST(request: Request) {
           isActive: typeof isActive === 'boolean' ? isActive : true
         }
       });
+
+      await logAuditEvent(
+        file?.teamId ?? null,
+        user.email,
+        'share:create',
+        { fileId, sharedLinkId: link.id, role: link.role },
+        ip
+      );
     }
 
     return NextResponse.json({ data: link });
@@ -135,9 +158,20 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: 'Missing sharedLinkId' }, { status: 400 });
     }
 
+    const existingLink = await prisma.sharedLink.findUnique({ where: { id: sharedLinkId } });
+    const file = existingLink ? await prisma.file.findUnique({ where: { id: existingLink.fileId } }) : null;
+
     await prisma.sharedLink.delete({
       where: { id: sharedLinkId }
     });
+
+    await logAuditEvent(
+      file?.teamId ?? null,
+      user.email,
+      'share:revoke',
+      { fileId: existingLink?.fileId, sharedLinkId },
+      getClientIp(request)
+    );
 
     return NextResponse.json({ success: true, message: 'Share link revoked successfully' });
   } catch (err: any) {

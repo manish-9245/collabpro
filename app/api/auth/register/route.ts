@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db';
 import bcrypt from 'bcryptjs';
 import { signToken } from '@/lib/session-auth/jwt';
 import { checkRateLimit, getClientIp, LIMITS } from '@/lib/rate-limiter';
+import { logAuditEvent } from '@/lib/audit';
 
 export async function POST(request: Request) {
   try {
@@ -46,6 +47,8 @@ export async function POST(request: Request) {
         image,
       },
     });
+
+    await logAuditEvent(null, user.email, 'auth:register', {}, ip);
 
     // Exclude password from returned user profile to prevent sensitive credential leaks
     const { password: _, ...userWithoutPassword } = user;
