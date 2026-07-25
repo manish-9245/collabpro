@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { validateAndSanitizeWhiteboardElements } from '@/lib/canvas-validation';
 import { getCachedFile, invalidateCachedFile } from '@/lib/redis-cache';
@@ -14,6 +15,22 @@ import {
   ConflictStrategy,
 } from './helpers';
 import * as Y from 'yjs';
+
+// FileVersion snapshots store a full copy of `document` and `whiteboard` on
+// every checkpoint (Issue 200). Without a cap this grows unbounded, so
+// files:createVersion prunes down to the most recent N after every insert.
+const MAX_RETAINED_VERSIONS = 50;
+
+// Hard ceiling on any client-supplied `take`/page-size argument. Without
+// this, pagination is cosmetic - a caller can still request an effectively
+// unbounded page and get the full dataset (including, pre-#190/#200, every
+// document/whiteboard blob) in one call.
+const MAX_PAGE_SIZE = 100;
+
+function resolvePageSize(take: unknown, fallback = 50): number {
+  if (!Number.isInteger(take) || (take as number) <= 0) return fallback;
+  return Math.min(take as number, MAX_PAGE_SIZE);
+}
 
 function mergeWhiteboardPayloads(currentStr: string, incomingStr: string): string {
   try {
@@ -108,53 +125,91 @@ export async function handleFileService(path: string, args: any, authUserEmail: 
 
   switch (path) {
     case 'files:getFiles': {
-      const { teamId, userEmail, scope } = args || {};
-      let files = [];
-      
+      const { teamId, userEmail, scope, take, cursor } = args || {};
+
+      const pageSize = resolvePageSize(take);
+
+      // Excludes `document` and `whiteboard` - the dashboard/sidebar list
+      // views never render the full blobs, but this path is polled every
+      // ~4s per client, so shipping them here was pure wasted bandwidth
+      // (Issue 190). `whiteboardText` is kept: it's the small derived
+      // search-index text FileList.tsx matches against, not the raw canvas.
+      const listSelect = {
+        id: true,
+        fileName: true,
+        teamId: true,
+        createdBy: true,
+        archive: true,
+        folder: true,
+        createdAt: true,
+        whiteboardText: true,
+      } as const;
+
+      const paginationArgs = {
+        orderBy: [{ createdAt: 'desc' as const }, { id: 'desc' as const }],
+        select: listSelect,
+        take: pageSize + 1,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      };
+
+      let files: any[] = [];
+
       if (scope === 'org' && userEmail) {
         // Get all teams the user is member or creator of
         const createdTeams = await prisma.team.findMany({
           where: { createdBy: userEmail },
+          select: { id: true },
         });
         const memberships = await prisma.teamMember.findMany({
           where: { userEmail },
+          select: { teamId: true },
         });
         const memberTeamIds = memberships.map(m => m.teamId);
         const allTeamIds = [...createdTeams.map(t => t.id), ...memberTeamIds];
-        
+
         files = await prisma.file.findMany({
           where: { teamId: { in: allTeamIds } },
-          orderBy: { createdAt: 'desc' },
+          ...paginationArgs,
         });
       } else if (scope === 'personal' && userEmail) {
         files = await prisma.file.findMany({
           where: { teamId, createdBy: userEmail },
-          orderBy: { createdAt: 'desc' },
+          ...paginationArgs,
         });
       } else {
         // Default: team scope
         files = await prisma.file.findMany({
           where: { teamId },
-          orderBy: { createdAt: 'desc' },
+          ...paginationArgs,
         });
+      }
+
+      let nextCursor: string | null = null;
+      if (files.length > pageSize) {
+        // Lookahead row only proves another page exists - discard it and
+        // point the cursor at the last row we're actually returning.
+        files.pop();
+        nextCursor = files[files.length - 1].id;
       }
 
       // Fetch user profiles for all file creators to attach real avatar and name
       const creatorEmails = Array.from(new Set(files.map(f => f.createdBy)));
       const users = await prisma.user.findMany({
         where: { email: { in: creatorEmails } },
+        select: { email: true, name: true, image: true },
       });
-      
+
       const userMap = new Map(users.map(u => [u.email, u]));
 
       // Fetch team details to map teamId to teamName
       const teamIds = Array.from(new Set(files.map(f => f.teamId)));
       const teams = await prisma.team.findMany({
         where: { id: { in: teamIds } },
+        select: { id: true, teamName: true },
       });
       const teamMap = new Map(teams.map(t => [t.id, t]));
-      
-      result = files.map(file => {
+
+      const items = files.map(file => {
         const creator = userMap.get(file.createdBy);
         const team = teamMap.get(file.teamId);
         return {
@@ -164,6 +219,8 @@ export async function handleFileService(path: string, args: any, authUserEmail: 
           teamName: team?.teamName || null
         };
       });
+
+      result = { items, nextCursor };
       break;
     }
     case 'files:getFileById': {
@@ -462,34 +519,137 @@ export async function handleFileService(path: string, args: any, authUserEmail: 
       if (!file) {
         throw new HttpError(404, "File not found");
       }
-      
-      // Find highest version
-      const versions = await prisma.fileVersion.findMany({
-        where: { fileId },
-        orderBy: { version: 'desc' },
-        take: 1,
-      });
-      const nextVer = versions.length > 0 ? versions[0].version + 1 : 1;
 
-      result = await prisma.fileVersion.create({
-        data: {
-          fileId,
-          document: file.document,
-          whiteboard: file.whiteboard,
-          version: nextVer,
-          createdByName: createdByName || "Author",
-          createdByImage: createdByImage || "",
-          note: note || "",
-        },
-      });
+      // Create the new checkpoint and prune old ones atomically so a file
+      // never accumulates more than MAX_RETAINED_VERSIONS full document +
+      // whiteboard blob snapshots (Issue 200).
+      //
+      // CONCURRENCY: the transaction makes one request's insert+prune atomic,
+      // but under READ COMMITTED two concurrent createVersion calls for the
+      // *same* file can both read "highest version is N" before either
+      // commits, and both then try to insert N+1. The @@unique([fileId,
+      // version]) constraint on FileVersion turns that race into a P2002
+      // unique-violation on the loser instead of silently allowing duplicate
+      // version numbers — retry with a freshly recomputed version number
+      // until it succeeds (or we give up after a bounded number of tries).
+      const MAX_VERSION_CONFLICT_RETRIES = 10;
+      let attempt = 0;
+      let created: any = null;
+      while (true) {
+        attempt += 1;
+        try {
+          created = await prisma.$transaction(async (tx) => {
+            // Serialize concurrent createVersion calls for the *same* file so
+            // the version-number race below can't be forced into exhausting
+            // the bounded P2002 retries by sustained same-file contention
+            // (e.g. 11+ concurrent checkpoints on one file). Different files
+            // hash to different lock keys and proceed fully in parallel.
+            await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${fileId}))`;
+
+            // Find highest version. On a retry, this re-read happens inside a
+            // fresh transaction/statement, so it sees whatever the previously
+            // "winning" concurrent request just committed.
+            const versions = await tx.fileVersion.findMany({
+              where: { fileId },
+              orderBy: { version: 'desc' },
+              take: 1,
+            });
+            const nextVer = versions.length > 0 ? versions[0].version + 1 : 1;
+
+            const createdRow = await tx.fileVersion.create({
+              data: {
+                fileId,
+                document: file.document,
+                whiteboard: file.whiteboard,
+                version: nextVer,
+                createdByName: createdByName || "Author",
+                createdByImage: createdByImage || "",
+                note: note || "",
+              },
+            });
+
+            const keep = await tx.fileVersion.findMany({
+              where: { fileId },
+              orderBy: { version: 'desc' },
+              take: MAX_RETAINED_VERSIONS,
+              select: { id: true },
+            });
+            await tx.fileVersion.deleteMany({
+              where: { fileId, id: { notIn: keep.map(v => v.id) } },
+            });
+
+            return createdRow;
+          });
+          break;
+        } catch (err: unknown) {
+          const isVersionConflict =
+            err instanceof Prisma.PrismaClientKnownRequestError &&
+            err.code === 'P2002';
+          if (isVersionConflict && attempt < MAX_VERSION_CONFLICT_RETRIES) {
+            continue;
+          }
+          throw err;
+        }
+      }
+      result = created;
       break;
     }
     case 'files:getVersions': {
-      const { fileId } = args || {};
-      result = await prisma.fileVersion.findMany({
+      const { fileId, versionId, take, cursor } = args || {};
+
+      if (versionId) {
+        // Single-version fetch with the full document/whiteboard blobs, for
+        // restore/preview. Not paginated — this is always exactly one row.
+        //
+        // SECURITY: the route-level access check (app/api/state-sync/route.ts)
+        // authorizes the caller against `fileId` when it's present in args —
+        // NOT against whichever file `versionId` actually belongs to. A
+        // caller with legitimate access to file A could otherwise pair A's
+        // fileId (which passes that check) with an unrelated file B's
+        // versionId and read B's content. Scoping this query by fileId (when
+        // supplied) closes that IDOR: a versionId that doesn't belong to the
+        // requested file simply doesn't match, same as "not found". When
+        // fileId is omitted, route.ts itself already resolves and checks
+        // access against the version's real owning file before we get here,
+        // so no additional constraint is needed in that case.
+        result = await prisma.fileVersion.findFirst({
+          where: { id: versionId, ...(fileId ? { fileId } : {}) },
+        });
+        if (!result) {
+          throw new Error("Version not found");
+        }
+        break;
+      }
+
+      const pageSize = resolvePageSize(take);
+
+      // Fetch one extra row to know whether another page exists, without a
+      // separate count() query.
+      const rows = await prisma.fileVersion.findMany({
         where: { fileId },
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ version: 'desc' }],
+        select: {
+          id: true,
+          version: true,
+          createdAt: true,
+          createdByName: true,
+          createdByImage: true,
+          note: true,
+        },
+        take: pageSize + 1,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       });
+
+      let nextCursor: string | null = null;
+      if (rows.length > pageSize) {
+        // The lookahead row only tells us a next page exists - discard it.
+        // The cursor for the next page is the last row we're actually
+        // returning, so the next request's `skip: 1` starts right after it.
+        rows.pop();
+        nextCursor = rows[rows.length - 1].id;
+      }
+
+      result = { items: rows, nextCursor };
       break;
     }
     case 'files:restoreVersion': {

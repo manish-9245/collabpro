@@ -18,8 +18,10 @@ export async function POST(request: Request) {
     // on the submitted email alone would let one attacker register unlimited
     // accounts simply by varying the address.
     const ip = getClientIp(request);
-    const ipLimit = checkRateLimit(`register:ip:${ip}`, LIMITS.REGISTER_PER_IP);
-    const emailLimit = checkRateLimit(`register:ip-email:${ip}:${email}`, LIMITS.REGISTER);
+    const [ipLimit, emailLimit] = await Promise.all([
+      checkRateLimit(`register:ip:${ip}`, LIMITS.REGISTER_PER_IP),
+      checkRateLimit(`register:ip-email:${ip}:${email}`, LIMITS.REGISTER),
+    ]);
     if (!ipLimit.allowed || !emailLimit.allowed) {
       const resetAt = Math.max(ipLimit.resetAt, emailLimit.resetAt);
       // Log only the request that first trips the limit, not every
