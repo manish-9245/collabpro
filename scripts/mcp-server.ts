@@ -52,7 +52,7 @@ async function handleRequest(rawLine: string) {
   if (method === 'initialize') {
     sendResponse(id, {
       protocolVersion: '2024-11-05',
-      capabilities: {},
+      capabilities: { tools: {} },
       serverInfo: {
         name: 'collabpro-mcp-server',
         version: '1.0.0'

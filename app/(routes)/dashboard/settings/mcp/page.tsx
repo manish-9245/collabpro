@@ -87,50 +87,68 @@ export default function McpSettingsHub() {
         ],
         "env": {
           "COLLABPRO_API_KEY": selectedKey,
-          "COLLABPRO_URL": baseAppUrl
+          "COLLABPRO_BASE_URL": baseAppUrl
         }
       }
     }
   }, null, 2);
 
   const cursorCommand = `npx -y ts-node --compiler-options "{\\"module\\":\\"commonjs\\"}" ${mcpServerScriptPath}`;
-  const cursorEnv = `COLLABPRO_API_KEY=${selectedKey}\nCOLLABPRO_URL=${baseAppUrl}`;
+  const cursorEnv = `COLLABPRO_API_KEY=${selectedKey}\nCOLLABPRO_BASE_URL=${baseAppUrl}`;
 
-  const runDiagnostics = () => {
+  // Real diagnostic against the HTTP MCP endpoint (/api/mcp), using the
+  // selected key exactly as a real client would present it. This can't
+  // verify the *stdio* server the configs above launch (a browser can't
+  // spawn a local subprocess), but it's a genuine round trip that confirms
+  // the key is valid/correctly scoped and the MCP protocol layer responds -
+  // the previous version of this button never made a network call at all
+  // and always reported a hard-coded success with tool names that don't
+  // exist in the real implementation.
+  const runDiagnostics = async () => {
     if (selectedKey === 'YOUR_API_KEY_HERE') {
       toast.warning("Please select or generate a valid CollabPro API key first.");
       return;
     }
 
     setDiagnostics('testing');
-    setHandshakeLogs([]);
-    
-    const logs = [
-      "🔄 Initializing Model Context Protocol Handshake...",
-      "📡 Dialing stdio loop connection protocol...",
-      "🔑 Validating COLLABPRO_API_KEY secure payload...",
-      "⚡ Sending schema.json tools/list invocation query...",
-    ];
+    setHandshakeLogs(["🔑 Testing API key against the MCP HTTP endpoint (/api/mcp)..."]);
 
-    logs.forEach((log, index) => {
-      setTimeout(() => {
-        setHandshakeLogs(prev => [...prev, log]);
-      }, (index + 1) * 600);
-    });
+    try {
+      const initRes = await fetch('/api/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${selectedKey}` },
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'initialize', id: 1 }),
+      });
+      const initBody = await initRes.json();
+      if (!initRes.ok) {
+        throw new Error(initBody?.error?.message || `HTTP ${initRes.status}`);
+      }
+      setHandshakeLogs(prev => [...prev, `✅ initialize succeeded (protocol ${initBody.result?.protocolVersion ?? 'unknown'})`]);
 
-    setTimeout(() => {
+      const listRes = await fetch('/api/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${selectedKey}` },
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'tools/list', id: 2 }),
+      });
+      const listBody = await listRes.json();
+      if (!listRes.ok) {
+        throw new Error(listBody?.error?.message || `HTTP ${listRes.status}`);
+      }
+      const toolNames: string[] = (listBody.result?.tools ?? []).map((t: { name: string }) => t.name);
       setHandshakeLogs(prev => [
-        ...prev, 
-        "✅ Handshake 100% Success! Connected nodes.",
-        "🛠️ Exposing 4 Live Whiteboard Tools:",
-        "   👉 collabpro_read_board (Read canvas coordinates)",
-        "   👉 collabpro_write_board (Append diagram shapes)",
-        "   👉 collabpro_list_files (Fetch available collaborative sheets)",
-        "   👉 collabpro_create_file (Initialize high-fidelity canvases)"
+        ...prev,
+        `✅ tools/list returned ${toolNames.length} tool(s):`,
+        ...toolNames.map((name) => `   👉 ${name}`),
+        "ℹ️ This confirms the API key and HTTP endpoint work. It does not launch or test the local stdio process your client config runs - relaunch your client after saving its config to verify that separately.",
       ]);
       setDiagnostics('success');
-      toast.success("MCP Handshake succeeded! Connection is optimal.");
-    }, 3200);
+      toast.success("MCP API key verified against /api/mcp.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setHandshakeLogs(prev => [...prev, `❌ Failed: ${message}`]);
+      setDiagnostics('failed');
+      toast.error("MCP diagnostic failed - see console log below.");
+    }
   };
 
   return (

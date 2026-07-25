@@ -93,7 +93,7 @@ describe('API Key Cryptographic & Middleware Security', () => {
       expect(res.statusCode).toBe(401);
     });
 
-    it('should accept read-only key on GET read operations', async () => {
+    it('should accept read-only key on read operations', async () => {
       mockFindUnique.mockResolvedValueOnce({
         id: 'key-123',
         userEmail: 'user@collabpro.com',
@@ -102,13 +102,13 @@ describe('API Key Cryptographic & Middleware Security', () => {
         scope: 'read-only',
       });
 
-      const res = await verifyApiKey('Bearer collabpro_pat_read_only', 'GET');
+      const res = await verifyApiKey('Bearer collabpro_pat_read_only', false);
       expect(res.isValid).toBe(true);
       expect(res.userEmail).toBe('user@collabpro.com');
       expect(res.scope).toBe('read-only');
     });
 
-    it('should block read-only key on write operations (POST, PUT, DELETE, PATCH)', async () => {
+    it('should block read-only key on write operations', async () => {
       mockFindUnique.mockResolvedValueOnce({
         id: 'key-123',
         userEmail: 'user@collabpro.com',
@@ -117,7 +117,7 @@ describe('API Key Cryptographic & Middleware Security', () => {
         scope: 'read-only',
       });
 
-      const res = await verifyApiKey('Bearer collabpro_pat_read_only', 'POST');
+      const res = await verifyApiKey('Bearer collabpro_pat_read_only', true);
       expect(res.isValid).toBe(false);
       expect(res.error).toBe('Forbidden: API key has read-only access scope');
       expect(res.statusCode).toBe(403);
@@ -132,11 +132,31 @@ describe('API Key Cryptographic & Middleware Security', () => {
         scope: 'read-write',
       });
 
-      const resGet = await verifyApiKey('Bearer collabpro_pat_read_write', 'GET');
-      expect(resGet.isValid).toBe(true);
+      const resRead = await verifyApiKey('Bearer collabpro_pat_read_write', false);
+      expect(resRead.isValid).toBe(true);
 
-      const resPost = await verifyApiKey('Bearer collabpro_pat_read_write', 'POST');
-      expect(resPost.isValid).toBe(true);
+      const resWrite = await verifyApiKey('Bearer collabpro_pat_read_write', true);
+      expect(resWrite.isValid).toBe(true);
+    });
+  });
+
+  describe('isReadOnlyOperation (issue #215-adjacent MCP scope fix)', () => {
+    it('classifies get*/search* RPC actions as read-only', async () => {
+      const { isReadOnlyOperation } = await import('@/lib/api-key-middleware');
+      expect(isReadOnlyOperation('files:getFiles')).toBe(true);
+      expect(isReadOnlyOperation('files:getFileById')).toBe(true);
+      expect(isReadOnlyOperation('user:searchUsers')).toBe(true);
+      expect(isReadOnlyOperation('teams:getTeamMembers')).toBe(true);
+    });
+
+    it('classifies everything else as a write, including bare (non-namespaced) tool names', async () => {
+      const { isReadOnlyOperation } = await import('@/lib/api-key-middleware');
+      expect(isReadOnlyOperation('files:createFile')).toBe(false);
+      expect(isReadOnlyOperation('files:updateDocument')).toBe(false);
+      expect(isReadOnlyOperation('teams:inviteMember')).toBe(false);
+      // MCP's write tools aren't namespaced with ':' at all.
+      expect(isReadOnlyOperation('collabpro_update_document')).toBe(false);
+      expect(isReadOnlyOperation('collabpro_update_whiteboard')).toBe(false);
     });
   });
 
