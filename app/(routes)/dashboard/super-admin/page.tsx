@@ -41,7 +41,7 @@ export default function SuperAdminTelemetryPage() {
       const data = await res.json();
       setMetrics(data);
       setHistory(prev => {
-        const next = [...prev, { time: new Date().toLocaleTimeString(), throughput: data.throughput, cpu: data.cpuUsagePercent }];
+        const next = [...prev, { time: new Date().toLocaleTimeString(), throughput: data.throughput }];
         if (next.length > 10) next.shift(); // Keep last 10 ticks
         return next;
       });
@@ -206,9 +206,9 @@ export default function SuperAdminTelemetryPage() {
           </div>
           <div>
             <div className="text-[10px] font-black uppercase tracking-wider text-slate-500">DB Connection Pool</div>
-            <div className="text-lg font-bold text-white mt-0.5">{metrics?.dbPoolActive || 4} Active Pools</div>
+            <div className="text-lg font-bold text-white mt-0.5">{metrics?.dbPoolActive || 0} Active Pools</div>
             <div className="text-[10px] font-semibold text-slate-400 mt-0.5">
-              Capacity: {metrics?.dbPoolActive + (metrics?.dbPoolIdle || 6)}/{metrics?.dbPoolMax || 30}
+              Capacity: {(metrics?.dbPoolActive || 0) + (metrics?.dbPoolIdle || 0)}/{metrics?.dbPoolMax || 10}
             </div>
           </div>
         </div>
@@ -418,20 +418,20 @@ export default function SuperAdminTelemetryPage() {
               {/* Connection Pool Meter */}
               <div className="p-5 border border-slate-900 bg-slate-900/20 rounded-xl space-y-3">
                 <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Active connections</div>
-                <div className="text-3xl font-extrabold text-indigo-400">{metrics?.dbPoolActive || 4}</div>
+                <div className="text-3xl font-extrabold text-indigo-400">{metrics?.dbPoolActive || 0}</div>
                 <p className="text-[10px] text-slate-500 leading-relaxed">Active database transactions currently executing queries.</p>
               </div>
 
               <div className="p-5 border border-slate-900 bg-slate-900/20 rounded-xl space-y-3">
                 <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Idle connections</div>
-                <div className="text-3xl font-extrabold text-indigo-400">{metrics?.dbPoolIdle || 8}</div>
+                <div className="text-3xl font-extrabold text-indigo-400">{metrics?.dbPoolIdle || 0}</div>
                 <p className="text-[10px] text-slate-500 leading-relaxed">Idle database connections pooled and ready to serve queries in under 2ms.</p>
               </div>
 
               <div className="p-5 border border-slate-900 bg-slate-900/20 rounded-xl space-y-3">
                 <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total capacity</div>
-                <div className="text-3xl font-extrabold text-indigo-400">{metrics?.dbPoolActive + (metrics?.dbPoolIdle || 8)}/30</div>
-                <p className="text-[10px] text-slate-500 leading-relaxed">Total connections allocated out of maximum pgBouncer limit.</p>
+                <div className="text-3xl font-extrabold text-indigo-400">{(metrics?.dbPoolActive || 0) + (metrics?.dbPoolIdle || 0)}/{metrics?.dbPoolMax || 10}</div>
+                <p className="text-[10px] text-slate-500 leading-relaxed">Total connections allocated out of the configured pool maximum.</p>
               </div>
             </div>
 
@@ -439,9 +439,9 @@ export default function SuperAdminTelemetryPage() {
             <div className="p-4 border border-emerald-900/40 bg-emerald-950/10 rounded-xl flex items-start gap-3 mt-4">
               <ShieldCheck className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5" />
               <div>
-                <h4 className="text-xs font-bold text-emerald-400">pgBouncer Connection Pool SLA: Perfect</h4>
+                <h4 className="text-xs font-bold text-emerald-400">Connection Pool SLA: Perfect</h4>
                 <p className="text-[10px] text-slate-400 leading-relaxed mt-1">
-                  Database queries latency average: <strong>1.4ms</strong>. Active limits are safely within bounded thresholds. No queuing or connection starvation events detected.
+                  Active limits are safely within bounded thresholds. No queuing or connection starvation events detected.
                 </p>
               </div>
             </div>
@@ -456,13 +456,13 @@ export default function SuperAdminTelemetryPage() {
                   <Cpu className="h-4 w-4 text-indigo-400" />
                   CPU utilization
                 </h4>
-                <span className="text-xs font-extrabold text-indigo-400">{metrics?.cpuUsagePercent || 42}%</span>
+                <span className="text-xs font-extrabold text-slate-500">Not available</span>
               </div>
-              
+
               <div className="w-full bg-slate-900 h-2.5 rounded-full overflow-hidden">
-                <div style={{ width: `${metrics?.cpuUsagePercent || 42}%` }} className="bg-gradient-to-r from-indigo-500 to-indigo-600 h-full rounded-full" />
+                <div className="bg-slate-800 h-full rounded-full" style={{ width: '0%' }} />
               </div>
-              <p className="text-[10px] text-slate-500 leading-relaxed">Average CPU core load across system replica instances.</p>
+              <p className="text-[10px] text-slate-500 leading-relaxed">CPU sampling requires OS-level metrics not currently exposed by the runtime.</p>
             </div>
 
             {/* Memory diagnostics */}

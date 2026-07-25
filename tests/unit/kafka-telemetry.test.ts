@@ -3,6 +3,31 @@ import { kafkaBroker } from '@/lib/kafka';
 import { GET as getTelemetryGET } from '@/app/api/admin/telemetry/route';
 import { NextRequest } from 'next/server';
 
+// Mock session auth so the route's admin gate can be exercised deterministically.
+const mockGetUser = vi.fn();
+vi.mock('@/lib/session-auth/server', () => ({
+  getServerSession: () => ({
+    getUser: mockGetUser,
+  }),
+}));
+
+// Mock db so the route's admin-membership lookup doesn't hit a real database,
+// and so getPgPool() returns a controllable value.
+const mockTeamFindFirst = vi.fn();
+const mockTeamMemberFindFirst = vi.fn();
+let mockPgPool: any = null;
+vi.mock('@/lib/db', () => ({
+  prisma: {
+    team: {
+      findFirst: (...args: any[]) => mockTeamFindFirst(...args),
+    },
+    teamMember: {
+      findFirst: (...args: any[]) => mockTeamMemberFindFirst(...args),
+    },
+  },
+  getPgPool: () => mockPgPool,
+}));
+
 describe('Apache Kafka Messaging & Super Admin Telemetry API', () => {
   beforeEach(() => {
     // Reset/Setup cluster metrics
@@ -58,17 +83,66 @@ describe('Apache Kafka Messaging & Super Admin Telemetry API', () => {
   });
 
   describe('Super Admin Telemetry REST API Endpoint', () => {
-    it('should return aggregated infrastructure and container health telemetry JSON', async () => {
+    beforeEach(() => {
+      mockGetUser.mockReset();
+      mockTeamFindFirst.mockReset();
+      mockTeamMemberFindFirst.mockReset();
+      mockPgPool = null;
+    });
+
+    it('should return 401 when there is no authenticated session', async () => {
+      mockGetUser.mockResolvedValueOnce(null);
+
       const request = new NextRequest('http://localhost:3000/api/admin/telemetry');
       const response = await getTelemetryGET(request);
-      
+
+      expect(response.status).toBe(401);
+    });
+
+    it('should return 403 when authenticated but not an admin/owner of any team', async () => {
+      mockGetUser.mockResolvedValueOnce({ id: 'user-1', email: 'nobody@collabpro.com', given_name: 'Nobody', picture: null });
+      mockTeamFindFirst.mockResolvedValueOnce(null);
+      mockTeamMemberFindFirst.mockResolvedValueOnce(null);
+
+      const request = new NextRequest('http://localhost:3000/api/admin/telemetry');
+      const response = await getTelemetryGET(request);
+
+      expect(response.status).toBe(403);
+    });
+
+    it('should return 200 with real (non-fabricated) telemetry when the user owns a team', async () => {
+      mockGetUser.mockResolvedValueOnce({ id: 'user-1', email: 'owner@collabpro.com', given_name: 'Owner', picture: null });
+      mockTeamFindFirst.mockResolvedValueOnce({ id: 'team-1', createdBy: 'owner@collabpro.com' });
+      mockTeamMemberFindFirst.mockResolvedValueOnce(null);
+
+      const request = new NextRequest('http://localhost:3000/api/admin/telemetry');
+      const response = await getTelemetryGET(request);
+
       expect(response.status).toBe(200);
       const json = await response.json();
-      
+
       expect(json.totalPublished).toBeDefined();
-      expect(json.cpuUsagePercent).toBeDefined();
-      expect(json.memoryUsageMB).toBeDefined();
       expect(json.systemUptimeSeconds).toBeDefined();
+      expect(json.memoryUsageMB).toBeTypeOf('number');
+      expect(json.memoryUsageMB).toBeGreaterThan(0);
+
+      // Previously fabricated fields must no longer be present.
+      expect(json.cpuUsagePercent).toBeUndefined();
+      expect(json.networkInBytes).toBeUndefined();
+      expect(json.networkOutBytes).toBeUndefined();
+    });
+
+    it('should return 200 when the user is an admin TeamMember (not the team owner)', async () => {
+      mockGetUser.mockResolvedValueOnce({ id: 'user-2', email: 'admin@collabpro.com', given_name: 'Admin', picture: null });
+      mockTeamFindFirst.mockResolvedValueOnce(null);
+      mockTeamMemberFindFirst.mockResolvedValueOnce({ id: 'member-1', userEmail: 'admin@collabpro.com', role: 'admin' });
+
+      const request = new NextRequest('http://localhost:3000/api/admin/telemetry');
+      const response = await getTelemetryGET(request);
+
+      expect(response.status).toBe(200);
+      const json = await response.json();
+      expect(json.cpuUsagePercent).toBeUndefined();
     });
   });
 });

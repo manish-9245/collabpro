@@ -43,7 +43,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: node scripts/db-prep.js
       - run: npx prisma db push
       - run: npm run build
 
@@ -85,7 +84,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: node scripts/db-prep.js
       - run: npx prisma db push
       - run: npm run test:coverage
 
@@ -117,7 +115,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: node scripts/db-prep.js
       - run: npx prisma db push
       - run: npm run build
       # 6. Setup Playwright browsers & dependencies
