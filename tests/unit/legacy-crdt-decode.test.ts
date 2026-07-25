@@ -68,6 +68,22 @@ describe('decodeLegacyCrdtState (issue #188 backward-compat read path)', () => {
     expect(Array.isArray(decoded.elements[0].points[0])).toBe(true);
   });
 
+  it('does not coerce a genuine object with numeric-string keys (not an array item) into an array', () => {
+    // A Y.Map with contiguous numeric-string keys is ambiguous in general -
+    // the legacy encoder used the exact same shape for both a nested array
+    // and a plain object whose keys happen to be "0", "1", .... Only the
+    // array-item position is structurally guaranteed to have come from a
+    // real array; an ordinary object property must be left as an object.
+    const legacyState = {
+      lookup: { '0': 'zero', '1': 'one' },
+    };
+    const stored = encodeLegacyFixture(legacyState);
+
+    const decoded = decodeLegacyCrdtState(stored, null);
+    expect(decoded).toEqual(legacyState);
+    expect(Array.isArray(decoded.lookup)).toBe(false);
+  });
+
   it('falls back to the parsed value when the payload is plain JSON, not yjs-wrapped', () => {
     const plain = { time: 1000, blocks: [] };
     const stored = JSON.stringify(plain);

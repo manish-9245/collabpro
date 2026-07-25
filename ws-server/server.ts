@@ -157,11 +157,17 @@ async function initRabbitMQ() {
     await mqChannel.assertQueue(QUEUE_NAME, { durable: true });
     console.log('🐇 [RabbitMQ] Connected to message broker successfully.');
 
-    // Consumer for durability/replay records. `queueDbWrite` below performs
-    // the authoritative write synchronously and awaits it BEFORE this
-    // message is ever published — by the time a message reaches here, the
-    // write it describes has already committed. This is therefore an
-    // audit/durability sink only, not a second write path.
+    // Consumer for this queue. `queueDbWrite` below performs the
+    // authoritative write synchronously and awaits it BEFORE this message
+    // is ever published — by the time a message reaches here, the write it
+    // describes has already committed. This consumer does not persist or
+    // replay anything (see the bug this avoids, below) — it only drains the
+    // queue and logs receipt so messages don't pile up unacked. It is NOT
+    // an audit trail: nothing here is queryable or retained. If a real
+    // audit/durability record of these writes is needed later, that
+    // requires actually persisting `payload` somewhere (a table, a log
+    // shipper, etc.) — not this queue, which #170 already tracks as
+    // largely-unused infrastructure to reconsider.
     //
     // Bug found in review (round 2, Group 1): this used to re-apply `value`
     // via casUpdateDocument/casUpdateWhiteboard. That looks idempotent but
@@ -177,10 +183,10 @@ async function initRabbitMQ() {
       if (msg !== null) {
         try {
           const payload = JSON.parse(msg.content.toString());
-          console.log(`💾 [RabbitMQ Durability Record] Received for file: ${payload.fileId} (${payload.type}) — write already committed synchronously, no-op.`);
+          console.log(`💾 [RabbitMQ] Drained record for file: ${payload.fileId} (${payload.type}) — write already committed synchronously, not persisted here.`);
           mqChannel?.ack(msg);
         } catch (err: any) {
-          console.error(`❌ [RabbitMQ Durability Record Error] Failed to parse record:`, err.message);
+          console.error(`❌ [RabbitMQ] Failed to parse queued record:`, err.message);
           mqChannel?.nack(msg, false, false); // Do not requeue on fatal error
         }
       }

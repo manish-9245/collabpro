@@ -52,38 +52,18 @@ export function decodeLegacyCrdtState(storedStr: string | null | undefined, fall
       const map = doc.getMap('state');
 
       // Recursively decode every nested Y value, not just direct Y.Map
-      // children of a Y.Array — an array item that is itself a Y.Array
-      // (e.g. a whiteboard element's `points: [[x, y], [x, y]]`) was
-      // previously left as an unconverted Y.Array instance instead of a
-      // plain array, silently corrupting that shape on read.
+      // children of a Y.Array.
       const decodeValue = (val: any): any => {
         if (val instanceof Y.Array) {
-          return val.toArray().map(decodeValue);
+          return val.toArray().map(decodeArrayItem);
         }
         if (val instanceof Y.Map) {
-          const obj: any = {};
-          for (const key of Array.from(val.keys())) {
-            obj[key] = decodeValue(val.get(key));
-          }
-          return restoreArrayShape(obj);
+          return decodeMapAsObject(val);
         }
         return val;
       };
 
-      // The old encoder had no native way to represent a plain array inside
-      // a Y.Map value, so nested arrays (e.g. coordinate pairs) were stored
-      // as a Y.Map with contiguous numeric string keys ("0", "1", ...).
-      // Detect that shape and restore it as a real array so legacy nested
-      // arrays don't come back as objects.
-      const restoreArrayShape = (obj: Record<string, any>): any => {
-        const keys = Object.keys(obj);
-        if (keys.length === 0 || !keys.every((k) => /^\d+$/.test(k))) return obj;
-        const indices = keys.map(Number).sort((a, b) => a - b);
-        const isContiguousFromZero = indices.every((n, i) => n === i);
-        return isContiguousFromZero ? indices.map((i) => obj[String(i)]) : obj;
-      };
-
-      const getDeep = (ymap: Y.Map<any>): any => {
+      const decodeMapAsObject = (ymap: Y.Map<any>): any => {
         const obj: any = {};
         for (const key of Array.from(ymap.keys())) {
           obj[key] = decodeValue(ymap.get(key));
@@ -91,7 +71,40 @@ export function decodeLegacyCrdtState(storedStr: string | null | undefined, fall
         return obj;
       };
 
-      return getDeep(map);
+      // The old encoder had no way to represent a plain array as an ITEM of
+      // a Y.Array (e.g. a whiteboard element's `points: [[x, y], [x, y]]`):
+      // its array-item conversion wrapped anything object-typed — including
+      // a nested array — in a Y.Map, using its own numeric-string keys
+      // ("0", "1", ...) as a side effect of recursing over Object.entries.
+      // That was previously left as an unconverted Y.Array/Y.Map instead of
+      // a plain array, silently corrupting the shape on read.
+      //
+      // This coercion only applies to a Y.Map found in ARRAY-ITEM position,
+      // not to Y.Map values reached as ordinary object properties elsewhere
+      // in the tree (see decodeMapAsObject/decodeValue above, which never
+      // call this). The old encoder had a real, unambiguous Y.Array for any
+      // property whose value was an array — a numeric-keyed Y.Map only ever
+      // arises from this one array-item case. Applying the same coercion to
+      // an arbitrary property value would risk turning a genuine object
+      // with numeric-string keys (e.g. `{"0": ..., "1": ...}`) into an
+      // array it never was, since that shape is indistinguishable from a
+      // real nested array once encoded as a Y.Map.
+      const decodeArrayItem = (item: any): any => {
+        if (item instanceof Y.Map) {
+          return restoreArrayShapeIfNumericKeyed(decodeMapAsObject(item));
+        }
+        return decodeValue(item);
+      };
+
+      const restoreArrayShapeIfNumericKeyed = (obj: Record<string, any>): any => {
+        const keys = Object.keys(obj);
+        if (keys.length === 0 || !keys.every((k) => /^\d+$/.test(k))) return obj;
+        const indices = keys.map(Number).sort((a, b) => a - b);
+        const isContiguousFromZero = indices.every((n, i) => n === i);
+        return isContiguousFromZero ? indices.map((i) => obj[String(i)]) : obj;
+      };
+
+      return decodeMapAsObject(map);
     }
 
     // Not yjs-wrapped: standard plain-JSON payload, return as-is
