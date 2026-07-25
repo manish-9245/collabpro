@@ -1,15 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createHash } from 'crypto';
+import bcrypt from 'bcryptjs';
 import { POST as stateSyncPOST } from '@/app/api/state-sync/route';
 import { POST as sharePOST, GET as shareGET, DELETE as shareDELETE } from '@/app/api/share/route';
 import { POST as verifyPOST } from '@/app/api/share/verify/route';
+import { checkFileAccess } from '@/lib/file-access';
 
 // Mock database prisma
 const mockSharedLinkFindUnique = vi.fn();
 const mockSharedLinkFindMany = vi.fn();
 const mockSharedLinkCreate = vi.fn();
 const mockSharedLinkUpdate = vi.fn();
+const mockSharedLinkUpdateMany = vi.fn();
 const mockSharedLinkDelete = vi.fn();
+const mockSharedLinkDeleteMany = vi.fn();
 
 const mockFileFindUnique = vi.fn();
 const mockFileUpdate = vi.fn();
@@ -23,7 +27,9 @@ vi.mock('@/lib/db', () => ({
       findMany: (...args: any[]) => mockSharedLinkFindMany(...args),
       create: (...args: any[]) => mockSharedLinkCreate(...args),
       update: (...args: any[]) => mockSharedLinkUpdate(...args),
+      updateMany: (...args: any[]) => mockSharedLinkUpdateMany(...args),
       delete: (...args: any[]) => mockSharedLinkDelete(...args),
+      deleteMany: (...args: any[]) => mockSharedLinkDeleteMany(...args),
     },
     file: {
       findUnique: (...args: any[]) => mockFileFindUnique(...args),
@@ -484,7 +490,7 @@ describe('File Authorization for Share Links (Issue 183)', () => {
       mockGetUser.mockResolvedValueOnce({ email: 'owner@collabpro.com' });
       mockSharedLinkFindUnique.mockResolvedValueOnce({ id: 'link-1', fileId: 'file-real' });
       mockFileFindUnique.mockResolvedValueOnce({ id: 'file-real', createdBy: 'owner@collabpro.com', teamId: 'team-1' });
-      mockSharedLinkDelete.mockResolvedValueOnce({ id: 'link-1' });
+      mockSharedLinkDeleteMany.mockResolvedValueOnce({ count: 1 });
 
       const req = new Request('http://localhost/api/share?sharedLinkId=link-1', { method: 'DELETE' });
       const res = await shareDELETE(req);
@@ -496,12 +502,276 @@ describe('File Authorization for Share Links (Issue 183)', () => {
       mockSharedLinkFindUnique.mockResolvedValueOnce({ id: 'link-1', fileId: 'file-real' });
       mockFileFindUnique.mockResolvedValueOnce({ id: 'file-real', createdBy: 'owner@collabpro.com', teamId: 'team-1' });
       mockTeamMemberFindFirst.mockResolvedValueOnce({ id: 'tm-1', teamId: 'team-1', userEmail: 'member@collabpro.com' });
-      mockSharedLinkDelete.mockResolvedValueOnce({ id: 'link-1' });
+      mockSharedLinkDeleteMany.mockResolvedValueOnce({ count: 1 });
 
       const req = new Request('http://localhost/api/share?sharedLinkId=link-1', { method: 'DELETE' });
       const res = await shareDELETE(req);
       expect(res.status).toBe(200);
     });
+
+    it('does not throw when the link was already deleted concurrently (idempotent delete)', async () => {
+      mockGetUser.mockResolvedValueOnce({ email: 'owner@collabpro.com' });
+      mockSharedLinkFindUnique.mockResolvedValueOnce({ id: 'link-gone', fileId: 'file-real' });
+      mockFileFindUnique.mockResolvedValueOnce({ id: 'file-real', createdBy: 'owner@collabpro.com', teamId: 'team-1' });
+      // Someone else revoked it a moment earlier: 0 rows matched, not an error.
+      mockSharedLinkDeleteMany.mockResolvedValueOnce({ count: 0 });
+
+      const req = new Request('http://localhost/api/share?sharedLinkId=link-gone', { method: 'DELETE' });
+      const res = await shareDELETE(req);
+      expect(res.status).toBe(200);
+      expect(mockSharedLinkDelete).not.toHaveBeenCalled();
+      expect(mockSharedLinkDeleteMany).toHaveBeenCalledWith({ where: { id: 'link-gone' } });
+    });
+  });
+});
+
+describe('checkFileAccess team ownership (Issue 183 follow-up)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns true for a team owner who did not personally create the file', async () => {
+    mockFileFindUnique.mockResolvedValueOnce({
+      id: 'file-9',
+      createdBy: 'teammate@collabpro.com',
+      teamId: 'team-9',
+      team: { id: 'team-9', createdBy: 'owner@collabpro.com' },
+    });
+    mockTeamMemberFindFirst.mockResolvedValueOnce(null); // owner has no TeamMember row either
+
+    const result = await checkFileAccess('file-9', 'owner@collabpro.com');
+    expect(result).toBe(true);
+  });
+
+  it('returns false for a stranger who is neither the file creator, team owner, nor a team member', async () => {
+    mockFileFindUnique.mockResolvedValueOnce({
+      id: 'file-9',
+      createdBy: 'teammate@collabpro.com',
+      teamId: 'team-9',
+      team: { id: 'team-9', createdBy: 'owner@collabpro.com' },
+    });
+    mockTeamMemberFindFirst.mockResolvedValueOnce(null);
+
+    const result = await checkFileAccess('file-9', 'stranger@collabpro.com');
+    expect(result).toBe(false);
+  });
+
+  it('allows the team owner to create a share link for a file a teammate created', async () => {
+    mockGetUser.mockResolvedValueOnce({ email: 'team-owner@collabpro.com' });
+    mockFileFindUnique.mockResolvedValueOnce({
+      id: 'file-10',
+      createdBy: 'teammate@collabpro.com',
+      teamId: 'team-10',
+      team: { id: 'team-10', createdBy: 'team-owner@collabpro.com' },
+    });
+    mockTeamMemberFindFirst.mockResolvedValueOnce(null);
+    mockSharedLinkCreate.mockResolvedValueOnce({ id: 'link-new', fileId: 'file-10', role: 'viewer', passwordHash: null, isActive: true });
+
+    const req = new Request('http://localhost/api/share', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId: 'file-10', role: 'viewer' }),
+    });
+
+    const res = await sharePOST(req);
+    expect(res.status).toBe(200);
+  });
+});
+
+describe('Revoked Link Rejection at Verify (Issue 184 follow-up)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('rejects verification of a revoked (isActive: false) link even with the correct password', async () => {
+    const correctHash = await bcrypt.hash('correct-pw', 10);
+    mockSharedLinkFindUnique.mockResolvedValueOnce({
+      id: 'link-revoked',
+      fileId: 'file-1',
+      role: 'editor',
+      passwordHash: correctHash,
+      expiresAt: null,
+      isActive: false,
+    });
+
+    const req = new Request('http://localhost/api/share/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sharedLinkId: 'link-revoked', password: 'correct-pw' }),
+    });
+
+    const res = await verifyPOST(req);
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.success).not.toBe(true);
+  });
+
+  it('still allows verification of an active link with the correct password', async () => {
+    const correctHash = await bcrypt.hash('correct-pw', 10);
+    mockSharedLinkFindUnique.mockResolvedValueOnce({
+      id: 'link-active',
+      fileId: 'file-1',
+      role: 'editor',
+      passwordHash: correctHash,
+      expiresAt: null,
+      isActive: true,
+    });
+
+    const req = new Request('http://localhost/api/share/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sharedLinkId: 'link-active', password: 'correct-pw' }),
+    });
+
+    const res = await verifyPOST(req);
+    expect(res.status).toBe(200);
+  });
+});
+
+describe('Password Upgrade Race Condition (Issue 184 follow-up)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('does not clobber a concurrently-changed password when upgrading a legacy hash', async () => {
+    const legacyHash = createHash('sha256').update('legacy-pass').digest('hex');
+    mockSharedLinkFindUnique.mockResolvedValueOnce({
+      id: 'link-race',
+      fileId: 'file-1',
+      role: 'viewer',
+      passwordHash: legacyHash,
+      expiresAt: null,
+      isActive: true,
+    });
+
+    // Simulate: by the time the upgrade write runs, the row's passwordHash
+    // is no longer `legacyHash` (owner changed the password concurrently
+    // via POST /api/share). A conditional update matched 0 rows.
+    mockSharedLinkUpdateMany.mockResolvedValueOnce({ count: 0 });
+
+    const req = new Request('http://localhost/api/share/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sharedLinkId: 'link-race', password: 'legacy-pass' }),
+    });
+
+    const res = await verifyPOST(req);
+    // The verify itself still succeeds against the hash the user actually typed.
+    expect(res.status).toBe(200);
+    // The upgrade write must be conditional on the hash unchanged, not a blind update-by-id.
+    expect(mockSharedLinkUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'link-race', passwordHash: legacyHash },
+    }));
+    expect(mockSharedLinkUpdate).not.toHaveBeenCalled();
+  });
+
+  it('upgrades the hash normally when there is no concurrent change', async () => {
+    const legacyHash = createHash('sha256').update('legacy-pass-2').digest('hex');
+    mockSharedLinkFindUnique.mockResolvedValueOnce({
+      id: 'link-no-race',
+      fileId: 'file-1',
+      role: 'viewer',
+      passwordHash: legacyHash,
+      expiresAt: null,
+      isActive: true,
+    });
+    mockSharedLinkUpdateMany.mockResolvedValueOnce({ count: 1 });
+
+    const req = new Request('http://localhost/api/share/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sharedLinkId: 'link-no-race', password: 'legacy-pass-2' }),
+    });
+
+    const res = await verifyPOST(req);
+    expect(res.status).toBe(200);
+    expect(mockSharedLinkUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'link-no-race', passwordHash: legacyHash },
+      data: expect.objectContaining({ passwordHash: expect.stringMatching(/^\$2/) }),
+    }));
+  });
+});
+
+describe('Rate Limit Key Construction (Issue 184 follow-up)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetUser.mockResolvedValue(null);
+  });
+
+  it('cannot be bypassed by rotating the client-supplied IP for a fixed sharedLinkId', async () => {
+    mockSharedLinkFindUnique.mockResolvedValue({
+      id: 'link-ip-rotate',
+      fileId: 'file-1',
+      role: 'viewer',
+      passwordHash: null,
+      expiresAt: null,
+      isActive: true,
+    });
+
+    const makeReq = (ip: string) => new Request('http://localhost/api/share/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': ip },
+      body: JSON.stringify({ sharedLinkId: 'link-ip-rotate', password: 'wrong-pass' }),
+    });
+
+    let lastRes;
+    for (let i = 0; i < 11; i++) {
+      // A fresh, attacker-chosen IP on every single request.
+      lastRes = await verifyPOST(makeReq(`203.0.113.${i}`));
+    }
+
+    expect(lastRes!.status).toBe(429);
+  });
+
+  it('does not let one exhausted link block verification attempts against a different link from the same IP', async () => {
+    mockSharedLinkFindUnique.mockResolvedValue({
+      id: 'link-a',
+      fileId: 'file-1',
+      role: 'viewer',
+      passwordHash: null,
+      expiresAt: null,
+      isActive: true,
+    });
+
+    const makeReqA = () => new Request('http://localhost/api/share/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '198.51.100.1' },
+      body: JSON.stringify({ sharedLinkId: 'link-a', password: 'wrong-pass' }),
+    });
+    for (let i = 0; i < 10; i++) {
+      await verifyPOST(makeReqA());
+    }
+
+    mockSharedLinkFindUnique.mockResolvedValueOnce({
+      id: 'link-b',
+      fileId: 'file-2',
+      role: 'viewer',
+      passwordHash: null,
+      expiresAt: null,
+      isActive: true,
+    });
+    const reqB = new Request('http://localhost/api/share/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '198.51.100.1' },
+      body: JSON.stringify({ sharedLinkId: 'link-b', password: 'wrong-pass' }),
+    });
+    const resB = await verifyPOST(reqB);
+    expect(resB.status).not.toBe(429);
+  });
+
+  it('does not consume a rate-limit bucket for a sharedLinkId that does not exist in the database', async () => {
+    mockSharedLinkFindUnique.mockResolvedValue(null);
+
+    const makeReq = () => new Request('http://localhost/api/share/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '10.0.0.9' },
+      body: JSON.stringify({ sharedLinkId: 'does-not-exist', password: 'whatever' }),
+    });
+
+    for (let i = 0; i < 15; i++) {
+      const res = await verifyPOST(makeReq());
+      expect(res.status).toBe(404);
+    }
   });
 });
 
@@ -539,8 +809,9 @@ describe('Password Hashing for Share Links (Issue 184)', () => {
       role: 'viewer',
       passwordHash: legacyHash,
       expiresAt: null,
+      isActive: true,
     });
-    mockSharedLinkUpdate.mockResolvedValueOnce({ id: 'link-legacy', passwordHash: 'rehashed' });
+    mockSharedLinkUpdateMany.mockResolvedValueOnce({ count: 1 });
 
     const req = new Request('http://localhost/api/share/verify', {
       method: 'POST',
@@ -554,8 +825,8 @@ describe('Password Hashing for Share Links (Issue 184)', () => {
     expect(body.success).toBe(true);
 
     // The legacy row must be transparently upgraded to a bcrypt hash post-verify
-    expect(mockSharedLinkUpdate).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 'link-legacy' },
+    expect(mockSharedLinkUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'link-legacy', passwordHash: legacyHash },
       data: expect.objectContaining({
         passwordHash: expect.stringMatching(/^\$2/),
       }),
@@ -570,6 +841,7 @@ describe('Password Hashing for Share Links (Issue 184)', () => {
       role: 'viewer',
       passwordHash: legacyHash,
       expiresAt: null,
+      isActive: true,
     });
 
     const req = new Request('http://localhost/api/share/verify', {
@@ -581,6 +853,7 @@ describe('Password Hashing for Share Links (Issue 184)', () => {
     const res = await verifyPOST(req);
     expect(res.status).toBe(401);
     expect(mockSharedLinkUpdate).not.toHaveBeenCalled();
+    expect(mockSharedLinkUpdateMany).not.toHaveBeenCalled();
   });
 });
 

@@ -173,7 +173,12 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: 'Forbidden: You do not have access to this file' }, { status: 403 });
     }
 
-    await prisma.sharedLink.delete({
+    // deleteMany instead of delete: if the link was already removed by a
+    // concurrent request (e.g. a double-clicked revoke) between the
+    // findUnique above and here, delete-by-id would throw Prisma's P2025
+    // and surface as a raw 500. deleteMany is idempotent — it just matches
+    // zero rows, which is the outcome we want either way.
+    await prisma.sharedLink.deleteMany({
       where: { id: sharedLinkId }
     });
 

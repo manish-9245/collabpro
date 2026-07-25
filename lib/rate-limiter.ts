@@ -41,10 +41,15 @@ export const LIMITS = {
   // users mistyping passwords, while still capping credential stuffing.
   LOGIN_PER_IP: { windowMs: 15 * 60 * 1000, maxAttempts: 30 },
   REGISTER_PER_IP: { windowMs: 60 * 60 * 1000, maxAttempts: 10 },
-  // Share-link password verification: unauthenticated by design, so it is
-  // keyed on ip+linkId rather than an account to stop brute-forcing a
-  // single link's password without punishing everyone else on that IP.
+  // Share-link password verification: unauthenticated by design. The
+  // primary gate is keyed on the (DB-confirmed) sharedLinkId alone, so
+  // rotating a claimed IP cannot reset an attacker's budget against a
+  // specific link. SHARE_VERIFY_PER_IP is a secondary, more generous
+  // ceiling — same ip+account-limit pairing pattern as LOGIN/LOGIN_PER_IP —
+  // that catches one source spraying attempts across many different links;
+  // it is not the sole gate because x-forwarded-for is client-spoofable.
   SHARE_VERIFY: { windowMs: 15 * 60 * 1000, maxAttempts: 10 },
+  SHARE_VERIFY_PER_IP: { windowMs: 15 * 60 * 1000, maxAttempts: 30 },
 }
 
 /**
