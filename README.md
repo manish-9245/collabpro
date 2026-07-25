@@ -44,9 +44,10 @@ CollabPro is engineered to be **completely self-contained with 100% zero externa
 - **Preloader Hides & Full-Size Image Layouts**: Beautiful, non-overlapping animated CSS spinner loaders inside document image tools with automatic full-size block expansions.
 
 ### 🤖 6. MCP Automation Tools
-- **`collabpro_update_document`**: Agent-friendly document updates with optional optimistic conflict detection (`baseDocument`) and conflict resolution (`reject`, `merge`, `overwrite`).
-- **`collabpro_update_whiteboard`**: Agent-driven Excalidraw element updates with merge-by-id behavior for concurrent human-agent edits.
-- **Conflict-aware write flow**: Both tools use conditional updates and retries to avoid clobbering simultaneous edits.
+- **Spec-compliant remote server**: `/api/mcp` is a real Streamable HTTP MCP server built on the official `@modelcontextprotocol/sdk` — any supporting client connects directly with just a URL and API key, no local install.
+- **stdio bridge for legacy clients**: `scripts/mcp-server.ts` bridges local stdio clients (Claude Desktop, Cursor, Windsurf) to the same server.
+- **Tools**: `collabpro_list_files`, `collabpro_get_file`, `collabpro_update_document`, `collabpro_update_whiteboard` — all schema-validated and access-scoped to the caller's teams, writes going through the same compare-and-swap writers as every other write path in the app.
+- **Full setup guide, tool reference, and troubleshooting**: [`docs/mcp-integration.md`](docs/mcp-integration.md).
 
 ---
 

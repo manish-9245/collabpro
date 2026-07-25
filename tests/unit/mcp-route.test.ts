@@ -31,6 +31,20 @@ vi.mock('@/lib/redis-cache', () => ({
   getCachedFile: vi.fn(),
 }));
 
+// The SDK's Streamable HTTP transport requires clients to declare they
+// accept both media types, and 406s otherwise - a real spec requirement
+// (https://modelcontextprotocol.io/specification/2025-06-18/basic/transports)
+// the previous hand-rolled route never enforced.
+const mcpHeaders = { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' };
+
+function mcpRequest(body: unknown) {
+  return new Request('http://localhost/api/mcp', {
+    method: 'POST',
+    headers: mcpHeaders,
+    body: JSON.stringify(body),
+  });
+}
+
 describe('Model Context Protocol (MCP) HTTP Endpoint', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -45,19 +59,13 @@ describe('Model Context Protocol (MCP) HTTP Endpoint', () => {
       statusCode: 401
     });
 
-    const req = new Request('http://localhost/api/mcp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', method: 'tools/list', id: 1 })
-    });
-
-    const res = await mcpPOST(req);
+    const res = await mcpPOST(mcpRequest({ jsonrpc: '2.0', method: 'tools/list', id: 1 }));
     expect(res.status).toBe(401);
     const body = await res.json();
     expect(body.error.message).toBe('Authorization header missing');
   });
 
-  it('should return 400 on Parse Error / invalid JSON body', async () => {
+  it('should reject requests missing the required Streamable HTTP Accept header', async () => {
     vi.mocked(verifyApiKey).mockResolvedValueOnce({
       isValid: true,
       userEmail: 'dev@collabpro.com',
@@ -66,7 +74,24 @@ describe('Model Context Protocol (MCP) HTTP Endpoint', () => {
 
     const req = new Request('http://localhost/api/mcp', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer collabpro_pat_abc' },
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'tools/list', id: 1 }),
+    });
+
+    const res = await mcpPOST(req);
+    expect(res.status).toBe(406);
+  });
+
+  it('should return a JSON-RPC parse error on invalid JSON body', async () => {
+    vi.mocked(verifyApiKey).mockResolvedValueOnce({
+      isValid: true,
+      userEmail: 'dev@collabpro.com',
+      scope: 'read-write'
+    });
+
+    const req = new Request('http://localhost/api/mcp', {
+      method: 'POST',
+      headers: mcpHeaders,
       body: 'invalid-non-json-string'
     });
 
@@ -83,37 +108,41 @@ describe('Model Context Protocol (MCP) HTTP Endpoint', () => {
       scope: 'read-write'
     });
 
-    const req = new Request('http://localhost/api/mcp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer collabpro_pat_abc' },
-      body: JSON.stringify({ jsonrpc: '2.0', method: 'initialize', id: 5 })
-    });
-
-    const res = await mcpPOST(req);
+    const res = await mcpPOST(mcpRequest({
+      jsonrpc: '2.0',
+      method: 'initialize',
+      params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1.0' } },
+      id: 5,
+    }));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.result.capabilities).toEqual({ tools: {} });
+    expect(body.result.capabilities.tools).toBeTruthy();
+    expect(body.result.serverInfo.name).toBe('collabpro-mcp-server');
   });
 
-  it('should support tools/list method', async () => {
+  it('should support tools/list method and auto-generate JSON Schema from the Zod definitions', async () => {
     vi.mocked(verifyApiKey).mockResolvedValueOnce({
       isValid: true,
       userEmail: 'dev@collabpro.com',
       scope: 'read-write'
     });
 
-    const req = new Request('http://localhost/api/mcp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer collabpro_pat_abc' },
-      body: JSON.stringify({ jsonrpc: '2.0', method: 'tools/list', id: 10 })
-    });
-
-    const res = await mcpPOST(req);
+    const res = await mcpPOST(mcpRequest({ jsonrpc: '2.0', method: 'tools/list', id: 10 }));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.id).toBe(10);
     expect(body.result.tools).toHaveLength(4);
-    expect(body.result.tools[0].name).toBe('collabpro_list_files');
+
+    const names = body.result.tools.map((t: { name: string }) => t.name);
+    expect(names).toEqual([
+      'collabpro_list_files',
+      'collabpro_get_file',
+      'collabpro_update_document',
+      'collabpro_update_whiteboard',
+    ]);
+
+    const getFile = body.result.tools.find((t: { name: string }) => t.name === 'collabpro_get_file');
+    expect(getFile.inputSchema.required).toEqual(['fileId']);
   });
 
   it('should list user files under authorized scope via collabpro_list_files', async () => {
@@ -129,24 +158,40 @@ describe('Model Context Protocol (MCP) HTTP Endpoint', () => {
       { id: 'file-1', fileName: 'System Specs', teamId: 'team-123' }
     ]); // file findMany
 
-    const req = new Request('http://localhost/api/mcp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer collabpro_pat_abc' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'tools/call',
-        params: {
-          name: 'collabpro_list_files',
-          arguments: { scope: 'team' }
-        },
-        id: 20
-      })
-    });
+    const res = await mcpPOST(mcpRequest({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: { name: 'collabpro_list_files', arguments: { scope: 'team' } },
+      id: 20,
+    }));
 
-    const res = await mcpPOST(req);
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.result.content[0].text).toContain('System Specs');
+  });
+
+  it('rejects tools/call with missing required arguments via SDK/Zod validation, before the handler runs', async () => {
+    vi.mocked(verifyApiKey).mockResolvedValueOnce({
+      isValid: true,
+      userEmail: 'dev@collabpro.com',
+      scope: 'read-write'
+    });
+
+    const res = await mcpPOST(mcpRequest({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: { name: 'collabpro_get_file', arguments: {} },
+      id: 25,
+    }));
+
+    // Tool-level errors (including SDK arg validation) come back as a
+    // successful JSON-RPC envelope with isError:true in the tool result,
+    // not an HTTP-level error - this is correct per the MCP spec.
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.result.isError).toBe(true);
+    expect(body.result.content[0].text).toContain('fileId');
+    expect(mockFindUnique).not.toHaveBeenCalled();
   });
 
   it('should protect write tools against read-only API Keys', async () => {
@@ -156,24 +201,17 @@ describe('Model Context Protocol (MCP) HTTP Endpoint', () => {
       scope: 'read-only'
     });
 
-    const req = new Request('http://localhost/api/mcp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer collabpro_pat_abc' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'tools/call',
-        params: {
-          name: 'collabpro_update_document',
-          arguments: { fileId: 'file-1', document: '{}' }
-        },
-        id: 30
-      })
-    });
+    const res = await mcpPOST(mcpRequest({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: { name: 'collabpro_update_document', arguments: { fileId: 'file-1', document: '{}' } },
+      id: 30,
+    }));
 
-    const res = await mcpPOST(req);
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.error.message).toContain('Forbidden');
+    expect(body.result.isError).toBe(true);
+    expect(body.result.content[0].text).toContain('Forbidden');
   });
 
   it('collabpro_update_document actually persists via the shared CAS writer, not a raw overwrite', async () => {
@@ -188,28 +226,23 @@ describe('Model Context Protocol (MCP) HTTP Endpoint', () => {
     mockFindUnique.mockResolvedValueOnce({ document: '' }); // casUpdateDocument's own read
     mockUpdateMany.mockResolvedValueOnce({ count: 1 });
 
-    const req = new Request('http://localhost/api/mcp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer collabpro_pat_abc' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'tools/call',
-        params: {
-          name: 'collabpro_update_document',
-          arguments: { fileId: 'file-1', document: { time: 1, version: '2.8.1', blocks: [{ id: 'b1', type: 'paragraph', data: { text: 'hi' } }] } }
-        },
-        id: 40
-      })
-    });
+    const res = await mcpPOST(mcpRequest({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: {
+        name: 'collabpro_update_document',
+        arguments: { fileId: 'file-1', document: { time: 1, version: '2.8.1', blocks: [{ id: 'b1', type: 'paragraph', data: { text: 'hi' } }] } }
+      },
+      id: 40,
+    }));
 
-    const res = await mcpPOST(req);
     expect(res.status).toBe(200);
     expect(mockUpdateMany).toHaveBeenCalled();
     const body = await res.json();
     expect(body.result.content[0].text).toContain('"updated": true');
   });
 
-  it('collabpro_update_whiteboard accepts a structured elements array (schema now matches scripts/mcp-server.ts)', async () => {
+  it('collabpro_update_whiteboard accepts a structured elements array and parses the CAS writer\'s JSON-string return before embedding', async () => {
     vi.mocked(verifyApiKey).mockResolvedValueOnce({
       isValid: true,
       userEmail: 'dev@collabpro.com',
@@ -221,21 +254,16 @@ describe('Model Context Protocol (MCP) HTTP Endpoint', () => {
     mockFindUnique.mockResolvedValueOnce({ whiteboard: '' });
     mockUpdateMany.mockResolvedValueOnce({ count: 1 });
 
-    const req = new Request('http://localhost/api/mcp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer collabpro_pat_abc' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'tools/call',
-        params: {
-          name: 'collabpro_update_whiteboard',
-          arguments: { fileId: 'file-1', whiteboard: [{ id: 'el-1', type: 'rectangle', x: 0, y: 0, width: 10, height: 10 }] }
-        },
-        id: 41
-      })
-    });
+    const res = await mcpPOST(mcpRequest({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: {
+        name: 'collabpro_update_whiteboard',
+        arguments: { fileId: 'file-1', whiteboard: [{ id: 'el-1', type: 'rectangle', x: 0, y: 0, width: 10, height: 10 }] }
+      },
+      id: 41,
+    }));
 
-    const res = await mcpPOST(req);
     expect(res.status).toBe(200);
     expect(mockUpdateMany).toHaveBeenCalled();
 

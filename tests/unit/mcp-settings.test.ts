@@ -42,16 +42,30 @@ describe('MCP Client Integration Settings Hub Suite (Issue 41)', () => {
     });
   });
 
-  it('generates a Claude Desktop config using COLLABPRO_BASE_URL - the env var the stdio server actually reads', async () => {
+  it('defaults to the Remote (No Install) tab, showing the direct /api/mcp endpoint', async () => {
     const { default: McpSettingsHub } = await import('@/app/(routes)/dashboard/settings/mcp/page');
     render(React.createElement(McpSettingsHub));
 
     await waitFor(() => expect(mockFetch).toHaveBeenCalledWith('/api/api-keys'));
 
+    await screen.findByText('Server URL:');
+    const urlBlock = await screen.findByText(/^https?:\/\/.*\/api\/mcp$/);
+    expect(urlBlock.textContent).toContain('/api/mcp');
+  });
+
+  it('generates a Claude Desktop config using COLLABPRO_BASE_URL and npx tsx (not ts-node, which is not an installed dependency)', async () => {
+    const { default: McpSettingsHub } = await import('@/app/(routes)/dashboard/settings/mcp/page');
+    render(React.createElement(McpSettingsHub));
+
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledWith('/api/api-keys'));
+    screen.getByText('Claude Desktop').click();
+
     const configBlock = await screen.findByText(/mcpServers/);
     expect(configBlock.textContent).toContain('"COLLABPRO_BASE_URL"');
     expect(configBlock.textContent).toContain('"COLLABPRO_API_KEY"');
     expect(configBlock.textContent).not.toContain('"COLLABPRO_URL"');
+    expect(configBlock.textContent).toContain('"tsx"');
+    expect(configBlock.textContent).not.toContain('ts-node');
   });
 
   it('generates a Cursor IDE env block using COLLABPRO_BASE_URL', async () => {
@@ -65,6 +79,9 @@ describe('MCP Client Integration Settings Hub Suite (Issue 41)', () => {
     const envBlock = await screen.findByText(/COLLABPRO_API_KEY=/);
     expect(envBlock.textContent).toContain('COLLABPRO_BASE_URL=');
     expect(envBlock.textContent).not.toMatch(/COLLABPRO_URL=/);
+
+    const cmdBlock = await screen.findByText(/npx tsx/);
+    expect(cmdBlock.textContent).not.toContain('ts-node');
   });
 
   it('"Run Diagnostics" makes a real call to /api/mcp and shows the real returned tools, not a fabricated success', async () => {
@@ -75,8 +92,16 @@ describe('MCP Client Integration Settings Hub Suite (Issue 41)', () => {
 
     screen.getByText('Run Handshake Diagnostics').click();
 
+    // Regression: the SDK's Streamable HTTP transport 406s any request whose
+    // Accept header doesn't declare both media types (see mcp-route.test.ts
+    // "should reject requests missing the required Streamable HTTP Accept
+    // header") - a real browser fetch's default Accept doesn't satisfy that,
+    // so this button 406'd on every real click until Accept was added here.
     await waitFor(() => expect(mockFetch).toHaveBeenCalledWith('/api/mcp', expect.objectContaining({
-      headers: expect.objectContaining({ Authorization: 'Bearer collabpro_pat_abc123xyz' }),
+      headers: expect.objectContaining({
+        Authorization: 'Bearer collabpro_pat_abc123xyz',
+        Accept: 'application/json, text/event-stream',
+      }),
     })));
 
     // Real tool name from the mocked response, not the fabricated
