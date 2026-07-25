@@ -15,6 +15,7 @@ export default function SuperAdminTelemetryPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [metrics, setMetrics] = useState<any>(null);
+  const [forbidden, setForbidden] = useState(false);
   const [activeTab, setActiveTab] = useState<'kafka' | 'db' | 'system'>('kafka');
   const [publishing, setPublishing] = useState(false);
   const [processing, setProcessing] = useState(false);
@@ -37,7 +38,21 @@ export default function SuperAdminTelemetryPage() {
   const fetchTelemetry = async () => {
     try {
       const res = await fetch('/api/admin/telemetry');
+      if (res.status === 401 || res.status === 403) {
+        // Access was denied (or has since been revoked mid-session, e.g. by
+        // removal from ADMIN_EMAILS). Stop auto-refreshing and clear any
+        // previously-fetched metrics rather than leaving stale or
+        // fallback-zero values on screen looking like a healthy dashboard.
+        setForbidden(true);
+        setMetrics(null);
+        if (autoRefreshRef.current) {
+          clearInterval(autoRefreshRef.current);
+          autoRefreshRef.current = null;
+        }
+        return;
+      }
       if (!res.ok) throw new Error('Failed to fetch telemetry data');
+      setForbidden(false);
       const data = await res.json();
       setMetrics(data);
       setHistory(prev => {
@@ -108,6 +123,15 @@ export default function SuperAdminTelemetryPage() {
       <div className="p-8 min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-center items-center gap-3">
         <RefreshCw className="h-8 w-8 animate-spin text-indigo-500" />
         <span className="text-sm font-semibold tracking-wide text-slate-400">Loading live telemetry streams...</span>
+      </div>
+    );
+  }
+
+  if (forbidden) {
+    return (
+      <div className="p-8 min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-center items-center gap-3">
+        <span className="text-lg font-semibold tracking-wide text-red-400">Access Denied</span>
+        <span className="text-sm text-slate-400">You do not have permission to view infrastructure telemetry.</span>
       </div>
     );
   }

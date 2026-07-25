@@ -1,19 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { kafkaBroker } from '@/lib/kafka';
 import { getServerSession } from '@/lib/session-auth/server';
-import { prisma, getPgPool } from '@/lib/db';
+import { getPgPool } from '@/lib/db';
 
 // Force dynamic execution for real-time telemetry updates
 export const dynamic = 'force-dynamic';
 
-async function isAdmin(email: string): Promise<boolean> {
-  const ownedTeam = await prisma.team.findFirst({ where: { createdBy: email } });
-  if (ownedTeam) return true;
-
-  const adminMembership = await prisma.teamMember.findFirst({
-    where: { userEmail: email, role: 'admin' },
-  });
-  return !!adminMembership;
+// This endpoint exposes global infrastructure metrics (memory, DB pool,
+// message-queue state), not per-team data — team ownership or membership is
+// not a meaningful authorization boundary for it. Any authenticated user can
+// create a team and become its `createdBy` in one click, so gating on that
+// (as this route previously did) was equivalent to "any authenticated user."
+// Admin status here is deliberately an explicit, operator-managed allowlist
+// rather than anything self-serve. Fails closed when unset.
+function isAdmin(email: string): boolean {
+  const allowlist = (process.env.ADMIN_EMAILS ?? '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  return allowlist.includes(email.trim().toLowerCase());
 }
 
 export async function GET(req: NextRequest) {
@@ -23,8 +28,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const admin = await isAdmin(user.email);
-    if (!admin) {
+    if (!isAdmin(user.email)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
