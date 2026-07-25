@@ -45,8 +45,10 @@ export async function POST(request: Request) {
     //   against one link), set high enough that a handful of legitimate
     //   visitors occasionally mistyping never trips it.
     const ip = getClientIp(request);
-    const linkIpLimit = checkRateLimit(`share-verify:${link.id}:${ip}`, LIMITS.SHARE_VERIFY);
-    const linkOnlyLimit = checkRateLimit(`share-verify:link-total:${link.id}`, LIMITS.SHARE_VERIFY_PER_LINK);
+    const [linkIpLimit, linkOnlyLimit] = await Promise.all([
+      checkRateLimit(`share-verify:${link.id}:${ip}`, LIMITS.SHARE_VERIFY),
+      checkRateLimit(`share-verify:link-total:${link.id}`, LIMITS.SHARE_VERIFY_PER_LINK),
+    ]);
     if (!linkIpLimit.allowed || !linkOnlyLimit.allowed) {
       const resetAt = Math.max(linkIpLimit.resetAt, linkOnlyLimit.resetAt);
       return NextResponse.json(
