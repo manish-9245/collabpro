@@ -296,4 +296,54 @@ describe("Issue #195 follow-up: filename/mimetype spoofing bypass (cubic + CodeR
     expect(body.message).toContain("Invalid or corrupted image file format");
     expect(mockUploadedFileCreate).not.toHaveBeenCalled();
   });
+
+  it("cubic round 3: a valid SVG whose leading comment pushes <svg past the scan window still uploads", async () => {
+    // Distinct from the PI-chaining bug fixed in round 2 (which was about correctly
+    // parsing multiple prolog constructs *within* the scanned window): here a single,
+    // perfectly legal leading comment is long enough on its own that the <svg> root
+    // element doesn't appear within the first 512 bytes of the file at all. No amount
+    // of correct prolog-parsing logic can find a root element that hasn't been read
+    // into memory yet — this is a window-size question, not a parsing question.
+    const longGeneratorComment = "A".repeat(600); // pushes total prolog past 512 bytes
+    const svgWithLargeProlog =
+      `<?xml version="1.0" encoding="UTF-8"?>` +
+      `<!-- ${longGeneratorComment} -->` +
+      `<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10" fill="blue"/></svg>`;
+
+    // Sanity check on the premise: the <svg root genuinely starts after byte 512
+    // (this string is pure ASCII, so char index === byte index here).
+    expect(svgWithLargeProlog.indexOf("<svg xmlns")).toBeGreaterThan(512);
+
+    const req = buildUploadRequest("logo-large-prolog.svg", "image/svg+xml", svgWithLargeProlog);
+    const res = await uploadPOST(req as any);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(1);
+
+    expect(mockUploadedFileCreate).toHaveBeenCalledTimes(1);
+    const createCall = mockUploadedFileCreate.mock.calls[0][0];
+    expect(createCall.data.mimeType).toBe("application/octet-stream");
+  });
+
+  it("documents the accepted limit: an SVG whose prolog is far beyond any realistic size is still rejected", async () => {
+    // This is a deliberate, documented tradeoff (see lib/security/svg-content.ts),
+    // not a bug: real-world SVG tooling never produces a prolog anywhere near this
+    // large, and scanning the entire uploaded buffer as text on every upload — rather
+    // than a small, bounded window — would add needless cost for the common case of
+    // large, unrelated binary image uploads that will never be SVGs in the first
+    // place. This test exists so a future change to the scan window is a conscious,
+    // visible decision rather than an accidental regression either way.
+    const absurdlyLongComment = "A".repeat(50_000);
+    const svgWithHugeProlog =
+      `<?xml version="1.0" encoding="UTF-8"?>` +
+      `<!-- ${absurdlyLongComment} -->` +
+      `<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10" fill="blue"/></svg>`;
+
+    const req = buildUploadRequest("logo-huge-prolog.svg", "image/svg+xml", svgWithHugeProlog);
+    const res = await uploadPOST(req as any);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.success).toBe(0);
+    expect(mockUploadedFileCreate).not.toHaveBeenCalled();
+  });
 });

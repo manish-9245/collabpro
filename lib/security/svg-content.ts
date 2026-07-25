@@ -11,7 +11,21 @@
  * is made: initial validation, storage mimeType/disposition, and serving.
  */
 
-const HEADER_SCAN_BYTES = 512;
+// Bounded window scanned for the <svg> root element (issue #195 round 3). 512 bytes
+// proved too small: a single legal leading XML comment or DOCTYPE (e.g. a generator
+// attribution comment, a license header, or a full SVG 1.1 DTD reference) can easily
+// push a legitimate <svg> root past that point, causing real, non-malicious SVGs to
+// fail upload validation even though round 2's loop-based prolog parser handles them
+// correctly once their bytes are actually in view. 4 KB comfortably covers realistic
+// real-world prologs (long comments, multiple stacked processing instructions, a
+// DOCTYPE with an internal subset) while remaining a small, cheap, bounded read
+// relative to the 10 MB max upload size — decoding a few extra KB as UTF-8 is
+// negligible, but decoding the *entire* buffer of every upload (including large,
+// unrelated binary images that were never going to be SVGs) just to rule out SVG
+// would add needless cost. A prolog beyond 4 KB is an accepted, deliberate limit: no
+// known real-world SVG tooling produces one that large. See
+// tests/unit/upload-svg-xss.test.ts for the tests documenting this tradeoff.
+const HEADER_SCAN_BYTES = 4096;
 
 /**
  * Returns true only if the buffer's root XML element is <svg>. A bare XML declaration
