@@ -25,7 +25,7 @@ import { toast } from 'sonner';
 
 export default function McpSettingsHub() {
   const { user }: any = useSessionAuth();
-  const [activeTab, setActiveTab] = useState<'claude' | 'cursor' | 'windsurf' | 'custom'>('claude');
+  const [activeTab, setActiveTab] = useState<'remote' | 'claude' | 'cursor' | 'windsurf' | 'custom'>('remote');
   const [apiKeys, setApiKeys] = useState<any[]>([]);
   const [selectedKey, setSelectedKey] = useState<string>('YOUR_API_KEY_HERE');
   const [loadingKeys, setLoadingKeys] = useState(false);
@@ -73,18 +73,18 @@ export default function McpSettingsHub() {
   // Node runtime environment setup paths
   const baseAppUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
   const mcpServerScriptPath = workspacePath ? `${workspacePath.replace(/\/$/, '')}/scripts/mcp-server.ts` : './scripts/mcp-server.ts';
+  const remoteMcpUrl = `${baseAppUrl}/api/mcp`;
 
+  // tsx (not ts-node) is what this repo actually has installed
+  // (package.json devDependencies) and is what scripts/mcp-server.ts is
+  // launched with elsewhere (see ws-server's "ws:start" script) - using it
+  // here means `npx tsx` resolves locally instead of fetching an
+  // uninstalled package from the registry on first run.
   const claudeConfig = JSON.stringify({
     "mcpServers": {
       "collabpro-mcp": {
         "command": "npx",
-        "args": [
-          "-y",
-          "ts-node",
-          "--compiler-options",
-          "{\"module\":\"commonjs\"}",
-          mcpServerScriptPath
-        ],
+        "args": ["tsx", mcpServerScriptPath],
         "env": {
           "COLLABPRO_API_KEY": selectedKey,
           "COLLABPRO_BASE_URL": baseAppUrl
@@ -93,7 +93,7 @@ export default function McpSettingsHub() {
     }
   }, null, 2);
 
-  const cursorCommand = `npx -y ts-node --compiler-options "{\\"module\\":\\"commonjs\\"}" ${mcpServerScriptPath}`;
+  const cursorCommand = `npx tsx ${mcpServerScriptPath}`;
   const cursorEnv = `COLLABPRO_API_KEY=${selectedKey}\nCOLLABPRO_BASE_URL=${baseAppUrl}`;
 
   // Real diagnostic against the HTTP MCP endpoint (/api/mcp), using the
@@ -114,9 +114,19 @@ export default function McpSettingsHub() {
     setHandshakeLogs(["🔑 Testing API key against the MCP HTTP endpoint (/api/mcp)..."]);
 
     try {
+      // The Streamable HTTP transport requires Accept to declare both media
+      // types per spec - without it the SDK responds 406 regardless of a
+      // valid key, which would make every diagnostic run report a false
+      // failure.
+      const mcpHeaders = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json, text/event-stream',
+        Authorization: `Bearer ${selectedKey}`,
+      };
+
       const initRes = await fetch('/api/mcp', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${selectedKey}` },
+        headers: mcpHeaders,
         body: JSON.stringify({ jsonrpc: '2.0', method: 'initialize', id: 1 }),
       });
       const initBody = await initRes.json();
@@ -127,7 +137,7 @@ export default function McpSettingsHub() {
 
       const listRes = await fetch('/api/mcp', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${selectedKey}` },
+        headers: mcpHeaders,
         body: JSON.stringify({ jsonrpc: '2.0', method: 'tools/list', id: 2 }),
       });
       const listBody = await listRes.json();
@@ -167,7 +177,7 @@ export default function McpSettingsHub() {
               MCP Client Integration Hub
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-2xl leading-relaxed">
-              Connect external agentic AI engines directly to your self-hosted whiteboard canvas elements. Let Claude, Cursor, or Windsurf view and write system diagrams on your behalf!
+              Connect external agentic AI engines directly to your self-hosted whiteboard canvas elements. /api/mcp is a spec-compliant remote MCP server — clients that support remote servers need just a URL and API key, zero local install. Claude, Cursor, or Windsurf can view and write system diagrams on your behalf!
             </p>
           </div>
           
@@ -303,6 +313,16 @@ export default function McpSettingsHub() {
             <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/80 p-5 rounded-2xl shadow-sm">
               <div className="flex border-b border-slate-100 dark:border-slate-800 pb-3 gap-2">
                 <button
+                  onClick={() => setActiveTab('remote')}
+                  className={`px-4 py-2 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all ${
+                    activeTab === 'remote'
+                      ? 'bg-[#6965db]/10 text-[#6965db] dark:text-[#8572e3] font-black'
+                      : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'
+                  }`}
+                >
+                  Remote (No Install)
+                </button>
+                <button
                   onClick={() => setActiveTab('claude')}
                   className={`px-4 py-2 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all ${
                     activeTab === 'claude' 
@@ -343,6 +363,57 @@ export default function McpSettingsHub() {
                   Custom Stdio
                 </button>
               </div>
+
+              {/* TAB 0: REMOTE (NO INSTALL) - direct Streamable HTTP, no local process */}
+              {activeTab === 'remote' && (
+                <div className="mt-5 space-y-4 animate-in fade-in duration-200">
+                  <div className="space-y-1">
+                    <h3 className="text-xs font-black text-slate-800 dark:text-slate-200">Remote MCP Server (Recommended)</h3>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                      /api/mcp is a real, spec-compliant Streamable HTTP MCP server. Any client that supports remote servers connects with just a URL and a Bearer token — no local process, no runtime to install.
+                    </p>
+                  </div>
+
+                  <div className="text-[9.5px] text-slate-500 dark:text-slate-400 space-y-1 bg-slate-50 dark:bg-slate-950 p-4 rounded-xl border border-slate-100 dark:border-slate-800">
+                    <p className="font-bold text-slate-700 dark:text-slate-300">How to load:</p>
+                    <p>1. In your client's remote MCP server settings, add a new server of type <strong>Streamable HTTP</strong>.</p>
+                    <p>2. Paste the Server URL below.</p>
+                    <p>3. Set the Authorization header to <span className="font-mono text-[#6965db]">Bearer &lt;your API key&gt;</span> using the key selected on the left.</p>
+                  </div>
+
+                  <div className="space-y-3.5">
+                    <div>
+                      <div className="text-[8.5px] font-black uppercase text-slate-400 tracking-wider mb-1">Server URL:</div>
+                      <div className="relative">
+                        <pre className="bg-slate-950 border border-slate-800 rounded-xl p-3.5 font-mono text-[8.5px] text-slate-300 overflow-x-auto select-all">
+                          {remoteMcpUrl}
+                        </pre>
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(remoteMcpUrl, setCopiedCmd)}
+                          className="absolute top-2.5 right-3 p-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer transition-colors"
+                        >
+                          {copiedCmd ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-[8.5px] font-black uppercase text-slate-400 tracking-wider mb-1">Authorization Header:</div>
+                      <pre className="bg-slate-950 border border-slate-800 rounded-xl p-3.5 font-mono text-[8.5px] text-emerald-400 overflow-x-auto select-all">
+                        {`Bearer ${selectedKey}`}
+                      </pre>
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-slate-50 dark:bg-slate-950 border border-slate-200/50 dark:border-slate-800/80 rounded-xl flex items-start gap-3">
+                    <Info className="h-4 w-4 text-[#6965db] shrink-0 mt-0.5" />
+                    <p className="text-[9px] text-slate-400 dark:text-slate-500 leading-relaxed">
+                      Client doesn't support remote servers yet? Use the Claude Desktop, Cursor IDE, or Windsurf tabs — they all launch a local stdio bridge that forwards to this same URL.
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* TAB 1: CLAUDE DESKTOP APP CONFIG */}
               {activeTab === 'claude' && (
@@ -466,7 +537,7 @@ export default function McpSettingsHub() {
                     <p className="font-bold text-slate-700 dark:text-slate-300">Specifications:</p>
                     <p>• Transmits JSON-RPC payload events through standard system pipelines (`stdin` / `stdout`).</p>
                     <p>• Communicates natively using the Model Context Protocol v1 specifications.</p>
-                    <p>• API Authentication utilizes the `COLLABPRO_API_KEY` header verification checks.</p>
+                    <p>• API Authentication uses an `Authorization: Bearer &lt;key&gt;` HTTP header on the remote MCP endpoint (`COLLABPRO_API_KEY` is only the local bridge script's env var name for that same key).</p>
                   </div>
                 </div>
               )}
