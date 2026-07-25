@@ -9,10 +9,12 @@
 
 import { mapConvexIds } from '../lib/state-sync-helpers';
 import { casUpdateDocument, casUpdateWhiteboard } from '../lib/cas-writes';
+import { extractTextFromWhiteboard } from '../lib/file-service';
 
 export interface MutationPrismaClient {
   file: {
     findUnique: (args: any) => Promise<any>;
+    create: (args: any) => Promise<any>;
     update: (args: any) => Promise<any>;
     updateMany: (args: any) => Promise<{ count: number }>;
   };
@@ -98,6 +100,26 @@ export async function executeMutation(
   args: any
 ): Promise<any> {
   switch (path) {
+    case 'files:createFile': {
+      // Mirrors app/api/state-sync/services/fileService.ts's files:createFile
+      // exactly. No CAS/durability-queue wrapper here (unlike the update
+      // cases below) - there's no existing row to compare against and no
+      // fileId to key a durability record on until after this resolves.
+      const { fileName, teamId, createdBy, archive, document, whiteboard, folder } = args || {};
+      const created = await prismaClient.file.create({
+        data: {
+          fileName,
+          teamId,
+          createdBy,
+          archive: archive ?? false,
+          document: document ?? '',
+          whiteboard: whiteboard ?? '',
+          whiteboardText: whiteboard ? extractTextFromWhiteboard(whiteboard) : '',
+          folder: folder ?? null,
+        },
+      });
+      return mapConvexIds(created);
+    }
     case 'files:updateDocument': {
       const { _id, document } = args || {};
 
