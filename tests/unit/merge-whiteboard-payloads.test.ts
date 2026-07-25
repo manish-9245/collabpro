@@ -20,20 +20,24 @@ function encodeLegacyFixture(elements: any[]): string {
   return JSON.stringify({ yjs: true, data: Buffer.from(update).toString('base64') });
 }
 
-describe('mergeWhiteboardPayloads (issue #188/#189 — plain JSON merge, legacy-read fallback)', () => {
+// Review round 2 (Group 2): mergeWhiteboardPayloads now returns
+// `{ elements, files }` (not a bare elements array) so the Excalidraw
+// `files` map (image/attachment binary data) survives a merge instead of
+// being silently discarded.
+describe('mergeWhiteboardPayloads (issue #188/#189 — plain JSON merge, legacy-read fallback, files preserved)', () => {
   it('merges two plain-JSON element arrays by id without invoking Yjs', () => {
     const current = JSON.stringify([{ id: 'el-1', type: 'rectangle', x: 0 }]);
     const incoming = JSON.stringify([{ id: 'el-2', type: 'circle', x: 10 }]);
 
     const merged = JSON.parse(mergeWhiteboardPayloads(current, incoming));
-    expect(merged).toHaveLength(2);
-    expect(merged.map((e: any) => e.id).sort()).toEqual(['el-1', 'el-2']);
+    expect(merged.elements).toHaveLength(2);
+    expect(merged.elements.map((e: any) => e.id).sort()).toEqual(['el-1', 'el-2']);
   });
 
   it('deduplicates by id, incoming wins, when merging identical payloads', () => {
     const current = JSON.stringify([{ id: 'el-1', type: 'rectangle', x: 0 }]);
     const merged = JSON.parse(mergeWhiteboardPayloads(current, current));
-    expect(merged).toHaveLength(1);
+    expect(merged.elements).toHaveLength(1);
   });
 
   it('merges a legacy Yjs-wrapped current row with a plain-JSON incoming payload', () => {
@@ -41,6 +45,26 @@ describe('mergeWhiteboardPayloads (issue #188/#189 — plain JSON merge, legacy-
     const incoming = JSON.stringify([{ id: 'el-2', type: 'circle', x: 10 }]);
 
     const merged = JSON.parse(mergeWhiteboardPayloads(legacyCurrent, incoming));
-    expect(merged.map((e: any) => e.id).sort()).toEqual(['el-1', 'el-2']);
+    expect(merged.elements.map((e: any) => e.id).sort()).toEqual(['el-1', 'el-2']);
+  });
+
+  it('preserves the files map from current when incoming omits it, and merges when both provide it', () => {
+    const current = JSON.stringify({
+      elements: [{ id: 'el-1', type: 'image', x: 0 }],
+      files: { 'file-a': { id: 'file-a', dataURL: 'data:image/png;base64,aaa' } },
+    });
+    const incomingNoFiles = JSON.stringify([{ id: 'el-1', type: 'image', x: 5 }]);
+    const merged1 = JSON.parse(mergeWhiteboardPayloads(current, incomingNoFiles));
+    expect(merged1.files).toEqual({ 'file-a': { id: 'file-a', dataURL: 'data:image/png;base64,aaa' } });
+
+    const incomingWithNewFile = JSON.stringify({
+      elements: [{ id: 'el-2', type: 'image', x: 5 }],
+      files: { 'file-b': { id: 'file-b', dataURL: 'data:image/png;base64,bbb' } },
+    });
+    const merged2 = JSON.parse(mergeWhiteboardPayloads(current, incomingWithNewFile));
+    expect(merged2.files).toEqual({
+      'file-a': { id: 'file-a', dataURL: 'data:image/png;base64,aaa' },
+      'file-b': { id: 'file-b', dataURL: 'data:image/png;base64,bbb' },
+    });
   });
 });

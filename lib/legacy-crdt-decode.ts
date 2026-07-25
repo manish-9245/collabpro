@@ -1,6 +1,28 @@
 import * as Y from 'yjs';
 
 /**
+ * Decodes a standard base64 string into raw bytes without relying on Node's
+ * `Buffer` global.
+ *
+ * `lib/legacy-crdt-decode.ts` is imported (via `lib/state-encode.ts`) by
+ * `Editor.tsx` and `Canvas.tsx`, both client components — `Buffer` is a
+ * Node.js global with no polyfill configured in `next.config.mjs`, so using
+ * it here would throw `Buffer is not defined` the moment this decode path
+ * runs in a real browser. `atob`/`btoa` are available in both Node and
+ * browsers (see the identical pattern already used in
+ * `lib/session-auth/jwt.ts`'s `base64url`/`base64urlDecode`), so this mirrors
+ * that approach instead of adding a `buffer` polyfill dependency.
+ */
+function base64ToUint8Array(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+/**
  * Backward-compat reader for the pre-#188 Yjs-wrapped storage format.
  *
  * Historically `encodeCrdtState()` (removed in #188) built a brand-new Y.Doc
@@ -23,9 +45,9 @@ export function decodeLegacyCrdtState(storedStr: string | null | undefined, fall
 
     // Check if it is a legacy Yjs update
     if (parsed && parsed.yjs && parsed.data) {
-      const update = Buffer.from(parsed.data, 'base64');
+      const update = base64ToUint8Array(parsed.data);
       const doc = new Y.Doc();
-      Y.applyUpdate(doc, new Uint8Array(update));
+      Y.applyUpdate(doc, update);
 
       const map = doc.getMap('state');
 

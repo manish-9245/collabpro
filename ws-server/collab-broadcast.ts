@@ -67,6 +67,23 @@ export function deliverToConnections<T extends ClientConnectionLike>(connections
 }
 
 /**
+ * True if a message received over the cross-replica Redis pub/sub channel
+ * was published by THIS exact replica (issue found in review, Group 5 #2).
+ *
+ * Redis pub/sub delivers a published message to every subscriber of the
+ * channel, including the publisher itself if it's also subscribed —
+ * `collabpro:channel:canvas` is both published to and subscribed from every
+ * replica. Without this check, a replica that already delivered a
+ * cursor/query-update locally would deliver it a SECOND time when its own
+ * publish echoed back through its own subscription. Every publish must be
+ * tagged with `originId: <this replica's id>`, and the Redis-consume path
+ * skips messages that match.
+ */
+export function isSelfOriginatedMessage(message: { originId?: string }, thisReplicaId: string): boolean {
+  return !!message.originId && message.originId === thisReplicaId;
+}
+
+/**
  * Given a message received over the cross-replica Redis pub/sub channel,
  * decides which local connections should receive it. `query-update`
  * payloads are routed through the same subscription-matching rule the local

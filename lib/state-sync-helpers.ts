@@ -54,10 +54,65 @@ export function parseJsonIfString(value: unknown): unknown {
   }
 }
 
+/**
+ * Best-effort recovery of an elements array from a legacy-decoded value.
+ * The old encodeCrdtState() encoded plain objects via Object.entries(), so a
+ * top-level array sometimes round-trips as a numeric-keyed object rather
+ * than a real array; this makes a reasonable attempt to recover it instead
+ * of discarding the row's content outright.
+ */
+function coerceToElementsArray(value: any): any[] {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === 'object') {
+    if (Array.isArray((value as any).elements)) return (value as any).elements;
+    const values = Object.values(value);
+    if (values.length > 0 && values.every((v) => v && typeof v === 'object')) {
+      return values;
+    }
+  }
+  return [];
+}
+
+/**
+ * Attempts to decode `value` as a legacy pre-#188 Yjs-wrapped payload
+ * (`{ yjs: true, data: <base64> }`). Returns `undefined` if `value` doesn't
+ * look like that envelope at all, so callers can tell "not legacy format"
+ * apart from "legacy format that decoded to nothing useful".
+ *
+ * Every merge/normalize entry point below attempts this FIRST, before
+ * falling through to new-format parsing or giving up — a file that hasn't
+ * been resaved since the #188 migration must still be readable (and mergeable
+ * with new content) via its real stored content, not treated as unparseable
+ * garbage. Getting this backwards previously meant (1) a CAS write on a
+ * legacy row failed outright, so it could never actually reach the "resaves
+ * as plain JSON" migration path, and (2) callers that caught that failure and
+ * fell back to "just use the incoming payload alone" silently destroyed the
+ * user's existing legacy content.
+ */
+function tryDecodeLegacy(value: unknown): any | undefined {
+  const parsed = parseJsonIfString(value);
+  if (!isLegacyYjsPayload(parsed)) return undefined;
+  const storedStr = typeof value === 'string' ? value : JSON.stringify(parsed);
+  return decodeLegacyCrdtState(storedStr, undefined);
+}
+
 export function asEditorDocument(value: unknown): Record<string, any> {
   const parsed = parseJsonIfString(value);
   if (parsed && typeof parsed === 'object' && Array.isArray((parsed as any).blocks)) {
     return parsed as Record<string, any>;
+  }
+
+  const legacyDecoded = tryDecodeLegacy(value);
+  if (legacyDecoded !== undefined) {
+    if (legacyDecoded && typeof legacyDecoded === 'object' && Array.isArray(legacyDecoded.blocks)) {
+      return legacyDecoded;
+    }
+    // Recognized as a legacy envelope but it didn't decode to a usable
+    // `blocks` array (e.g. the old encoder's Object.entries()-based array
+    // handling produced something unexpected) — treat as an empty document
+    // rather than throwing, since there's nothing coherent to preserve, but
+    // never silently fall through to "pretend this was never legacy".
+    return { time: Date.now(), version: "2.8.1", blocks: [] };
   }
 
   if (typeof parsed === 'string') {
@@ -84,7 +139,57 @@ export function asWhiteboardElements(value: unknown): any[] {
   if (parsed && typeof parsed === 'object' && Array.isArray((parsed as any).elements)) {
     return (parsed as any).elements;
   }
+
+  const legacyDecoded = tryDecodeLegacy(value);
+  if (legacyDecoded !== undefined) {
+    return coerceToElementsArray(legacyDecoded);
+  }
+
   throw new Error("Invalid whiteboard payload. Expected Excalidraw elements array or { elements }.");
+}
+
+export interface WhiteboardPayload {
+  elements: any[];
+  files: Record<string, any>;
+}
+
+/**
+ * Like `asWhiteboardElements`, but also extracts (and, for legacy rows,
+ * recovers) the Excalidraw `files` map — image/attachment binary data that
+ * Excalidraw stores separately from the element list. `asWhiteboardElements`
+ * alone silently discards it, which meant any image/attachment on a
+ * whiteboard vanished the next time the whiteboard was saved through a merge
+ * path that only round-tripped `elements`.
+ */
+export function asWhiteboardPayload(value: unknown): WhiteboardPayload {
+  const parsed = parseJsonIfString(value);
+  if (Array.isArray(parsed)) {
+    return { elements: parsed, files: {} };
+  }
+  if (parsed && typeof parsed === 'object' && Array.isArray((parsed as any).elements)) {
+    const files = (parsed as any).files;
+    return {
+      elements: (parsed as any).elements,
+      files: files && typeof files === 'object' ? files : {},
+    };
+  }
+
+  const legacyDecoded = tryDecodeLegacy(value);
+  if (legacyDecoded !== undefined) {
+    if (Array.isArray(legacyDecoded)) {
+      return { elements: legacyDecoded, files: {} };
+    }
+    if (legacyDecoded && typeof legacyDecoded === 'object') {
+      const files = (legacyDecoded as any).files;
+      return {
+        elements: coerceToElementsArray(legacyDecoded),
+        files: files && typeof files === 'object' ? files : {},
+      };
+    }
+    return { elements: [], files: {} };
+  }
+
+  throw new Error("Invalid whiteboard payload. Expected Excalidraw elements array or { elements, files }.");
 }
 
 export function mergeDocumentBlocks(currentDoc: Record<string, any>, incomingDoc: Record<string, any>): Record<string, any> {
@@ -129,54 +234,36 @@ export function mergeWhiteboardById(currentElements: any[], incomingElements: an
 }
 
 /**
- * Best-effort recovery of an elements array from a legacy-decoded value.
- * The old encodeCrdtState() encoded plain objects via Object.entries(), so a
- * top-level array sometimes round-trips as a numeric-keyed object rather
- * than a real array; this makes a reasonable attempt to recover it instead
- * of discarding the row's content outright.
- */
-function coerceToElementsArray(value: any): any[] {
-  if (Array.isArray(value)) return value;
-  if (value && typeof value === 'object') {
-    if (Array.isArray((value as any).elements)) return (value as any).elements;
-    const values = Object.values(value);
-    if (values.length > 0 && values.every((v) => v && typeof v === 'object')) {
-      return values;
-    }
-  }
-  return [];
-}
-
-/**
  * Merges a stored whiteboard payload with an incoming one, by element id
- * (issue #188). New writes are always plain JSON element arrays; `currentStr`
- * may still be a legacy pre-#188 `{ yjs: true, data: <base64> }` row that
- * hasn't been resaved yet, in which case it's decoded via
- * `decodeLegacyCrdtState` before merging. Once resaved it becomes plain JSON
- * and this fallback is no longer exercised for that row.
+ * AND preserves/merges the Excalidraw `files` map alongside the elements
+ * (issue #188 / review round 2). `asWhiteboardPayload` already attempts the
+ * legacy pre-#188 decode first, so a not-yet-migrated row merges with its
+ * real content instead of being treated as unreadable.
+ *
+ * This union-merge semantics is intentionally kept available as a general
+ * utility (e.g. for callers that genuinely want two element sets combined),
+ * but the CAS write paths (`lib/cas-writes.ts`) do NOT use it for
+ * full-snapshot saves — a full snapshot from the client is authoritative for
+ * what should exist, including deletions, and union-merging it against
+ * "current" would make a deleted element reappear because it's still present
+ * on the current side of the union.
  */
 export function mergeWhiteboardPayloads(currentStr: string, incomingStr: string): string {
-  let currentElements: any[];
+  let currentPayload: WhiteboardPayload;
   try {
-    currentElements = asWhiteboardElements(currentStr || '[]');
+    currentPayload = asWhiteboardPayload(currentStr || '[]');
   } catch {
-    try {
-      const parsedCurrent = parseJsonIfString(currentStr);
-      currentElements = isLegacyYjsPayload(parsedCurrent)
-        ? coerceToElementsArray(decodeLegacyCrdtState(currentStr, []))
-        : [];
-    } catch {
-      currentElements = [];
-    }
+    currentPayload = { elements: [], files: {} };
   }
 
-  let incomingElements: any[];
-  try {
-    incomingElements = asWhiteboardElements(incomingStr);
-  } catch {
-    return incomingStr;
-  }
+  // A malformed incoming payload is REJECTED (thrown), never silently passed
+  // through as raw invalid input to be persisted downstream (issue found in
+  // review, Group 5). An unreadable CURRENT row still tolerates a fallback
+  // above — that's a different, lower-risk situation than trusting
+  // unparseable new input.
+  const incomingPayload = asWhiteboardPayload(incomingStr);
 
-  const mergedElements = mergeWhiteboardById(currentElements, incomingElements);
-  return JSON.stringify(mergedElements);
+  const mergedElements = mergeWhiteboardById(currentPayload.elements, incomingPayload.elements);
+  const mergedFiles = { ...currentPayload.files, ...incomingPayload.files };
+  return JSON.stringify({ elements: mergedElements, files: mergedFiles });
 }

@@ -10,107 +10,29 @@ import {
   asWhiteboardElements,
   mergeDocumentBlocks,
   mergeWhiteboardById,
-  mergeWhiteboardPayloads,
   ConflictStrategy,
 } from './helpers';
+import { casUpdateDocument as sharedCasUpdateDocument, casUpdateWhiteboard as sharedCasUpdateWhiteboard } from '@/lib/cas-writes';
 
-const CAS_MAX_ATTEMPTS = 5;
-
-/**
- * Compare-and-swap document write (issue #197 partial).
- *
- * Previously `files:updateDocument` seeded a module-level debounce map from a
- * `findUnique` read, then merged further writes into that in-memory entry
- * before a single delayed flush. That's correct at exactly one process, and
- * even then has a race: two concurrent requests can both read the current row
- * BEFORE either seeds the debounce map, so both merge from the same stale
- * base and the later flush silently discards the earlier request's changes.
- *
- * This mirrors the CAS pattern already used correctly by
- * `collabpro_update_document`: read, merge, `updateMany` gated on the
- * document still matching what was read, retry against the fresh value on
- * conflict. Correct under any number of concurrent writers or replicas, with
- * no shared mutable state.
- */
-async function casUpdateDocument(targetFileId: string, incomingDocument: unknown): Promise<any> {
-  const normalizedIncoming = asEditorDocument(incomingDocument);
-
-  for (let attempt = 0; attempt < CAS_MAX_ATTEMPTS; attempt++) {
-    const file = await prisma.file.findUnique({
-      where: { id: targetFileId },
-      select: { document: true }
-    });
-    const currentDocString = file?.document || asJsonString({ time: Date.now(), blocks: [], version: "2.8.1" });
-    const currentDoc = asEditorDocument(currentDocString);
-    const nextDoc = mergeDocumentBlocks(currentDoc, normalizedIncoming);
-    const nextDocString = asJsonString(nextDoc);
-
-    const updated = await prisma.file.updateMany({
-      where: { id: targetFileId, document: currentDocString },
-      data: { document: nextDocString }
-    });
-
-    if (updated.count === 1) {
-      await invalidateCachedFile(targetFileId);
-      return nextDoc;
-    }
-    // Someone else wrote first — retry with the fresh value.
-  }
-
-  throw new Error("Unable to update document due to concurrent updates. Please retry.");
+// review round 2 (Groups 1 & 2): the CAS writers used to live here, but had
+// two bugs — the predicate compared against a normalized/synthesized current
+// value instead of the exact raw row (so a brand-new file's default empty
+// document/whiteboard could never be saved, since the DB has "" but the
+// predicate compared against a synthesized default object), and full-snapshot
+// saves used union-merge instead of replace semantics (so a deleted
+// block/element always reappeared). Both are fixed in the canonical
+// `lib/cas-writes.ts`, which is also what the standalone WS gateway now
+// calls — "don't reimplement, reuse."
+function casUpdateDocument(targetFileId: string, incomingDocument: unknown) {
+  return sharedCasUpdateDocument(prisma as any, targetFileId, incomingDocument, {
+    onPersisted: (fileId) => invalidateCachedFile(fileId),
+  });
 }
 
-/**
- * Compare-and-swap whiteboard write (issue #197 partial) — same rationale as
- * `casUpdateDocument` above, applied to whiteboard elements/deltas.
- */
-async function casUpdateWhiteboard(targetFileId: string, incomingWhiteboard: unknown): Promise<any> {
-  for (let attempt = 0; attempt < CAS_MAX_ATTEMPTS; attempt++) {
-    const file = await prisma.file.findUnique({
-      where: { id: targetFileId },
-      select: { whiteboard: true }
-    });
-    const currentWhiteboardString = file?.whiteboard || '[]';
-
-    let nextWhiteboardString: string;
-    try {
-      const parsedIncoming = parseJsonIfString(incomingWhiteboard);
-      if (parsedIncoming && typeof parsedIncoming === 'object' && (parsedIncoming as any).isDelta) {
-        const delta = parsedIncoming as any;
-        const updated = Array.isArray(delta.updated) ? delta.updated : [];
-        const deleted = Array.isArray(delta.deleted) ? delta.deleted : [];
-
-        const currentElements = asWhiteboardElements(currentWhiteboardString || '[]');
-        const currentMap = new Map<string, any>();
-        currentElements.forEach((el: any) => { if (el && el.id) currentMap.set(el.id, el); });
-
-        deleted.forEach((id: string) => { currentMap.delete(id); });
-        updated.forEach((el: any) => { if (el && el.id) currentMap.set(el.id, el); });
-
-        nextWhiteboardString = JSON.stringify(Array.from(currentMap.values()));
-      } else {
-        nextWhiteboardString = mergeWhiteboardPayloads(currentWhiteboardString || '[]', incomingWhiteboard as string);
-      }
-    } catch {
-      nextWhiteboardString = incomingWhiteboard as string;
-    }
-
-    const updatedCount = await prisma.file.updateMany({
-      where: { id: targetFileId, whiteboard: currentWhiteboardString },
-      data: {
-        whiteboard: nextWhiteboardString,
-        whiteboardText: extractTextFromWhiteboard(nextWhiteboardString),
-      }
-    });
-
-    if (updatedCount.count === 1) {
-      await invalidateCachedFile(targetFileId);
-      return nextWhiteboardString;
-    }
-    // Someone else wrote first — retry with the fresh value.
-  }
-
-  throw new Error("Unable to update whiteboard due to concurrent updates. Please retry.");
+function casUpdateWhiteboard(targetFileId: string, incomingWhiteboard: unknown) {
+  return sharedCasUpdateWhiteboard(prisma as any, targetFileId, incomingWhiteboard, {
+    onPersisted: (fileId) => invalidateCachedFile(fileId),
+  });
 }
 
 export async function handleFileService(path: string, args: any, authUserEmail: string | null, ipAddress: string): Promise<any> {

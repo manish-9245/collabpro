@@ -7,18 +7,14 @@ import amqplib from 'amqplib';
 // Canonical merge/normalization helpers (issue #189). This process runs
 // outside the Next.js bundler via tsx, so — like the existing `../lib/db`
 // import above — it uses a relative path rather than the "@/" alias.
-import {
-  asEditorDocument,
-  asWhiteboardElements,
-  mergeDocumentBlocks,
-  mergeWhiteboardPayloads,
-} from '../lib/state-sync-helpers';
-import { hasFileAccess as checkFileAccessDb } from './file-access';
+import { casUpdateDocument, casUpdateWhiteboard } from '../lib/cas-writes';
+import { hasFileAccess as checkFileAccessDb, checkMutationAuth as checkMutationAuthDb } from './file-access';
 import { FileAccessCache } from './access-cache';
 import {
   selectSubscribedConnections,
   selectRecipientsForRedisMessage,
   deliverToConnections,
+  isSelfOriginatedMessage,
 } from './collab-broadcast';
 import {
   executeQuery as wsExecuteQuery,
@@ -26,11 +22,19 @@ import {
   fetchQueryUpdatePayload,
   runMutation,
 } from './mutations';
+import { queueDbWrite as sharedQueueDbWrite } from './queue-db-write';
 
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : (process.env.WS_PORT ? parseInt(process.env.WS_PORT, 10) : 3001);
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://localhost:5672';
+
+// Issue found in review (Group 5 #2): a unique id for this process/replica,
+// stamped onto every Redis publish so the Redis-consume path can recognize
+// (and skip) a message this same replica already delivered locally — Redis
+// pub/sub otherwise echoes a publish back to the publisher's own
+// subscription, causing local subscribers to receive it twice.
+const REPLICA_ID = crypto.randomUUID();
 
 interface ClientConnection {
   id: string;
@@ -113,6 +117,14 @@ try {
     if (channel === 'collabpro:channel:canvas') {
       try {
         const parsed = JSON.parse(messageStr);
+
+        // Issue found in review (Group 5 #2): skip a message this exact
+        // replica published itself — it was already delivered to local
+        // connections directly, and Redis pub/sub otherwise echoes the
+        // publish back through this replica's own subscription, causing
+        // double delivery.
+        if (isSelfOriginatedMessage(parsed, REPLICA_ID)) return;
+
         const { fileId, senderEmail, payload } = parsed;
 
         // Issue #197 (partial): route through the same recipient-selection
@@ -149,60 +161,34 @@ async function initRabbitMQ() {
     await mqChannel.assertQueue(QUEUE_NAME, { durable: true });
     console.log('🐇 [RabbitMQ] Connected to message broker successfully.');
 
-    // Consumer to process queue items (GrahakAI Concurrent Merging & Delta boundary)
+    // Consumer for durability/replay records (issue found in review, Group 1:
+    // since `queueDbWrite` below now performs the authoritative write
+    // synchronously BEFORE publishing here, this consumer is a secondary
+    // replay path, not the source of truth for success/failure). It reuses
+    // the exact same `casUpdateDocument`/`casUpdateWhiteboard` the direct
+    // write path uses — not a third bespoke merge implementation — so a
+    // redundant replay can never regress the replace-semantics/files-map/
+    // legacy-decode fixes those functions carry. Because the direct write
+    // already applied `value` by the time this runs, re-applying it here is
+    // idempotent (a harmless no-op in the common case).
     mqChannel.consume(QUEUE_NAME, async (msg: any) => {
       if (msg !== null) {
         try {
           const payload = JSON.parse(msg.content.toString());
           const { fileId, type, value } = payload;
-          
-          const file = await prisma.file.findUnique({
-            where: { id: fileId },
-            select: { id: true, document: true, whiteboard: true }
-          });
-          
-          let nextValue = value;
-          if (file) {
-            if (type === 'document') {
-              try {
-                const currentDoc = asEditorDocument(file.document || '{"blocks":[]}');
-                const incomingDoc = asEditorDocument(value);
-                nextValue = JSON.stringify(mergeDocumentBlocks(currentDoc, incomingDoc));
-              } catch (e) {
-                console.error("RabbitMQ doc merge failed, using direct:", e);
-              }
-            } else if (type === 'whiteboard') {
-              try {
-                const parsedIncoming = typeof value === 'string' ? JSON.parse(value) : value;
-                if (parsedIncoming && parsedIncoming.isDelta) {
-                  const currentElements = asWhiteboardElements(file.whiteboard || '[]');
-                  const currentMap = new Map();
-                  currentElements.forEach((el) => { if (el && el.id) currentMap.set(el.id, el); });
-                  
-                  if (Array.isArray(parsedIncoming.deleted)) {
-                    parsedIncoming.deleted.forEach((id: string) => { currentMap.delete(id); });
-                  }
-                  if (Array.isArray(parsedIncoming.updated)) {
-                    parsedIncoming.updated.forEach((el: any) => { if (el && el.id) currentMap.set(el.id, el); });
-                  }
-                  nextValue = JSON.stringify(Array.from(currentMap.values()));
-                } else {
-                  nextValue = mergeWhiteboardPayloads(file.whiteboard || '[]', value);
-                }
-              } catch (e) {
-                console.error("RabbitMQ whiteboard merge failed, using direct:", e);
-              }
-            }
+
+          if (type === 'document') {
+            await casUpdateDocument(prisma as any, fileId, value);
+          } else if (type === 'whiteboard') {
+            await casUpdateWhiteboard(prisma as any, fileId, value);
+          } else {
+            await prisma.file.update({
+              where: { id: fileId },
+              data: { [type]: value },
+            });
           }
 
-          const updateData: any = {};
-          updateData[type] = nextValue;
-          
-          await prisma.file.update({
-            where: { id: fileId },
-            data: updateData,
-          });
-          console.log(`💾 [RabbitMQ DB Commit] Durable update flushed to DB for file: ${fileId}`);
+          console.log(`💾 [RabbitMQ DB Commit] Durable replay record processed for file: ${fileId}`);
           mqChannel?.ack(msg);
         } catch (err: any) {
           console.error(`❌ [RabbitMQ DB Commit Error] Failed flushing updates:`, err.message);
@@ -247,19 +233,14 @@ async function markMutationProcessed(mutationId: string): Promise<void> {
   }
 }
 
-async function queueDbWrite(fileId: string, type: 'document' | 'whiteboard' | 'fileName', value: string, executeSave: () => Promise<any>): Promise<any> {
-  if (mqChannel) {
-    try {
-      const payload = { fileId, type, value, timestamp: Date.now() };
-      mqChannel.sendToQueue(QUEUE_NAME, Buffer.from(JSON.stringify(payload)), {
-        persistent: true
-      });
-      return;
-    } catch (err) {
-      console.warn('[RabbitMQ Queue Error] Failed to publish message, direct save will handle the write:', err);
-    }
-  }
-  return await executeSave();
+// Issue found in review round 2 (Group 1 — regression against #172):
+// previously defined inline here, resolving as soon as a message was handed
+// to RabbitMQ rather than once the DB write actually completed, so the
+// client could be told "saved" before the write was even attempted. Now
+// delegates to the shared, unit-tested `./queue-db-write.ts`, which always
+// executes and awaits the authoritative save first.
+function queueDbWrite(fileId: string, type: 'document' | 'whiteboard' | 'fileName', value: string, executeSave: () => Promise<any>): Promise<any> {
+  return sharedQueueDbWrite(mqChannel, QUEUE_NAME, fileId, type, value, executeSave);
 }
 
 const server = createServer((req, res) => {
@@ -308,39 +289,11 @@ function authenticateRequest(req: any): any {
   return null;
 }
 
-async function checkMutationAuth(connection: ClientConnection, fileId: string, email: string): Promise<{ allowed: boolean; error?: string }> {
-  const hasAccess = await hasFileAccess(connection, fileId, email);
-  if (!hasAccess) {
-    return { allowed: false, error: 'Forbidden: You do not have access to this file' };
-  }
-
-  try {
-    const file = await prisma.file.findUnique({
-      where: { id: fileId },
-      select: { createdBy: true, teamId: true }
-    });
-    if (!file) return { allowed: false, error: 'File not found' };
-
-    if (file.createdBy === email) return { allowed: true };
-
-    const teamMember = await prisma.teamMember.findFirst({
-      where: { teamId: file.teamId, userEmail: email },
-      select: { role: true }
-    });
-
-    if (teamMember) {
-      if (teamMember.role === 'viewer') {
-        return { allowed: false, error: 'Forbidden: Viewers cannot modify files' };
-      }
-      return { allowed: true };
-    }
-
-    return { allowed: true };
-  } catch (error) {
-    console.error(`[WS MUTATION AUTH ERROR] Failed to check mutation auth:`, error);
-    return { allowed: false, error: 'Internal auth check error' };
-  }
-}
+// checkMutationAuth (imported from ./file-access) deliberately does NOT go
+// through `connection.accessCache` — see the doc comment on it. Mutation
+// authorization always re-checks the database fresh; only cursor traffic
+// (via `hasFileAccess` above) is allowed to trade a short staleness window
+// for not hitting the DB on every message (issue found in review, Group 5 #1).
 
 server.on('upgrade', (request, socket, head) => {
   console.log('[WS HANDSHAKE] Upgrade request received...');
@@ -431,6 +384,7 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
                 type: 'cursor',
                 fileId,
                 senderEmail: user.id,
+                originId: REPLICA_ID,
                 payload: cursorPayload
               })).catch((err) => { console.error("Redis cursor publish failed:", err); });
             }
@@ -490,7 +444,7 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
               ws.send(JSON.stringify({ type: 'mutation-result', path, success: true, data: { skipped: true } }));
               break;
             }
-            const auth = await checkMutationAuth(connection, targetId, user.email);
+            const auth = await checkMutationAuthDb(prisma as any, targetId, user.email);
             if (!auth.allowed) {
               console.warn(`[WS MUTATION SECURITY REJECT] User ${user.id} attempted unauthorized mutation "${path}" on: ${targetId}: ${auth.error}`);
               ws.send(JSON.stringify({ type: 'error', message: auth.error }));
@@ -540,6 +494,7 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
                 type: 'mutation-update',
                 fileId: targetRoom,
                 senderEmail: user.id,
+                originId: REPLICA_ID,
                 payload: queryUpdatePayload,
               })).catch((err) => { console.error("Redis mutation publish failed:", err); });
             }

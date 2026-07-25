@@ -7,18 +7,14 @@
  * is also what makes these testable in isolation.
  */
 
-import {
-  asEditorDocument,
-  asWhiteboardElements,
-  mergeDocumentBlocks,
-  mergeWhiteboardPayloads,
-  mapConvexIds,
-} from '../lib/state-sync-helpers';
+import { mapConvexIds } from '../lib/state-sync-helpers';
+import { casUpdateDocument, casUpdateWhiteboard } from '../lib/cas-writes';
 
 export interface MutationPrismaClient {
   file: {
     findUnique: (args: any) => Promise<any>;
     update: (args: any) => Promise<any>;
+    updateMany: (args: any) => Promise<{ count: number }>;
   };
 }
 
@@ -73,14 +69,21 @@ export async function fetchQueryUpdatePayload(
 }
 
 /**
- * Issue #172 remainder: `queueDbWrite()` was fixed in a prior PR (#180) to
- * return the direct-save promise instead of swallowing it, but the three
- * call sites below must actually `await` it — otherwise a rejected save is
- * never observed here, the case falls through to its `return`, and the
- * caller reports success regardless of whether the write happened. Each
- * `await queueDbWrite(...)` here lets a rejection propagate out of
- * `executeMutation`, to be caught by `runMutation` below (or the caller's
- * own try/catch) and turned into `{ success: false }` for the client.
+ * Issue #172 remainder: `queueDbWrite()` was fixed (see
+ * `ws-server/queue-db-write.ts`) to always execute and await the
+ * authoritative save before resolving, so a rejection from it propagates out
+ * of `executeMutation`, to be caught by `runMutation` below (or the caller's
+ * own try/catch) and turned into `{ success: false }` for the client — not
+ * reported as success regardless of whether the write happened.
+ *
+ * Issue found in review round 2 (Group 1): `files:updateDocument` and
+ * `files:updateWhiteboard` used to do an unconditional `prisma.file.update`
+ * based on a stale read here — never compare-and-swap — so concurrent edits
+ * arriving over the WebSocket could silently lose data, the exact problem
+ * #197 was supposed to eliminate everywhere, not just on the HTTP transport.
+ * They now call the SAME `casUpdateDocument`/`casUpdateWhiteboard` the HTTP
+ * path (`app/api/state-sync/services/fileService.ts`) uses, from
+ * `lib/cas-writes.ts` — reused, not reimplemented.
  */
 export async function executeMutation(
   prismaClient: MutationPrismaClient,
@@ -92,65 +95,18 @@ export async function executeMutation(
     case 'files:updateDocument': {
       const { _id, document } = args || {};
 
-      await queueDbWrite(_id, 'document', document, async () => {
-        const file = await prismaClient.file.findUnique({
-          where: { id: _id },
-          select: { document: true },
-        });
-        let nextValue = document;
-        if (file) {
-          try {
-            const currentDoc = asEditorDocument(file.document || '{"blocks":[]}');
-            const incomingDoc = asEditorDocument(document);
-            nextValue = JSON.stringify(mergeDocumentBlocks(currentDoc, incomingDoc));
-          } catch (e) {
-            console.error("Document merge failed in executeMutation:", e);
-          }
-        }
-        return prismaClient.file.update({
-          where: { id: _id },
-          data: { document: nextValue },
-        });
-      });
+      await queueDbWrite(_id, 'document', document, () =>
+        casUpdateDocument(prismaClient, _id, document)
+      );
 
       return { id: _id, document, _id };
     }
     case 'files:updateWhiteboard': {
       const { _id, whiteboard } = args || {};
 
-      await queueDbWrite(_id, 'whiteboard', whiteboard, async () => {
-        const file = await prismaClient.file.findUnique({
-          where: { id: _id },
-          select: { whiteboard: true },
-        });
-        let nextValue = whiteboard;
-        if (file) {
-          try {
-            const parsedIncoming = typeof whiteboard === 'string' ? JSON.parse(whiteboard) : whiteboard;
-            if (parsedIncoming && parsedIncoming.isDelta) {
-              const currentElements = asWhiteboardElements(file.whiteboard || '[]');
-              const currentMap = new Map<string, any>();
-              currentElements.forEach((el: any) => { if (el && el.id) currentMap.set(el.id, el); });
-
-              if (Array.isArray(parsedIncoming.deleted)) {
-                parsedIncoming.deleted.forEach((id: string) => { currentMap.delete(id); });
-              }
-              if (Array.isArray(parsedIncoming.updated)) {
-                parsedIncoming.updated.forEach((el: any) => { if (el && el.id) currentMap.set(el.id, el); });
-              }
-              nextValue = JSON.stringify(Array.from(currentMap.values()));
-            } else {
-              nextValue = mergeWhiteboardPayloads(file.whiteboard || '[]', whiteboard);
-            }
-          } catch (e) {
-            console.error("Whiteboard merge failed in executeMutation:", e);
-          }
-        }
-        return prismaClient.file.update({
-          where: { id: _id },
-          data: { whiteboard: nextValue },
-        });
-      });
+      await queueDbWrite(_id, 'whiteboard', whiteboard, () =>
+        casUpdateWhiteboard(prismaClient, _id, whiteboard)
+      );
 
       return { id: _id, whiteboard, _id };
     }

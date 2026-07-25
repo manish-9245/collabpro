@@ -94,7 +94,7 @@ describe('files:updateDocument compare-and-swap under concurrent writers (issue 
     expect(finalDoc.blocks.map((b: any) => b.id)).toContain('concurrent-writer');
   });
 
-  it('both of two concurrent writers eventually persist their block, none silently dropped', async () => {
+  it('two concurrent full-snapshot writers resolve via CAS retry, not a silently dropped or corrupted write', async () => {
     const [resA, resB] = await Promise.all([
       stateSyncPOST(request(makeDocument(['base', 'writer-a']))),
       stateSyncPOST(request(makeDocument(['base', 'writer-b']))),
@@ -103,11 +103,27 @@ describe('files:updateDocument compare-and-swap under concurrent writers (issue 
     expect(resA.status).toBe(200);
     expect(resB.status).toBe(200);
 
+    // Full-snapshot saves use REPLACE semantics (review round 2, Group 2):
+    // the incoming document is authoritative for exactly what should exist,
+    // including deletions, so it is NOT union-merged with "current" — a
+    // deleted block must not be able to reappear just because it's still
+    // present on the other side of a merge. That means two genuinely
+    // concurrent full-snapshot saves do not both survive combined; whichever
+    // CAS attempt lands last wins outright, matching what that user's editor
+    // actually showed (true OT/CRDT merging is out of scope). What must NOT
+    // happen is data corruption or a silently swallowed write: the final row
+    // must be a complete, coherent snapshot from exactly one of the two
+    // writers, and the race must actually have been resolved via a CAS
+    // retry (not by one write silently vanishing).
     const finalDoc = JSON.parse(fileRow.document);
     const ids = finalDoc.blocks.map((b: any) => b.id);
-    // Neither writer's block should have been silently discarded by a stale
-    // debounce seed — a correct CAS+merge retry loop converges both in.
-    expect(ids).toContain('writer-a');
-    expect(ids).toContain('writer-b');
+    expect(ids).toContain('base');
+    const wonAsWriterA = ids.includes('writer-a') && !ids.includes('writer-b');
+    const wonAsWriterB = ids.includes('writer-b') && !ids.includes('writer-a');
+    expect(wonAsWriterA || wonAsWriterB).toBe(true);
+
+    // At least one of the two writers must have hit a CAS conflict and
+    // retried rather than the race being invisibly resolved some other way.
+    expect(mockUpdateMany.mock.calls.length).toBeGreaterThanOrEqual(3);
   });
 });
