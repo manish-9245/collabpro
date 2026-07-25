@@ -7,7 +7,7 @@ export async function logAuditEvent(
   teamId: string | null,
   userEmail: string,
   action: string,
-  context: any,
+  context: Record<string, unknown>,
   ipAddress: string = "127.0.0.1"
 ) {
   try {

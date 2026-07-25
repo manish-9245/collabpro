@@ -182,6 +182,36 @@ describe('Audit logging for authentication events (Issue 176)', () => {
       expect(logged.userEmail).toBe(email);
       expect(JSON.stringify(logged)).not.toMatch(/attempt-secret-\d/);
     });
+
+    it('does not write one audit row per rejected attempt once rate-limited (P1: write amplification)', async () => {
+      // The rate limiter exists to bound load during an attack. If every
+      // single 429 also triggers an awaited DB write, an attacker hammering
+      // a blocked endpoint turns the limiter into an unbounded audit-log
+      // write amplifier instead. Only the request that first trips the
+      // limit should be logged.
+      mockUserFindUnique.mockResolvedValue(null);
+      const email = 'write-amplification-176@collabpro.com';
+      const ip = '10.1.1.100';
+      const totalAttempts = 20;
+
+      let lastRes;
+      for (let i = 0; i < totalAttempts; i++) {
+        const req = new Request('http://localhost/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-forwarded-for': ip },
+          body: JSON.stringify({ email, password: `attempt-${i}` }),
+        });
+        lastRes = await loginPOST(req);
+      }
+
+      expect(lastRes!.status).toBe(429);
+
+      const rateLimitedCalls = mockAuditLogCreate.mock.calls.filter(
+        (call: any[]) => call[0].data.action === 'auth:login:rate-limited'
+      );
+      expect(rateLimitedCalls.length).toBeLessThan(totalAttempts);
+      expect(rateLimitedCalls.length).toBe(1);
+    });
   });
 
   describe('POST /api/auth/register', () => {
@@ -212,10 +242,56 @@ describe('Audit logging for authentication events (Issue 176)', () => {
       expect(logged.ipAddress).toBe('10.1.1.3');
       expect(JSON.stringify(logged)).not.toContain('super-secret-pw');
     });
+
+    it('logs auth:register:duplicate-email when the email is already registered', async () => {
+      mockUserFindUnique.mockResolvedValueOnce({ id: 'existing-176', email: 'dupe-176@collabpro.com' });
+
+      const req = new Request('http://localhost/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '10.1.1.10' },
+        body: JSON.stringify({ name: 'Dupe User', email: 'dupe-176@collabpro.com', password: 'whatever-secret-pw' }),
+      });
+
+      const res = await registerPOST(req);
+      expect(res.status).toBe(400);
+
+      expect(mockAuditLogCreate).toHaveBeenCalledTimes(1);
+      const logged = lastAuditCall();
+      expect(logged.action).toBe('auth:register:duplicate-email');
+      expect(logged.teamId).toBeNull();
+      expect(logged.userEmail).toBe('dupe-176@collabpro.com');
+      expect(mockUserCreate).not.toHaveBeenCalled();
+      expect(JSON.stringify(logged)).not.toContain('whatever-secret-pw');
+    });
+
+    it('logs auth:register:rate-limited without leaking the password, bounding writes to one per window (P1 parity)', async () => {
+      mockUserFindUnique.mockResolvedValue(null);
+      const email = 'register-rate-limited-176@collabpro.com';
+      const ip = '10.1.1.11';
+      const totalAttempts = 8; // REGISTER limit is maxAttempts: 3
+
+      let lastRes;
+      for (let i = 0; i < totalAttempts; i++) {
+        const req = new Request('http://localhost/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-forwarded-for': ip },
+          body: JSON.stringify({ name: 'Attacker', email, password: `attempt-secret-${i}` }),
+        });
+        lastRes = await registerPOST(req);
+      }
+
+      expect(lastRes!.status).toBe(429);
+
+      const rateLimitedCalls = mockAuditLogCreate.mock.calls.filter(
+        (call: any[]) => call[0].data.action === 'auth:register:rate-limited'
+      );
+      expect(rateLimitedCalls.length).toBe(1);
+      expect(JSON.stringify(rateLimitedCalls[0][0].data)).not.toMatch(/attempt-secret-\d/);
+    });
   });
 
   describe('GET /api/auth/logout', () => {
-    it('logs auth:logout for the authenticated user before clearing the session', async () => {
+    it('logs auth:logout for the authenticated user', async () => {
       const userPayload = { id: 'user-logout', email: 'logout-176@collabpro.com', name: 'Logout User' };
       cookiesMock['session_token'] = signToken(userPayload);
 
@@ -232,6 +308,25 @@ describe('Audit logging for authentication events (Issue 176)', () => {
       expect(logged.teamId).toBeNull();
       expect(logged.userEmail).toBe('logout-176@collabpro.com');
       expect(logged.ipAddress).toBe('10.1.1.4');
+    });
+
+    it('clears the session cookie before the audit write (P2: must not delay the response on a slow audit DB)', async () => {
+      const userPayload = { id: 'user-logout-order', email: 'logout-order-176@collabpro.com', name: 'Logout Order User' };
+      cookiesMock['session_token'] = signToken(userPayload);
+
+      const req = new Request('http://localhost/api/auth/logout', {
+        headers: { 'x-forwarded-for': '10.1.1.4' },
+      });
+
+      await logoutGET(req);
+
+      expect(mockDelete).toHaveBeenCalledWith('session_token');
+      expect(mockAuditLogCreate).toHaveBeenCalledTimes(1);
+      // mockDelete must have been invoked strictly before the audit write —
+      // otherwise a slow audit DB delays clearing the session.
+      const deleteOrder = mockDelete.mock.invocationCallOrder[0];
+      const auditOrder = mockAuditLogCreate.mock.invocationCallOrder[0];
+      expect(deleteOrder).toBeLessThan(auditOrder);
     });
   });
 
@@ -334,6 +429,37 @@ describe('Audit logging for authentication events (Issue 176)', () => {
       const logged = lastAuditCall();
       expect(logged.action).toBe('share:role-change');
       expect(logged.teamId).toBe('team-abc-176');
+    });
+
+    it('attributes share:role-change to the team of the link actually updated, not a mismatched fileId in the request body (P2)', async () => {
+      // A request could pass a `fileId` that doesn't match the link being
+      // updated (stale client state, or a crafted request). The audit
+      // record must reflect the real link/file/team being changed, not
+      // whatever fileId happened to be in the body.
+      currentSessionUser = { email: 'shareuser-176@collabpro.com' };
+      mockSharedLinkUpdate.mockResolvedValueOnce({ id: 'link-176', fileId: 'file-REAL-176', role: 'editor', isActive: true });
+      mockFileFindUnique.mockImplementation((args: any) => {
+        if (args.where.id === 'file-REAL-176') {
+          return Promise.resolve({ id: 'file-REAL-176', teamId: 'team-REAL-176' });
+        }
+        return Promise.resolve({ id: 'file-WRONG-176', teamId: 'team-WRONG-176' });
+      });
+
+      const req = new Request('http://localhost/api/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '10.1.1.8' },
+        // Mismatched fileId: does not correspond to link-176's actual file.
+        body: JSON.stringify({ fileId: 'file-WRONG-176', sharedLinkId: 'link-176', role: 'editor' }),
+      });
+
+      const res = await sharePOST(req);
+      expect(res.status).toBe(200);
+
+      expect(mockAuditLogCreate).toHaveBeenCalledTimes(1);
+      const logged = lastAuditCall();
+      expect(logged.action).toBe('share:role-change');
+      expect(logged.teamId).toBe('team-REAL-176');
+      expect(logged.teamId).not.toBe('team-WRONG-176');
     });
   });
 

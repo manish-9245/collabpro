@@ -90,9 +90,6 @@ export async function POST(request: Request) {
       expiresDateTime = new Date(expiresAt);
     }
 
-    // Share events do have a team context via the file being shared, so
-    // resolve it and attach it to the audit record (unlike auth events).
-    const file = await prisma.file.findUnique({ where: { id: fileId } });
     const ip = getClientIp(request);
 
     let link;
@@ -107,14 +104,6 @@ export async function POST(request: Request) {
           isActive: typeof isActive === 'boolean' ? isActive : undefined
         }
       });
-
-      await logAuditEvent(
-        file?.teamId ?? null,
-        user.email,
-        'share:role-change',
-        { fileId, sharedLinkId, role: link.role },
-        ip
-      );
     } else {
       // Create new share link
       link = await prisma.sharedLink.create({
@@ -126,15 +115,23 @@ export async function POST(request: Request) {
           isActive: typeof isActive === 'boolean' ? isActive : true
         }
       });
-
-      await logAuditEvent(
-        file?.teamId ?? null,
-        user.email,
-        'share:create',
-        { fileId, sharedLinkId: link.id, role: link.role },
-        ip
-      );
     }
+
+    // Share events do have a team context via the file being shared, so
+    // resolve it and attach it to the audit record (unlike auth events).
+    // Resolved from the persisted link's own `fileId`, not the request
+    // body's `fileId` — a caller could pass a `fileId` that doesn't match
+    // the link actually being updated, and that must not misattribute the
+    // audit entry to the wrong team.
+    const file = await prisma.file.findUnique({ where: { id: link.fileId } });
+
+    await logAuditEvent(
+      file?.teamId ?? null,
+      user.email,
+      sharedLinkId ? 'share:role-change' : 'share:create',
+      { fileId: link.fileId, sharedLinkId: link.id, role: link.role },
+      ip
+    );
 
     return NextResponse.json({ data: link });
   } catch (err: any) {

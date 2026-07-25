@@ -34,9 +34,21 @@ describe('GrahakAI Platform & Database Integrity Security Audit Suite', () => {
     expect(content).toMatch(/SharedLink\s+{[^}]*file\s+File\s+@relation\(/);
     // 12. OrgSetting to Team relationship
     expect(content).toMatch(/OrgSetting\s+{[^}]*team\s+Team\s+@relation\(/);
-    // 13. AuditLog to Team relationship (optional: authentication events such
-    // as login/logout/register have no team context, so the FK is nullable)
-    expect(content).toMatch(/AuditLog\s+{[^}]*team\s+Team\?\s+@relation\(/);
+    // 13. AuditLog to Team relationship — optional, because authentication
+    // events (login/logout/register) have no team context, so the FK is
+    // nullable. This is deliberately stricter than the other 12 checks
+    // above: it isolates the AuditLog model block and asserts on all three
+    // properties together (nullable scalar FK column, optional relation
+    // type, and onDelete: SetNull) so a regression on any one of them — the
+    // scalar column becoming required again, the relation losing its `?`,
+    // or `onDelete` reverting to Cascade (which would delete audit rows
+    // when the audited team is deleted, defeating the point of an audit
+    // trail) — fails this test.
+    const auditLogBlock = content.match(/model AuditLog \{([^}]*)\}/);
+    expect(auditLogBlock).not.toBeNull();
+    const auditLogBody = auditLogBlock![1];
+    expect(auditLogBody).toMatch(/teamId\s+String\?/);
+    expect(auditLogBody).toMatch(/team\s+Team\?\s+@relation\([^)]*onDelete:\s*SetNull/);
   });
 
   it('should not contain destructive schema push commands in package.json start routine', () => {

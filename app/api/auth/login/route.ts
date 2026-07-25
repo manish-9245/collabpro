@@ -23,7 +23,12 @@ export async function POST(request: Request) {
     const accountLimit = checkRateLimit(`login:ip-account:${ip}:${email}`, LIMITS.LOGIN);
     if (!ipLimit.allowed || !accountLimit.allowed) {
       const resetAt = Math.max(ipLimit.resetAt, accountLimit.resetAt);
-      await logAuditEvent(null, email, 'auth:login:rate-limited', {}, ip);
+      // Log only the request that first trips the limit, not every
+      // subsequent rejection — otherwise an attacker hammering a blocked
+      // endpoint turns the rate limiter into an unbounded audit-log write.
+      if (ipLimit.firstBlock || accountLimit.firstBlock) {
+        await logAuditEvent(null, email, 'auth:login:rate-limited', {}, ip);
+      }
       return NextResponse.json(
         { error: 'Too many login attempts. Please try again later.' },
         { status: 429, headers: { 'Retry-After': String(Math.max(1, Math.ceil((resetAt - Date.now()) / 1000))) } }

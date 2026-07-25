@@ -22,6 +22,11 @@ export async function POST(request: Request) {
     const emailLimit = checkRateLimit(`register:ip-email:${ip}:${email}`, LIMITS.REGISTER);
     if (!ipLimit.allowed || !emailLimit.allowed) {
       const resetAt = Math.max(ipLimit.resetAt, emailLimit.resetAt);
+      // Log only the request that first trips the limit, not every
+      // subsequent rejection — see the matching comment in the login route.
+      if (ipLimit.firstBlock || emailLimit.firstBlock) {
+        await logAuditEvent(null, email, 'auth:register:rate-limited', {}, ip);
+      }
       return NextResponse.json(
         { error: 'Too many registration attempts. Please try again later.' },
         { status: 429, headers: { 'Retry-After': String(Math.max(1, Math.ceil((resetAt - Date.now()) / 1000))) } }
@@ -33,6 +38,7 @@ export async function POST(request: Request) {
     });
 
     if (existingUser) {
+      await logAuditEvent(null, email, 'auth:register:duplicate-email', {}, ip);
       return NextResponse.json({ error: 'User with this email already exists' }, { status: 400 });
     }
 
