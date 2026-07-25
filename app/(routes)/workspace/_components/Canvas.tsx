@@ -840,15 +840,22 @@ function Canvas({
                 const files = excalidrawAPI.getFiles() || {};
                 const imgFile = files[selectedImage.fileId];
                 if (imgFile && imgFile.dataURL) {
-                    setSelectedImageEl({
-                        element: selectedImage,
-                        url: imgFile.dataURL
-                    });
+                    // A fresh object reference here on every onChange call
+                    // (which fires on pure selection changes, not just content
+                    // edits) triggered an Excalidraw-internal re-render loop
+                    // ("Maximum update depth exceeded") the instant an
+                    // inserted image element was selected. Only update state
+                    // when the selection/url has actually changed.
+                    setSelectedImageEl((prev) =>
+                        prev && prev.element.id === selectedImage.id && prev.url === imgFile.dataURL
+                            ? prev
+                            : { element: selectedImage, url: imgFile.dataURL }
+                    );
                 } else {
-                    setSelectedImageEl(null);
+                    setSelectedImageEl((prev) => (prev === null ? prev : null));
                 }
             } else {
-                setSelectedImageEl(null);
+                setSelectedImageEl((prev) => (prev === null ? prev : null));
             }
         } else {
             setSelectedImageEl(null);
