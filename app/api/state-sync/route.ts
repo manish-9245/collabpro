@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getServerSession } from '@/lib/session-auth/server';
-import { verifyApiKey } from '@/lib/api-key-middleware';
+import { verifyApiKey, isReadOnlyOperation } from '@/lib/api-key-middleware';
 import { mapConvexIds } from './services/helpers';
 import { logger } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-middleware';
@@ -66,7 +66,10 @@ async function POST_handler(request: Request) {
     // 2. Try API Key Auth (MCP Automation Tools & Programmatic Agents)
     if (!authUserEmail) {
       const authHeader = request.headers.get('authorization');
-      const verifyResult = await verifyApiKey(authHeader, request.method);
+      // This endpoint only ever receives POST requests (see the RPC-over-REST
+      // convention below), so the HTTP method carries no read/write signal -
+      // classify by the RPC path/action name instead.
+      const verifyResult = await verifyApiKey(authHeader, !isReadOnlyOperation(path));
       if (verifyResult.isValid) {
         authUserEmail = verifyResult.userEmail;
       } else if (authHeader) {
@@ -224,12 +227,20 @@ async function POST_handler(request: Request) {
 
     let result: any = null;
 
+    // MCP tool names aren't namespaced with ':' like the rest of this app's
+    // RPC paths, so they need an explicit allowlist here rather than a
+    // startsWith check. Both are already listed in filePaths above (the
+    // access-control check) - collabpro_update_document was missing from
+    // this dispatch condition, so it always fell through to the 404 below
+    // despite having a complete handler in fileService.ts.
+    const collabproFilePathAliases = ['collabpro_update_document', 'collabpro_update_whiteboard'];
+
     // Route delegation to discrete service handlers
     if (path.startsWith('user:')) {
       result = await handleUserService(path, args, authUserEmail, ipAddress);
     } else if (path.startsWith('teams:') || path.startsWith('invitations:')) {
       result = await handleTeamService(path, args, authUserEmail, ipAddress);
-    } else if (path.startsWith('files:') || path === 'collabpro_update_whiteboard') {
+    } else if (path.startsWith('files:') || collabproFilePathAliases.includes(path)) {
       result = await handleFileService(path, args, authUserEmail, ipAddress);
     } else if (path.startsWith('org:') || path.startsWith('orgSettings:') || path.startsWith('securityAudit:') || path.startsWith('sharedLibrary:')) {
       result = await handleOrgService(path, args, authUserEmail, ipAddress);

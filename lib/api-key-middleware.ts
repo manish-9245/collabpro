@@ -17,11 +17,24 @@ export function hashApiKey(key: string): string {
 }
 
 /**
+ * True for RPC-style path/tool names that only read data (e.g. `files:getFiles`,
+ * `user:searchUsers`) - everything else is treated as a write for scope
+ * enforcement purposes. Every caller of `verifyApiKey` (state-sync, MCP) is a
+ * POST-only RPC endpoint, so the HTTP method itself carries no read/write
+ * signal - classifying by the action name is the only thing that actually
+ * distinguishes them.
+ */
+export function isReadOnlyOperation(path: string): boolean {
+  const action = path.includes(':') ? path.split(':')[1] : path;
+  return /^(get|search)/.test(action || '');
+}
+
+/**
  * Verify an authorization header containing a CollabPro PAT and return verification details
  */
 export async function verifyApiKey(
   authorizationHeader: string | null,
-  requestMethod?: string
+  isWriteOperation?: boolean
 ): Promise<ApiKeyVerificationResult> {
   if (!authorizationHeader) {
     return {
@@ -83,18 +96,14 @@ export async function verifyApiKey(
   }
 
   // Check Scope
-  if (requestMethod && apiKeyRecord.scope === 'read-only') {
-    const uppercaseMethod = requestMethod.toUpperCase();
-    const isWriteOperation = ['POST', 'PUT', 'DELETE', 'PATCH'].includes(uppercaseMethod);
-    if (isWriteOperation) {
-      return {
-        isValid: false,
-        userEmail: apiKeyRecord.userEmail,
-        scope: apiKeyRecord.scope,
-        error: 'Forbidden: API key has read-only access scope',
-        statusCode: 403
-      };
-    }
+  if (isWriteOperation && apiKeyRecord.scope === 'read-only') {
+    return {
+      isValid: false,
+      userEmail: apiKeyRecord.userEmail,
+      scope: apiKeyRecord.scope,
+      error: 'Forbidden: API key has read-only access scope',
+      statusCode: 403
+    };
   }
 
   return {

@@ -1,12 +1,35 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { verifyApiKey } from '@/lib/api-key-middleware';
+import { casUpdateDocument, casUpdateWhiteboard } from '@/lib/cas-writes';
+import { invalidateCachedFile } from '@/lib/redis-cache';
+
+function readOnlyForbidden(id: unknown) {
+  return NextResponse.json({
+    jsonrpc: '2.0',
+    error: { code: 403, message: 'Forbidden: API key has read-only access scope' },
+    id
+  }, { status: 403 });
+}
+
+function fileNotFoundOrDenied(id: unknown) {
+  return NextResponse.json({
+    jsonrpc: '2.0',
+    error: { code: 404, message: 'File not found or access denied' },
+    id
+  }, { status: 404 });
+}
 
 export async function POST(request: Request) {
   try {
     // 1. Authorize API Key using Bearer Token header
+    // Scope enforcement happens per-tool below (collabpro_update_document /
+    // collabpro_update_whiteboard already 403 read-only keys) - every call
+    // here is an HTTP POST regardless of whether the JSON-RPC method is a
+    // read or a write, so passing the HTTP verb through would reject every
+    // read-only-scoped key on every call, including tools/list.
     const authHeader = request.headers.get('Authorization');
-    const authResult = await verifyApiKey(authHeader, request.method);
+    const authResult = await verifyApiKey(authHeader);
     
     if (!authResult.isValid) {
       return NextResponse.json({
@@ -46,7 +69,7 @@ export async function POST(request: Request) {
         jsonrpc: '2.0',
         result: {
           protocolVersion: '2024-11-05',
-          capabilities: {},
+          capabilities: { tools: {} },
           serverInfo: {
             name: 'collabpro-mcp-server-http',
             version: '1.0.0'
@@ -105,8 +128,14 @@ export async function POST(request: Request) {
                     description: 'The file ID to modify.'
                   },
                   document: {
-                    type: 'string',
-                    description: 'Editor.js structured payload as JSON string.'
+                    type: 'object',
+                    description: 'Editor.js structured payload, or string to create a standard paragraph block.',
+                    properties: {
+                      blocks: {
+                        type: 'array',
+                        items: { type: 'object' }
+                      }
+                    }
                   }
                 },
                 required: ['fileId', 'document']
@@ -123,8 +152,9 @@ export async function POST(request: Request) {
                     description: 'The target file ID.'
                   },
                   whiteboard: {
-                    type: 'string',
-                    description: 'Excalidraw drawings as JSON string payload.'
+                    type: 'array',
+                    description: 'List of Excalidraw-compatible element objects to draw.',
+                    items: { type: 'object' }
                   }
                 },
                 required: ['fileId', 'whiteboard']
@@ -215,11 +245,7 @@ export async function POST(request: Request) {
 
         case 'collabpro_update_document': {
           if (authResult.scope === 'read-only') {
-            return NextResponse.json({
-              jsonrpc: '2.0',
-              error: { code: 403, message: 'Forbidden: API key has read-only access scope' },
-              id
-            }, { status: 403 });
+            return readOnlyForbidden(id);
           }
 
           const { fileId, document } = args;
@@ -236,16 +262,18 @@ export async function POST(request: Request) {
           });
 
           if (!file || !allowedTeamIds.includes(file.teamId)) {
-            return NextResponse.json({
-              jsonrpc: '2.0',
-              error: { code: 404, message: 'File not found or access denied' },
-              id
-            }, { status: 404 });
+            return fileNotFoundOrDenied(id);
           }
 
-          const updatedFile = await prisma.file.update({
-            where: { id: fileId },
-            data: { document }
+          // Reuses the same compare-and-swap writer every other write path in
+          // this app goes through (HTTP state-sync, the WS gateway, and now
+          // this route), instead of a raw prisma.file.update() with no
+          // conflict protection. Also accepts `document` as either a JSON
+          // string or a structured Editor.js object - the schema drift
+          // between this route and scripts/mcp-server.ts's tool schema is
+          // gone because there's only one real acceptance path now.
+          const savedDocument = await casUpdateDocument(prisma, fileId, document, {
+            onPersisted: (persistedId) => invalidateCachedFile(persistedId),
           });
 
           return NextResponse.json({
@@ -254,7 +282,7 @@ export async function POST(request: Request) {
               content: [
                 {
                   type: 'text',
-                  text: JSON.stringify(updatedFile, null, 2)
+                  text: JSON.stringify({ updated: true, document: savedDocument }, null, 2)
                 }
               ]
             },
@@ -264,11 +292,7 @@ export async function POST(request: Request) {
 
         case 'collabpro_update_whiteboard': {
           if (authResult.scope === 'read-only') {
-            return NextResponse.json({
-              jsonrpc: '2.0',
-              error: { code: 403, message: 'Forbidden: API key has read-only access scope' },
-              id
-            }, { status: 403 });
+            return readOnlyForbidden(id);
           }
 
           const { fileId, whiteboard } = args;
@@ -285,17 +309,16 @@ export async function POST(request: Request) {
           });
 
           if (!file || !allowedTeamIds.includes(file.teamId)) {
-            return NextResponse.json({
-              jsonrpc: '2.0',
-              error: { code: 404, message: 'File not found or access denied' },
-              id
-            }, { status: 404 });
+            return fileNotFoundOrDenied(id);
           }
 
-          const updatedFile = await prisma.file.update({
-            where: { id: fileId },
-            data: { whiteboard }
-          });
+          // casUpdateWhiteboard returns the final whiteboard as a JSON
+          // *string* (unlike casUpdateDocument, which returns a plain
+          // object) - parse it back before embedding, or it double-encodes
+          // as an escaped string inside this response instead of real JSON.
+          const savedWhiteboard = JSON.parse(await casUpdateWhiteboard(prisma, fileId, whiteboard, {
+            onPersisted: (persistedId) => invalidateCachedFile(persistedId),
+          }));
 
           return NextResponse.json({
             jsonrpc: '2.0',
@@ -303,7 +326,7 @@ export async function POST(request: Request) {
               content: [
                 {
                   type: 'text',
-                  text: JSON.stringify(updatedFile, null, 2)
+                  text: JSON.stringify({ updated: true, whiteboard: savedWhiteboard }, null, 2)
                 }
               ]
             },
