@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getServerSession } from '@/lib/session-auth/server';
+import { logAuditEvent } from '@/lib/audit';
+import { getClientIp } from '@/lib/rate-limiter';
 import bcrypt from 'bcryptjs';
 import { checkFileAccess } from '@/lib/file-access';
 
@@ -90,6 +92,8 @@ export async function POST(request: Request) {
       expiresDateTime = new Date(expiresAt);
     }
 
+    const ip = getClientIp(request);
+
     let link;
     if (sharedLinkId) {
       // Updating an existing link: authorize against the link's own fileId,
@@ -138,6 +142,22 @@ export async function POST(request: Request) {
       });
     }
 
+    // Share events do have a team context via the file being shared, so
+    // resolve it and attach it to the audit record (unlike auth events).
+    // Resolved from the persisted link's own `fileId`, not the request
+    // body's `fileId` — a caller could pass a `fileId` that doesn't match
+    // the link actually being updated, and that must not misattribute the
+    // audit entry to the wrong team.
+    const file = await prisma.file.findUnique({ where: { id: link.fileId } });
+
+    await logAuditEvent(
+      file?.teamId ?? null,
+      user.email,
+      sharedLinkId ? 'share:role-change' : 'share:create',
+      { fileId: link.fileId, sharedLinkId: link.id, role: link.role },
+      ip
+    );
+
     return NextResponse.json({ data: link });
   } catch (err: any) {
     console.error('[API SHARE POST ERROR]', err);
@@ -160,18 +180,18 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: 'Missing sharedLinkId' }, { status: 400 });
     }
 
-    const link = await prisma.sharedLink.findUnique({
-      where: { id: sharedLinkId }
-    });
+    const existingLink = await prisma.sharedLink.findUnique({ where: { id: sharedLinkId } });
 
-    if (!link) {
+    if (!existingLink) {
       return NextResponse.json({ error: 'Share link not found' }, { status: 404 });
     }
 
-    const hasAccess = await checkFileAccess(link.fileId, user.email);
+    const hasAccess = await checkFileAccess(existingLink.fileId, user.email);
     if (!hasAccess) {
       return NextResponse.json({ error: 'Forbidden: You do not have access to this file' }, { status: 403 });
     }
+
+    const file = await prisma.file.findUnique({ where: { id: existingLink.fileId } });
 
     // deleteMany instead of delete: if the link was already removed by a
     // concurrent request (e.g. a double-clicked revoke) between the
@@ -181,6 +201,14 @@ export async function DELETE(request: Request) {
     await prisma.sharedLink.deleteMany({
       where: { id: sharedLinkId }
     });
+
+    await logAuditEvent(
+      file?.teamId ?? null,
+      user.email,
+      'share:revoke',
+      { fileId: existingLink.fileId, sharedLinkId },
+      getClientIp(request)
+    );
 
     return NextResponse.json({ success: true, message: 'Share link revoked successfully' });
   } catch (err: any) {

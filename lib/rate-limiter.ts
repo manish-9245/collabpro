@@ -3,6 +3,9 @@ import { getRedisClient } from './redis-cache'
 interface RateLimitEntry {
   count: number
   resetAt: number
+  // Tracks whether a caller has already been told (via `firstBlock` below)
+  // that this key tripped into the blocked state during the current window.
+  blockNoticeSent: boolean
 }
 
 const store = new Map<string, RateLimitEntry>()
@@ -81,25 +84,34 @@ export function getClientIp(request: Request): string {
  * In-process fallback, correct at exactly one replica. Used whenever Redis is
  * unset or unreachable so a single-instance deployment (or local dev) keeps
  * working exactly as before Redis-backing was added.
+ *
+ * `firstBlock` is true exactly once per window: on the request that causes
+ * this key to transition from allowed to blocked. Every subsequent request
+ * while still blocked returns `firstBlock: false`. This lets callers avoid
+ * writing one audit-log row per rejected attempt — an attacker hammering a
+ * blocked endpoint would otherwise turn the rate limiter, which exists to
+ * bound load during an attack, into an unbounded audit-log write amplifier.
  */
 function checkRateLimitInMemory(
   key: string,
   config: RateLimitConfig,
-): { allowed: boolean; remaining: number; resetAt: number } {
+): { allowed: boolean; remaining: number; resetAt: number; firstBlock: boolean } {
   const now = Date.now()
   const entry = store.get(key)
 
   if (!entry || entry.resetAt <= now) {
-    store.set(key, { count: 1, resetAt: now + config.windowMs })
-    return { allowed: true, remaining: config.maxAttempts - 1, resetAt: now + config.windowMs }
+    store.set(key, { count: 1, resetAt: now + config.windowMs, blockNoticeSent: false })
+    return { allowed: true, remaining: config.maxAttempts - 1, resetAt: now + config.windowMs, firstBlock: false }
   }
 
   if (entry.count >= config.maxAttempts) {
-    return { allowed: false, remaining: 0, resetAt: entry.resetAt }
+    const firstBlock = !entry.blockNoticeSent
+    entry.blockNoticeSent = true
+    return { allowed: false, remaining: 0, resetAt: entry.resetAt, firstBlock }
   }
 
   entry.count++
-  return { allowed: true, remaining: config.maxAttempts - entry.count, resetAt: entry.resetAt }
+  return { allowed: true, remaining: config.maxAttempts - entry.count, resetAt: entry.resetAt, firstBlock: false }
 }
 
 /**
@@ -141,7 +153,7 @@ async function checkRateLimitRedis(
   client: NonNullable<ReturnType<typeof getRedisClient>>,
   key: string,
   config: RateLimitConfig,
-): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
+): Promise<{ allowed: boolean; remaining: number; resetAt: number; firstBlock: boolean }> {
   const redisKey = `ratelimit:${key}`
   const [countRaw, ttlMsRaw] = await client.eval(
     RATE_LIMIT_SCRIPT,
@@ -153,18 +165,23 @@ async function checkRateLimitRedis(
   const count = Number(countRaw)
   const ttlMs = Number(ttlMsRaw)
   const resetAt = Date.now() + (ttlMs > 0 ? ttlMs : config.windowMs)
+  const allowed = count <= config.maxAttempts
 
   return {
-    allowed: count <= config.maxAttempts,
+    allowed,
     remaining: Math.max(0, config.maxAttempts - count),
     resetAt,
+    // The atomic INCR gives every request a unique, strictly increasing
+    // count for this key/window, so exactly one request ever observes
+    // count === maxAttempts + 1 - the one that crosses the threshold.
+    firstBlock: !allowed && count === config.maxAttempts + 1,
   }
 }
 
 export async function checkRateLimit(
   key: string,
   config: RateLimitConfig,
-): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
+): Promise<{ allowed: boolean; remaining: number; resetAt: number; firstBlock: boolean }> {
   // Only attempt Redis when it's actually configured. `getRedisClient()`
   // defaults to `redis://localhost:6379` when REDIS_URL is unset, so without
   // this guard every single call here would attempt-then-time-out a real

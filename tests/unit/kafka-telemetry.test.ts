@@ -1,7 +1,25 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { kafkaBroker } from '@/lib/kafka';
 import { GET as getTelemetryGET } from '@/app/api/admin/telemetry/route';
 import { NextRequest } from 'next/server';
+
+// Mock session auth so the route's admin gate can be exercised deterministically.
+const mockGetUser = vi.fn();
+vi.mock('@/lib/session-auth/server', () => ({
+  getServerSession: () => ({
+    getUser: mockGetUser,
+  }),
+}));
+
+// This route no longer touches prisma for authorization at all — admin
+// status is decided purely from the ADMIN_EMAILS env allowlist. Kept as an
+// empty mock so any accidental prisma usage fails loudly instead of hitting
+// a real database.
+let mockPgPool: any = null;
+vi.mock('@/lib/db', () => ({
+  prisma: {},
+  getPgPool: () => mockPgPool,
+}));
 
 describe('Apache Kafka Messaging & Super Admin Telemetry API', () => {
   beforeEach(() => {
@@ -58,17 +76,100 @@ describe('Apache Kafka Messaging & Super Admin Telemetry API', () => {
   });
 
   describe('Super Admin Telemetry REST API Endpoint', () => {
-    it('should return aggregated infrastructure and container health telemetry JSON', async () => {
+    const ORIGINAL_ADMIN_EMAILS = process.env.ADMIN_EMAILS;
+
+    beforeEach(() => {
+      mockGetUser.mockReset();
+      mockPgPool = null;
+      delete process.env.ADMIN_EMAILS;
+    });
+
+    afterEach(() => {
+      if (ORIGINAL_ADMIN_EMAILS === undefined) {
+        delete process.env.ADMIN_EMAILS;
+      } else {
+        process.env.ADMIN_EMAILS = ORIGINAL_ADMIN_EMAILS;
+      }
+    });
+
+    it('should return 401 when there is no authenticated session', async () => {
+      mockGetUser.mockResolvedValueOnce(null);
+
       const request = new NextRequest('http://localhost:3000/api/admin/telemetry');
       const response = await getTelemetryGET(request);
-      
+
+      expect(response.status).toBe(401);
+    });
+
+    it('should return 403 when authenticated but not on the ADMIN_EMAILS allowlist', async () => {
+      process.env.ADMIN_EMAILS = 'admin@collabpro.com';
+      mockGetUser.mockResolvedValueOnce({ id: 'user-1', email: 'nobody@collabpro.com', given_name: 'Nobody', picture: null });
+
+      const request = new NextRequest('http://localhost:3000/api/admin/telemetry');
+      const response = await getTelemetryGET(request);
+
+      expect(response.status).toBe(403);
+    });
+
+    it('should return 403 for a user who merely owns/created a team — team ownership is not admin status', async () => {
+      // This is the exact self-promotion path that was previously exploitable:
+      // any authenticated user can create a team via the normal app flow and
+      // become its `createdBy`. Owning a team must never be sufficient to
+      // reach global infrastructure telemetry.
+      process.env.ADMIN_EMAILS = 'someone-else@collabpro.com';
+      mockGetUser.mockResolvedValueOnce({ id: 'user-1', email: 'owner-of-a-team@collabpro.com', given_name: 'Owner', picture: null });
+
+      const request = new NextRequest('http://localhost:3000/api/admin/telemetry');
+      const response = await getTelemetryGET(request);
+
+      expect(response.status).toBe(403);
+    });
+
+    it('should return 403 when ADMIN_EMAILS is unset, even for an authenticated user', async () => {
+      // Absence of configuration must fail closed, not open.
+      mockGetUser.mockResolvedValueOnce({ id: 'user-1', email: 'anyone@collabpro.com', given_name: 'Anyone', picture: null });
+
+      const request = new NextRequest('http://localhost:3000/api/admin/telemetry');
+      const response = await getTelemetryGET(request);
+
+      expect(response.status).toBe(403);
+    });
+
+    it('should return 200 with real (non-fabricated) telemetry for a user on the ADMIN_EMAILS allowlist', async () => {
+      process.env.ADMIN_EMAILS = 'nobody@example.com, Owner@Collabpro.com ,another@example.com';
+      mockGetUser.mockResolvedValueOnce({ id: 'user-1', email: 'owner@collabpro.com', given_name: 'Owner', picture: null });
+
+      const request = new NextRequest('http://localhost:3000/api/admin/telemetry');
+      const response = await getTelemetryGET(request);
+
       expect(response.status).toBe(200);
       const json = await response.json();
-      
+
       expect(json.totalPublished).toBeDefined();
-      expect(json.cpuUsagePercent).toBeDefined();
-      expect(json.memoryUsageMB).toBeDefined();
       expect(json.systemUptimeSeconds).toBeDefined();
+      expect(json.memoryUsageMB).toBeTypeOf('number');
+      expect(json.memoryUsageMB).toBeGreaterThan(0);
+
+      // Previously fabricated fields must no longer be present.
+      expect(json.cpuUsagePercent).toBeUndefined();
+      expect(json.networkInBytes).toBeUndefined();
+      expect(json.networkOutBytes).toBeUndefined();
+    });
+
+    it('should return 200 and report real pg.Pool stats when a pool is available', async () => {
+      process.env.ADMIN_EMAILS = 'admin@collabpro.com';
+      mockGetUser.mockResolvedValueOnce({ id: 'user-2', email: 'admin@collabpro.com', given_name: 'Admin', picture: null });
+      mockPgPool = { totalCount: 12, idleCount: 5, waitingCount: 1 };
+
+      const request = new NextRequest('http://localhost:3000/api/admin/telemetry');
+      const response = await getTelemetryGET(request);
+
+      expect(response.status).toBe(200);
+      const json = await response.json();
+      expect(json.dbPoolActive).toBe(7);
+      expect(json.dbPoolIdle).toBe(5);
+      expect(json.dbPoolWaiting).toBe(1);
+      expect(json.cpuUsagePercent).toBeUndefined();
     });
   });
 });

@@ -58,5 +58,9 @@ dev.db
 /playwright-report/
 /test-results/
 
+# runtime-written local upload storage (LocalStorageService) - never commit
+# user/test-uploaded content, including from local e2e/unit test runs
+/public/uploads/
+
 # agent scratch directories
 /.kilo/
