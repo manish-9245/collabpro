@@ -90,6 +90,53 @@ describe('ws-server/mutations executeMutation (issue #172 remainder — await pr
   });
 });
 
+// files:createFile had no case in this switch at all - every "New File"
+// click made over an active WS connection hit the `default:` throw and
+// silently fell back to the HTTP path (see StateSyncWSClient.mutation's
+// catch-and-fallback), masking the failure behind extra latency and a
+// console warning instead of actually creating over WS like every other
+// mutation.
+describe('executeMutation files:createFile (bug: fell through to the unsupported-path default)', () => {
+  it('creates a file directly via prisma.file.create, mirroring the HTTP path', async () => {
+    const create = vi.fn().mockResolvedValue({
+      id: 'new-file-1',
+      fileName: 'Untitled',
+      teamId: 'team-1',
+      createdBy: 'user@test.com',
+      archive: false,
+      document: '',
+      whiteboard: '',
+      whiteboardText: '',
+      folder: null,
+    });
+    const prismaClient = { file: { create, findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() } };
+    const queueDbWrite = vi.fn();
+
+    const result = await executeMutation(prismaClient as any, queueDbWrite, 'files:createFile', {
+      fileName: 'Untitled',
+      teamId: 'team-1',
+      createdBy: 'user@test.com',
+    });
+
+    expect(create).toHaveBeenCalledWith({
+      data: {
+        fileName: 'Untitled',
+        teamId: 'team-1',
+        createdBy: 'user@test.com',
+        archive: false,
+        document: '',
+        whiteboard: '',
+        whiteboardText: '',
+        folder: null,
+      },
+    });
+    // Not routed through queueDbWrite - there's no existing fileId to key a
+    // durability record on before the create resolves.
+    expect(queueDbWrite).not.toHaveBeenCalled();
+    expect(result._id).toBe('new-file-1');
+  });
+});
+
 describe('runMutation (client sees success:false on save failure, issue #172 remainder)', () => {
   it('sends a mutation-result with success:false when the save rejects, not success:true', async () => {
     const failingExecute = vi.fn().mockRejectedValue(new Error('db write failed'));
