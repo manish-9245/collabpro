@@ -4,6 +4,7 @@ import { validateAndSanitizeWhiteboardElements } from '@/lib/canvas-validation';
 import { getCachedFile, invalidateCachedFile } from '@/lib/redis-cache';
 import { logAuditEvent } from '@/lib/audit';
 import { FileService, extractTextFromWhiteboard } from '@/lib/file-service';
+import { HttpError } from '@/lib/api-middleware';
 import {
   asJsonString,
   parseJsonIfString,
@@ -335,7 +336,7 @@ export async function handleFileService(path: string, args: any, authUserEmail: 
         });
 
         if (!file) {
-          throw new Error("File not found");
+          throw new HttpError(404, "File not found");
         }
 
         const currentDocString = file.document || asJsonString({ time: Date.now(), blocks: [], version: "2.8.1" });
@@ -412,7 +413,7 @@ export async function handleFileService(path: string, args: any, authUserEmail: 
         });
 
         if (!file) {
-          throw new Error("File not found");
+          throw new HttpError(404, "File not found");
         }
 
         const currentWhiteboardString = file.whiteboard || '[]';
@@ -516,7 +517,7 @@ export async function handleFileService(path: string, args: any, authUserEmail: 
         where: { id: fileId },
       });
       if (!file) {
-        throw new Error("File not found");
+        throw new HttpError(404, "File not found");
       }
 
       // Create the new checkpoint and prune old ones atomically so a file
