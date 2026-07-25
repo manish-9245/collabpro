@@ -149,4 +149,65 @@ describe('files:getFiles poll payload trimming and pagination (Issue 190)', () =
     expect(page.items.length).toBe(5);
     expect(page.nextCursor).toBeFalsy();
   });
+
+  it('clamps `take` to a documented maximum (100) instead of allowing an effectively unbounded page', async () => {
+    const fileData = Array.from({ length: 120 }, (_, i) => ({
+      id: `file-list-clamp-${i}`,
+      fileName: `Clamp File ${i}`,
+      teamId: 'team-filelist-test',
+      createdBy: 'owner@example.com',
+      document: '',
+      whiteboard: '',
+    }));
+    for (const data of fileData) {
+      await prisma.file.create({ data });
+    }
+
+    const req = new Request('http://localhost:3000/api/state-sync', {
+      method: 'POST',
+      body: JSON.stringify({
+        path: 'files:getFiles',
+        args: { teamId: 'team-filelist-test', take: 10_000 },
+      }),
+    });
+    const res = await POST(req);
+    const page = (await res.json()).data;
+
+    // A caller asking for 10,000 must not get all 120 in one call - the
+    // pagination clamp is meant to bound worst-case page size regardless of
+    // what a client requests.
+    expect(page.items.length).toBe(100);
+    expect(page.nextCursor).toBeTruthy();
+  });
+
+  it('a team with 51+ files still shows all of them via the dashboard\'s realistic take value, not just the first 50 (Issue: dashboard pagination regression)', async () => {
+    const fileData = Array.from({ length: 51 }, (_, i) => ({
+      id: `file-list-dashboard-${i}`,
+      fileName: `Dashboard File ${i}`,
+      teamId: 'team-filelist-test',
+      createdBy: 'owner@example.com',
+      document: '',
+      whiteboard: '',
+    }));
+    for (const data of fileData) {
+      await prisma.file.create({ data });
+    }
+
+    // This mirrors the `take` value the dashboard/sidebar components now
+    // pass explicitly (see FileList.tsx / SideNav.tsx / SideNavTopSection.tsx)
+    // — since files:getFiles is paginated with a default of 50, a UI call
+    // site that doesn't pass `take` at all would silently lose every file
+    // past the 50th with no error and no indication anything is missing.
+    const req = new Request('http://localhost:3000/api/state-sync', {
+      method: 'POST',
+      body: JSON.stringify({
+        path: 'files:getFiles',
+        args: { teamId: 'team-filelist-test', take: 100 },
+      }),
+    });
+    const res = await POST(req);
+    const page = (await res.json()).data;
+
+    expect(page.items.length).toBe(51);
+  });
 });

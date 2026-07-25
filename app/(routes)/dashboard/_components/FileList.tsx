@@ -101,7 +101,15 @@ function FileList() {
       const result = await sync.query(api.files.getFiles, {
         teamId: activeTeam._id as string,
         userEmail: user?.email,
-        scope: fileScope
+        scope: fileScope,
+        // files:getFiles is paginated (default 50, server-clamped max 100 -
+        // see fileService.ts). This dashboard view doesn't yet implement
+        // load-more/infinite-scroll, so request the server's max page size
+        // rather than the default: without this, any team with 51+ files
+        // would silently lose everything past the 50th with no error and
+        // no indication anything is missing. Teams with 100+ files will
+        // still need real "load more" pagination as a fast follow.
+        take: 100
       });
       // files:getFiles now returns { items, nextCursor } (Issue 190).
       setFileList_(result?.items ?? []);

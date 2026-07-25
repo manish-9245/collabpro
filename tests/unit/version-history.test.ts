@@ -292,6 +292,103 @@ describe('Workspace Version History Side-Drawer API Suite (Issue 8)', () => {
     expect(allVersions[allVersions.length - 1].version).toBe(51);
   }, 30_000);
 
+  it('must not leak another file\'s version content via cross-file IDOR (P0): fileId that passes authz paired with an unrelated file\'s versionId', async () => {
+    // File A: the attacker (user@example.com) legitimately has access to
+    // this one, via team-ver-test which they created.
+    const fileA = await prisma.file.create({
+      data: {
+        id: 'file-a-idor',
+        fileName: 'File A (accessible)',
+        teamId: 'team-ver-test',
+        createdBy: 'user@example.com',
+        document: '{"blocks":[]}',
+        whiteboard: '[]',
+      },
+    });
+
+    // File B: owned by a completely different, inaccessible team/user.
+    await prisma.team.create({
+      data: { id: 'team-b-idor', teamName: 'Other Team', createdBy: 'victim@example.com' },
+    });
+    const fileB = await prisma.file.create({
+      data: {
+        id: 'file-b-idor',
+        fileName: 'File B (secret, inaccessible)',
+        teamId: 'team-b-idor',
+        createdBy: 'victim@example.com',
+        document: '{"blocks":[{"type":"paragraph","data":{"text":"File B secret content the attacker must never see"}}]}',
+        whiteboard: '[{"id":"secret-shape"}]',
+      },
+    });
+    const versionB = await prisma.fileVersion.create({
+      data: {
+        fileId: fileB.id,
+        document: fileB.document,
+        whiteboard: fileB.whiteboard,
+        version: 1,
+        createdByName: 'Victim User',
+      },
+    });
+
+    // Attacker pairs File A's id (which passes the route-level authz check,
+    // since they do have access to File A) with File B's versionId (which
+    // they could enumerate/guess) to try to read File B's content.
+    const req = new Request('http://localhost:3000/api/state-sync', {
+      method: 'POST',
+      body: JSON.stringify({
+        path: 'files:getVersions',
+        args: { fileId: fileA.id, versionId: versionB.id },
+      }),
+    });
+    const res = await POST(req);
+    const body = await res.json();
+    const serialized = JSON.stringify(body);
+
+    expect(res.status).not.toBe(200);
+    expect(serialized).not.toContain('File B secret content');
+    expect(serialized).not.toContain('secret-shape');
+  });
+
+  it('does not produce duplicate version numbers when two files:createVersion calls race for the same file', async () => {
+    const file = await prisma.file.create({
+      data: {
+        id: 'file-ver-race',
+        fileName: 'Concurrency Race Document',
+        teamId: 'team-ver-test',
+        createdBy: 'user@example.com',
+        document: '{"blocks":[]}',
+        whiteboard: '[]',
+      },
+    });
+
+    const makeReq = (note: string) => new Request('http://localhost:3000/api/state-sync', {
+      method: 'POST',
+      body: JSON.stringify({
+        path: 'files:createVersion',
+        args: { fileId: file.id, createdByName: 'Test User', note },
+      }),
+    });
+
+    // Fire multiple concurrent checkpoint requests for the same file.
+    const CONCURRENT = 8;
+    const responses = await Promise.all(
+      Array.from({ length: CONCURRENT }, (_, i) => POST(makeReq(`race-${i}`)))
+    );
+    for (const res of responses) {
+      expect(res.status).toBe(200);
+    }
+
+    const versions = await prisma.fileVersion.findMany({
+      where: { fileId: file.id },
+      select: { version: true },
+    });
+
+    const versionNumbers = versions.map(v => v.version);
+    const uniqueVersionNumbers = new Set(versionNumbers);
+    expect(uniqueVersionNumbers.size).toBe(versionNumbers.length);
+    expect(versionNumbers.length).toBe(CONCURRENT);
+  }, 30_000);
+
   it('should successfully dispatch a state-sync:refetch event via triggerQueryRefetch for in-place SPA synchronization', () => {
     const firedEvents: any[] = [];
     

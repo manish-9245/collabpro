@@ -6,9 +6,13 @@
 -- previously backed by an index, so every check was a sequential scan.
 
 -- File: teamId is read on every files:getFiles / checkTeamAccess call;
--- createdBy is read on every personal-scope file listing.
+-- createdBy is read on every personal-scope file listing. The composite
+-- index matches files:getFiles' cursor pagination order (teamId filter,
+-- createdAt desc, id desc tiebreaker) so paginated listing is a real
+-- index-scan improvement, not just a smaller response.
 CREATE INDEX "File_teamId_idx" ON "File"("teamId");
 CREATE INDEX "File_createdBy_idx" ON "File"("createdBy");
+CREATE INDEX "File_teamId_createdAt_id_idx" ON "File"("teamId", "createdAt", "id");
 
 -- TeamMember: userEmail alone (not just the (teamId, userEmail) composite
 -- covered by the existing unique index) is queried directly in
@@ -23,7 +27,12 @@ CREATE INDEX "FilePresence_fileId_lastSeenAt_idx" ON "FilePresence"("fileId", "l
 CREATE INDEX "Notification_userEmail_createdAt_idx" ON "Notification"("userEmail", "createdAt");
 
 -- FileVersion: version history lookups filter by fileId ordered by version.
-CREATE INDEX "FileVersion_fileId_version_idx" ON "FileVersion"("fileId", "version");
+-- UNIQUE (not just indexed): two concurrent files:createVersion calls for the
+-- same file can both compute the same "next version number" under
+-- read-committed isolation. This constraint turns that race into a
+-- retryable unique-violation (handled in fileService.ts) instead of
+-- silently allowing duplicate version numbers.
+CREATE UNIQUE INDEX "FileVersion_fileId_version_key" ON "FileVersion"("fileId", "version");
 
 -- Team: createdBy is read on every checkTeamAccess call and org-scope team
 -- discovery (files:getFiles with scope=org).

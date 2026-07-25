@@ -75,6 +75,7 @@ model File {
 
   @@index([teamId])
   @@index([createdBy])
+  @@index([teamId, createdAt, id])
 }
 
 model TeamMember {
@@ -105,7 +106,12 @@ model FileVersion {
   createdAt      DateTime @default(now())
   file           File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
 
-  @@index([fileId, version])
+  // Unique (not just indexed): two concurrent files:createVersion calls for
+  // the same file can both compute the same "next version number" under
+  // read-committed isolation. This constraint turns that race into a
+  // retryable unique-violation instead of silently allowing duplicate
+  // version numbers (Issue 200 follow-up / cubic review).
+  @@unique([fileId, version])
 }
 
 model FilePresence {

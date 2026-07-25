@@ -46,7 +46,12 @@ function SideNav() {
     const result=await sync.query(api.files.getFiles,{
       teamId:activeTeam?._id,
       userEmail:user?.email,
-      scope:fileScope
+      scope:fileScope,
+      // Server-clamped max page size (see fileService.ts) - this sidebar
+      // count/list doesn't implement load-more yet, so without an explicit
+      // `take` a team with 51+ files would silently lose everything past
+      // the default page of 50.
+      take: 100
     });
     // files:getFiles now returns { items, nextCursor } (Issue 190).
     const items = result?.items ?? [];
