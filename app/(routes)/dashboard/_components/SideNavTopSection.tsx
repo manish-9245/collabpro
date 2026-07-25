@@ -88,11 +88,17 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
     const [sidebarMoveInput, setSidebarMoveInput] = useState('');
     const [sidebarFileToMove, setSidebarFileToMove] = useState<any>(null);
 
-    // Use state-sync engine real-time reactive query for sidebar files
-    const sidebarFiles = useQuery(
-        api.files.getFiles, 
-        activeTeam?._id ? { teamId: activeTeam._id as string } : 'skip' as any
-    ) || [];
+    // Use state-sync engine real-time reactive query for sidebar files.
+    // files:getFiles now returns { items, nextCursor } (Issue 190).
+    // `take: 100` requests the server-clamped max page size (see
+    // fileService.ts) - the folder/file tree below doesn't implement
+    // load-more yet, so without this a team with 51+ files would silently
+    // lose everything past the default page of 50.
+    const sidebarFilesPage = useQuery(
+        api.files.getFiles,
+        activeTeam?._id ? { teamId: activeTeam._id as string, take: 100 } : 'skip' as any
+    );
+    const sidebarFiles = sidebarFilesPage?.items ?? [];
 
     const updateFileName = useMutation(api.files.updateFileName);
     const deleteFile = useMutation(api.files.deleteFile);
@@ -209,9 +215,12 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
             const result = await sync.query(api.files.getFiles, {
                 teamId: activeTeam._id as string,
                 userEmail: user?.email,
-                scope: fileScope
+                scope: fileScope,
+                // See the sidebarFilesPage query above for why this is explicit.
+                take: 100
             });
-            setFileList_(result);
+            // files:getFiles now returns { items, nextCursor } (Issue 190).
+            setFileList_(result?.items ?? []);
         }
     };
 

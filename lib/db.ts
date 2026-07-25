@@ -6,6 +6,30 @@ const globalForPrisma = globalThis as unknown as { prisma: PrismaClient; pool: P
 
 let prismaInstance: PrismaClient | null = null;
 
+// Module-level reference to the live pg Pool, kept in sync regardless of
+// NODE_ENV, so consumers (e.g. telemetry endpoints) can read real pool
+// stats in production too. Not part of the dev-only globalForPrisma cache.
+let pgPool: Pool | null = null;
+
+/**
+ * Formats a DATABASE_URL for logging without ever leaking credentials.
+ * Only the hostname, port, and pathname (database name) are surfaced.
+ * Exported for unit testing.
+ */
+export function formatConnectionLogLine(connectionString: string | undefined): string {
+  if (!connectionString) return "[db.ts] DATABASE_URL not set";
+  try {
+    const u = new URL(connectionString);
+    return `[db.ts] Connecting to ${u.hostname}:${u.port}${u.pathname}`;
+  } catch {
+    return "[db.ts] DATABASE_URL set (unparsable format)";
+  }
+}
+
+export function getPgPool(): Pool | null {
+  return pgPool;
+}
+
 function getPrismaInstance(): PrismaClient {
   if (prismaInstance) {
     return prismaInstance;
@@ -13,7 +37,7 @@ function getPrismaInstance(): PrismaClient {
 
   console.log("[db.ts] Initializing PrismaClient lazily...");
   let connectionString = process.env.DATABASE_URL;
-  console.log("[db.ts] Original DATABASE_URL:", connectionString ? connectionString.substring(0, 50) + "..." : "undefined");
+  console.log(formatConnectionLogLine(connectionString));
 
   if (connectionString && connectionString.startsWith('prisma+postgres://')) {
     try {
@@ -28,7 +52,7 @@ function getPrismaInstance(): PrismaClient {
         }
       }
     } catch (e) {
-      console.error("[db.ts] Error parsing prisma+postgres connection string:", e);
+      console.error("[db.ts] Error parsing prisma+postgres connection string: invalid or unparsable api_key payload");
     }
   }
 
@@ -42,33 +66,20 @@ function getPrismaInstance(): PrismaClient {
     if (globalForPrisma.prisma && globalForPrisma.pool) {
       console.log("[db.ts] Reusing existing global PostgreSQL PrismaClient instance");
       prismaInstance = globalForPrisma.prisma;
+      pgPool = globalForPrisma.pool;
     } else {
       console.log("[db.ts] Creating a new PostgreSQL Pool and PrismaClient...");
       try {
-        let pooledUrl = connectionString || "";
-        try {
-          const url = new URL(pooledUrl);
-          if (!url.searchParams.has('pgbouncer')) {
-            url.searchParams.set('pgbouncer', 'true');
-          }
-          if (!url.searchParams.has('connection_limit')) {
-            url.searchParams.set('connection_limit', '50');
-          }
-          pooledUrl = url.toString();
-        } catch (e) {
-          // Fallback to original string if not a parseable URL
-        }
-
         const pool = new Pool({
-          connectionString: pooledUrl,
-          max: 50,
+          connectionString,
+          max: Number(process.env.DB_POOL_MAX ?? 10),
           idleTimeoutMillis: 30000,
           connectionTimeoutMillis: 5000,
           maxUses: 10000,
         });
 
         pool.on('error', (err) => {
-          console.error("[db.ts] Unexpected error on idle client or pool:", err);
+          console.error("[db.ts] Unexpected error on idle client or pool:", err instanceof Error ? err.message : String(err));
           if (process.env.NODE_ENV !== "production") {
             console.log("[db.ts] Clearing stale global PrismaClient and Pool instances...");
             globalForPrisma.prisma = undefined as any;
@@ -79,37 +90,20 @@ function getPrismaInstance(): PrismaClient {
 
         const adapter = new PrismaPg(pool);
         prismaInstance = new PrismaClient({ adapter });
+        pgPool = pool;
 
         if (process.env.NODE_ENV !== "production") {
           globalForPrisma.prisma = prismaInstance;
           globalForPrisma.pool = pool;
         }
-        console.log("[db.ts] PostgreSQL PrismaClient with pgBouncer pooling created successfully");
+        console.log("[db.ts] PostgreSQL PrismaClient created successfully");
       } catch (err) {
-        console.error("[db.ts] Error constructing PostgreSQL PrismaClient with adapter:", err);
+        console.error("[db.ts] Error constructing PostgreSQL PrismaClient with adapter:", err instanceof Error ? err.message : String(err));
         throw err;
       }
     }
   } else {
-    if (globalForPrisma.prisma) {
-      console.log("[db.ts] Reusing existing global database-agnostic PrismaClient instance");
-      prismaInstance = globalForPrisma.prisma;
-    } else {
-      console.log("[db.ts] Connection string is non-PostgreSQL. Instantiating standard database-agnostic PrismaClient using better-sqlite3 adapter...");
-      try {
-        const { PrismaBetterSqlite3 } = require("@prisma/adapter-better-sqlite3");
-        const adapter = new PrismaBetterSqlite3({ url: connectionString || "file:./dev.db" });
-        prismaInstance = new PrismaClient({ adapter });
-
-        if (process.env.NODE_ENV !== "production") {
-          globalForPrisma.prisma = prismaInstance;
-        }
-        console.log("[db.ts] Database-agnostic PrismaClient created successfully using better-sqlite3 driver adapter");
-      } catch (err) {
-        console.error("[db.ts] Error constructing database-agnostic PrismaClient with better-sqlite3:", err);
-        throw err;
-      }
-    }
+    throw new Error("[db.ts] DATABASE_URL must be a PostgreSQL connection string (postgresql://, postgres://, or prisma+postgres://). SQLite is no longer supported.");
   }
 
   return prismaInstance;
