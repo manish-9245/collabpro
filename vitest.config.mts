@@ -18,12 +18,20 @@ export default defineConfig({
       reporter: ['text', 'lcov', 'html'],
       include: ['app/**', 'components/**', 'lib/**'],
       exclude: [
-        'app/api/**', // Exclude serverless API endpoints
         'node_modules/**',
         '**/*.d.ts',
         '**/*.config.*',
         'tests/**',
       ],
+      // Floor set just below the measured baseline (see PR description for the
+      // before/after numbers) so coverage of app/api/** — where authorization
+      // checks live — can't silently regress now that it's actually measured.
+      thresholds: {
+        lines: 16,
+        functions: 11,
+        branches: 13,
+        statements: 16,
+      },
     },
   },
 });
