@@ -13,22 +13,7 @@ import { handleOrgService } from './services/orgService';
 import { handleNotificationService } from './services/notificationService';
 import { handleSnykService } from './services/snykService';
 import { handleSonarcloudService } from './services/sonarcloudService';
-
-async function checkFileAccess(fileId: string, email: string): Promise<boolean> {
-  if (!fileId) return false;
-  const file = await prisma.file.findUnique({
-    where: { id: fileId }
-  });
-  if (!file) return false;
-  if (file.createdBy === email) return true;
-  const teamMember = await prisma.teamMember.findFirst({
-    where: {
-      teamId: file.teamId,
-      userEmail: email
-    }
-  });
-  return !!teamMember;
-}
+import { checkFileAccess } from '@/lib/file-access';
 
 async function checkTeamAccess(teamId: string, email: string): Promise<boolean> {
   if (!teamId) return false;
