@@ -29,18 +29,26 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Share link not found' }, { status: 404 });
     }
 
-    // Rate limit: the primary bucket is keyed on the link's own (now
-    // DB-confirmed) id, so an attacker cannot reset their budget against a
-    // specific link by simply claiming a different x-forwarded-for value on
-    // each request. A secondary, more generous per-IP ceiling — same
-    // pairing pattern as LOGIN/LOGIN_PER_IP in the login route — catches a
-    // single source spraying attempts across many different links; IP alone
-    // is never the sole gate since it is client-spoofable.
+    // Rate limit, two gates that must both pass. Neither a link-only key nor
+    // an IP-only key is sufficient alone: IP-only is trivially bypassed by
+    // rotating x-forwarded-for (spoofable), while link-only lets one bad
+    // actor's (or one fat-fingering visitor's) failed attempts lock out
+    // every *other* legitimate visitor of that same public link for the
+    // whole window.
+    //
+    // - Primary: per-(link, ip) compound bucket. Bounds attempts from one
+    //   apparent source against one link. Rotating IP resets only the
+    //   rotating attacker's own fresh bucket — it never touches other
+    //   visitors' ability to verify against the same link.
+    // - Secondary: per-link-only ceiling, deliberately much more generous.
+    //   A backstop against a genuinely distributed brute force (many IPs
+    //   against one link), set high enough that a handful of legitimate
+    //   visitors occasionally mistyping never trips it.
     const ip = getClientIp(request);
-    const linkLimit = checkRateLimit(`share-verify:link:${link.id}`, LIMITS.SHARE_VERIFY);
-    const ipLimit = checkRateLimit(`share-verify:ip:${ip}`, LIMITS.SHARE_VERIFY_PER_IP);
-    if (!linkLimit.allowed || !ipLimit.allowed) {
-      const resetAt = Math.max(linkLimit.resetAt, ipLimit.resetAt);
+    const linkIpLimit = checkRateLimit(`share-verify:${link.id}:${ip}`, LIMITS.SHARE_VERIFY);
+    const linkOnlyLimit = checkRateLimit(`share-verify:link-total:${link.id}`, LIMITS.SHARE_VERIFY_PER_LINK);
+    if (!linkIpLimit.allowed || !linkOnlyLimit.allowed) {
+      const resetAt = Math.max(linkIpLimit.resetAt, linkOnlyLimit.resetAt);
       return NextResponse.json(
         { error: 'Too many attempts. Please try again later.' },
         {

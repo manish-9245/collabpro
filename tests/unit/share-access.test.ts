@@ -698,7 +698,38 @@ describe('Rate Limit Key Construction (Issue 184 follow-up)', () => {
     mockGetUser.mockResolvedValue(null);
   });
 
-  it('cannot be bypassed by rotating the client-supplied IP for a fixed sharedLinkId', async () => {
+  it('does not let one attacker exhausting bad-password attempts against a link block a different visitor from verifying with the correct password on that same link', async () => {
+    const correctHash = await bcrypt.hash('correct-pw', 10);
+    mockSharedLinkFindUnique.mockResolvedValue({
+      id: 'link-shared',
+      fileId: 'file-1',
+      role: 'viewer',
+      passwordHash: correctHash,
+      expiresAt: null,
+      isActive: true,
+    });
+
+    const attackerReq = () => new Request('http://localhost/api/share/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '203.0.113.9' },
+      body: JSON.stringify({ sharedLinkId: 'link-shared', password: 'wrong-pass' }),
+    });
+    // Attacker exhausts the per-(link, ip) bucket for their own IP.
+    for (let i = 0; i < 10; i++) {
+      await verifyPOST(attackerReq());
+    }
+
+    // A different visitor, different IP, correct password, same link.
+    const victimReq = new Request('http://localhost/api/share/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '198.51.100.42' },
+      body: JSON.stringify({ sharedLinkId: 'link-shared', password: 'correct-pw' }),
+    });
+    const victimRes = await verifyPOST(victimReq);
+    expect(victimRes.status).toBe(200);
+  });
+
+  it('cannot be bypassed by rotating the client-supplied IP for a fixed sharedLinkId — the per-link ceiling still catches a distributed attempt', async () => {
     mockSharedLinkFindUnique.mockResolvedValue({
       id: 'link-ip-rotate',
       fileId: 'file-1',
@@ -714,9 +745,11 @@ describe('Rate Limit Key Construction (Issue 184 follow-up)', () => {
       body: JSON.stringify({ sharedLinkId: 'link-ip-rotate', password: 'wrong-pass' }),
     });
 
+    // Rotating IP defeats the per-(link, ip) bucket (each new IP gets a
+    // fresh one), but the per-link-only ceiling (60/15min) still bounds the
+    // total across all of them.
     let lastRes;
-    for (let i = 0; i < 11; i++) {
-      // A fresh, attacker-chosen IP on every single request.
+    for (let i = 0; i < 61; i++) {
       lastRes = await verifyPOST(makeReq(`203.0.113.${i}`));
     }
 
