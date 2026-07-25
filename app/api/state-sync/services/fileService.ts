@@ -10,96 +10,107 @@ import {
   asWhiteboardElements,
   mergeDocumentBlocks,
   mergeWhiteboardById,
+  mergeWhiteboardPayloads,
   ConflictStrategy,
 } from './helpers';
-import * as Y from 'yjs';
 
-function mergeWhiteboardPayloads(currentStr: string, incomingStr: string): string {
-  try {
-    const currentParsed = parseJsonIfString(currentStr);
-    const incomingParsed = parseJsonIfString(incomingStr);
+const CAS_MAX_ATTEMPTS = 5;
 
-    if (currentParsed && typeof currentParsed === 'object' && (currentParsed as any).yjs && (currentParsed as any).data && 
-        incomingParsed && typeof incomingParsed === 'object' && (incomingParsed as any).yjs && (incomingParsed as any).data) {
-      const currentUpdate = Buffer.from((currentParsed as any).data, 'base64');
-      const incomingUpdate = Buffer.from((incomingParsed as any).data, 'base64');
-      const mergedUpdate = Y.mergeUpdates([new Uint8Array(currentUpdate), new Uint8Array(incomingUpdate)]);
-      const base64 = Buffer.from(mergedUpdate).toString('base64');
-      return JSON.stringify({
-        yjs: true,
-        data: base64
-      });
+/**
+ * Compare-and-swap document write (issue #197 partial).
+ *
+ * Previously `files:updateDocument` seeded a module-level debounce map from a
+ * `findUnique` read, then merged further writes into that in-memory entry
+ * before a single delayed flush. That's correct at exactly one process, and
+ * even then has a race: two concurrent requests can both read the current row
+ * BEFORE either seeds the debounce map, so both merge from the same stale
+ * base and the later flush silently discards the earlier request's changes.
+ *
+ * This mirrors the CAS pattern already used correctly by
+ * `collabpro_update_document`: read, merge, `updateMany` gated on the
+ * document still matching what was read, retry against the fresh value on
+ * conflict. Correct under any number of concurrent writers or replicas, with
+ * no shared mutable state.
+ */
+async function casUpdateDocument(targetFileId: string, incomingDocument: unknown): Promise<any> {
+  const normalizedIncoming = asEditorDocument(incomingDocument);
+
+  for (let attempt = 0; attempt < CAS_MAX_ATTEMPTS; attempt++) {
+    const file = await prisma.file.findUnique({
+      where: { id: targetFileId },
+      select: { document: true }
+    });
+    const currentDocString = file?.document || asJsonString({ time: Date.now(), blocks: [], version: "2.8.1" });
+    const currentDoc = asEditorDocument(currentDocString);
+    const nextDoc = mergeDocumentBlocks(currentDoc, normalizedIncoming);
+    const nextDocString = asJsonString(nextDoc);
+
+    const updated = await prisma.file.updateMany({
+      where: { id: targetFileId, document: currentDocString },
+      data: { document: nextDocString }
+    });
+
+    if (updated.count === 1) {
+      await invalidateCachedFile(targetFileId);
+      return nextDoc;
     }
-  } catch (e) {
-    // Fallback to elements-based merge
+    // Someone else wrote first — retry with the fresh value.
   }
 
-  try {
-    const currentElements = asWhiteboardElements(currentStr || '[]');
-    const incomingElements = asWhiteboardElements(incomingStr);
-    const mergedElements = mergeWhiteboardById(currentElements, incomingElements);
-    return JSON.stringify(mergedElements);
-  } catch (e) {
-    return incomingStr;
-  }
+  throw new Error("Unable to update document due to concurrent updates. Please retry.");
 }
 
-interface DebounceEntry {
-  timer: NodeJS.Timeout | null;
-  mergedData: any;
-  resolves: ((val: any) => void)[];
-  rejects: ((err: any) => void)[];
-}
+/**
+ * Compare-and-swap whiteboard write (issue #197 partial) — same rationale as
+ * `casUpdateDocument` above, applied to whiteboard elements/deltas.
+ */
+async function casUpdateWhiteboard(targetFileId: string, incomingWhiteboard: unknown): Promise<any> {
+  for (let attempt = 0; attempt < CAS_MAX_ATTEMPTS; attempt++) {
+    const file = await prisma.file.findUnique({
+      where: { id: targetFileId },
+      select: { whiteboard: true }
+    });
+    const currentWhiteboardString = file?.whiteboard || '[]';
 
-const debouncedWrites = new Map<string, DebounceEntry>();
+    let nextWhiteboardString: string;
+    try {
+      const parsedIncoming = parseJsonIfString(incomingWhiteboard);
+      if (parsedIncoming && typeof parsedIncoming === 'object' && (parsedIncoming as any).isDelta) {
+        const delta = parsedIncoming as any;
+        const updated = Array.isArray(delta.updated) ? delta.updated : [];
+        const deleted = Array.isArray(delta.deleted) ? delta.deleted : [];
 
-async function debounceWrite(
-  key: string,
-  data: any,
-  mergeFn: (curr: any, inc: any) => any,
-  writeFn: (finalData: any) => Promise<any>,
-  delay = 50,
-  initialValue: any = null
-): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const existing = debouncedWrites.get(key);
-    if (existing) {
-      if (existing.timer) clearTimeout(existing.timer);
-      existing.mergedData = mergeFn(existing.mergedData, data);
-      existing.resolves.push(resolve);
-      existing.rejects.push(reject);
-      
-      existing.timer = setTimeout(async () => {
-        debouncedWrites.delete(key);
-        try {
-          const result = await writeFn(existing.mergedData);
-          existing.resolves.forEach(res => res(result));
-        } catch (err) {
-          existing.rejects.forEach(rej => rej(err));
-        }
-      }, delay);
-    } else {
-      const seededData = initialValue !== null ? mergeFn(initialValue, data) : data;
-      const entry: DebounceEntry = {
-        timer: null,
-        mergedData: seededData,
-        resolves: [resolve],
-        rejects: [reject]
-      };
-      
-      entry.timer = setTimeout(async () => {
-        debouncedWrites.delete(key);
-        try {
-          const result = await writeFn(entry.mergedData);
-          entry.resolves.forEach(res => res(result));
-        } catch (err) {
-          entry.rejects.forEach(rej => rej(err));
-        }
-      }, delay);
-      
-      debouncedWrites.set(key, entry);
+        const currentElements = asWhiteboardElements(currentWhiteboardString || '[]');
+        const currentMap = new Map<string, any>();
+        currentElements.forEach((el: any) => { if (el && el.id) currentMap.set(el.id, el); });
+
+        deleted.forEach((id: string) => { currentMap.delete(id); });
+        updated.forEach((el: any) => { if (el && el.id) currentMap.set(el.id, el); });
+
+        nextWhiteboardString = JSON.stringify(Array.from(currentMap.values()));
+      } else {
+        nextWhiteboardString = mergeWhiteboardPayloads(currentWhiteboardString || '[]', incomingWhiteboard as string);
+      }
+    } catch {
+      nextWhiteboardString = incomingWhiteboard as string;
     }
-  });
+
+    const updatedCount = await prisma.file.updateMany({
+      where: { id: targetFileId, whiteboard: currentWhiteboardString },
+      data: {
+        whiteboard: nextWhiteboardString,
+        whiteboardText: extractTextFromWhiteboard(nextWhiteboardString),
+      }
+    });
+
+    if (updatedCount.count === 1) {
+      await invalidateCachedFile(targetFileId);
+      return nextWhiteboardString;
+    }
+    // Someone else wrote first — retry with the fresh value.
+  }
+
+  throw new Error("Unable to update whiteboard due to concurrent updates. Please retry.");
 }
 
 export async function handleFileService(path: string, args: any, authUserEmail: string | null, ipAddress: string): Promise<any> {
@@ -191,21 +202,7 @@ export async function handleFileService(path: string, args: any, authUserEmail: 
       const targetFileId = _id || fileId || id;
       if (!targetFileId) throw new Error("Missing file id. Pass `_id`, `fileId`, or `id`.");
 
-      const file = await prisma.file.findUnique({
-        where: { id: targetFileId },
-        select: { document: true }
-      });
-      const currentDocStr = file ? file.document : '';
-
-      result = await debounceWrite(`doc:${targetFileId}`, document, (curr, inc) => {
-        try {
-          return JSON.stringify(mergeDocumentBlocks(asEditorDocument(curr || '{"blocks":[]}'), asEditorDocument(inc)));
-        } catch {
-          return inc;
-        }
-      }, async (finalDoc) => {
-        return FileService.updateFile(targetFileId, { document: finalDoc });
-      }, 50, currentDocStr);
+      result = await casUpdateDocument(targetFileId, document);
       break;
     }
     case 'files:updateWhiteboard': {
@@ -213,37 +210,7 @@ export async function handleFileService(path: string, args: any, authUserEmail: 
       const targetFileId = _id || fileId || id;
       if (!targetFileId) throw new Error("Missing file id. Pass `_id`, `fileId`, or `id`.");
 
-      const file = await prisma.file.findUnique({
-        where: { id: targetFileId },
-        select: { whiteboard: true }
-      });
-      const currentWhiteboardStr = file ? file.whiteboard : '[]';
-
-      result = await debounceWrite(`whiteboard:${targetFileId}`, whiteboard, (curr, inc) => {
-        try {
-          const parsedIncoming = parseJsonIfString(inc);
-          if (parsedIncoming && typeof parsedIncoming === 'object' && (parsedIncoming as any).isDelta) {
-            const delta = parsedIncoming as any;
-            const updated = Array.isArray(delta.updated) ? delta.updated : [];
-            const deleted = Array.isArray(delta.deleted) ? delta.deleted : [];
-
-            const currentElements = asWhiteboardElements(curr || '[]');
-            const currentMap = new Map<string, any>();
-            currentElements.forEach((el: any) => { if (el && el.id) currentMap.set(el.id, el); });
-            
-            deleted.forEach((id: string) => { currentMap.delete(id); });
-            updated.forEach((el: any) => { if (el && el.id) currentMap.set(el.id, el); });
-
-            return JSON.stringify(Array.from(currentMap.values()));
-          } else {
-            return mergeWhiteboardPayloads(curr || '[]', inc);
-          }
-        } catch (e) {
-          return inc;
-        }
-      }, async (finalWhiteboard) => {
-        return FileService.updateFile(targetFileId, { whiteboard: finalWhiteboard });
-      }, 50, currentWhiteboardStr);
+      result = await casUpdateWhiteboard(targetFileId, whiteboard);
       break;
     }
     case 'collabpro_update_document': {

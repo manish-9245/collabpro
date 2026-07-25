@@ -16,7 +16,7 @@ import ImageTool from '@editorjs/image';
 import { api, useMutation } from '@/lib/state-sync/react';
 import { toast } from 'sonner';
 import { FILE } from '../../dashboard/_components/FileList';
-import { encodeCrdtState, decodeCrdtState } from '@/lib/crdt';
+import { encodeState, decodeState } from '@/lib/state-encode';
 import { Sparkles } from 'lucide-react';
 import ImageEditorModal from './ImageEditorModal';
 
@@ -352,7 +352,7 @@ function Editor({
                 return;
             }
             
-            const serverDoc = decodeCrdtState(fileData.document, rawDocument);
+            const serverDoc = decodeState(fileData.document, rawDocument);
             
             // Only overwrite if we are not currently typing or waiting on a debounced save
             if (saveTimeoutRef.current === null && !saveTimeoutRef.current) {
@@ -436,7 +436,7 @@ function Editor({
                 }).catch(() => {
                     isProgrammaticUpdateRef.current = false;
                 });
-                lastSavedDataRef.current = encodeCrdtState(prevState);
+                lastSavedDataRef.current = encodeState(prevState);
                 if (onHistoryChange) {
                     onHistoryChange(historyIndexRef.current > 0, true);
                 }
@@ -463,7 +463,7 @@ function Editor({
                 }).catch(() => {
                     isProgrammaticUpdateRef.current = false;
                 });
-                lastSavedDataRef.current = encodeCrdtState(nextState);
+                lastSavedDataRef.current = encodeState(nextState);
                 if (onHistoryChange) {
                     onHistoryChange(true, historyIndexRef.current < historyRef.current.length - 1);
                 }
@@ -476,7 +476,7 @@ function Editor({
 
     const saveHistoryStateToDb = (stateStr: string) => {
         setSavingStatus('saving');
-        const crdtStr = encodeCrdtState(JSON.parse(stateStr));
+        const crdtStr = encodeState(JSON.parse(stateStr));
         lastSavedDataRef.current = crdtStr;
         updateDocument({
             _id: fileId,
@@ -490,10 +490,10 @@ function Editor({
     };
 
     const initEditor=()=>{
-        const decodedDoc = fileData?.document ? decodeCrdtState(fileData.document, rawDocument) : rawDocument;
+        const decodedDoc = fileData?.document ? decodeState(fileData.document, rawDocument) : rawDocument;
         const initialDocStr = JSON.stringify(decodedDoc);
         
-        lastSavedDataRef.current = fileData?.document || encodeCrdtState(decodedDoc);
+        lastSavedDataRef.current = fileData?.document || encodeState(decodedDoc);
         
         // Setup initial history
         historyRef.current = [initialDocStr];
@@ -559,7 +559,7 @@ function Editor({
         setSavingStatus('saving');
         ref.current.save().then((outputData) => {
           const rawDocStr = JSON.stringify(outputData);
-          const crdtStr = encodeCrdtState(outputData);
+          const crdtStr = encodeState(outputData);
           lastSavedDataRef.current = crdtStr;
 
           // Maintain the undo/redo history stack (stores raw standard JSON string)
@@ -624,7 +624,7 @@ function Editor({
             
             isProgrammaticUpdateRef.current = true;
             ref.current?.render(newOutputData).then(() => {
-                const crdtStr = encodeCrdtState(newOutputData);
+                const crdtStr = encodeState(newOutputData);
                 lastSavedDataRef.current = crdtStr;
                 
                 updateDocument({
