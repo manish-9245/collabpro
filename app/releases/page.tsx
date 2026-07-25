@@ -1,94 +1,11 @@
 import React from "react";
-import fs from "fs";
-import path from "path";
 import Link from "next/link";
 import { ArrowLeft, Milestone, Calendar, Sparkles, ShieldCheck, Gauge, CheckCircle2, Layers, Cpu, ArrowUpRight, ChevronRight, HelpCircle } from "lucide-react";
 import Header from "../_components/Header";
-
-interface ChangelogSection {
-  type: string;
-  items: string[];
-}
-
-interface ChangelogRelease {
-  version: string;
-  date: string;
-  title?: string;
-  description?: string;
-  sections: ChangelogSection[];
-}
-
-// Resilient server-side markdown parser for CHANGELOG.md
-function parseChangelog(content: string): ChangelogRelease[] {
-  const releases: ChangelogRelease[] = [];
-  const rawSections = content.split(/\n##\s+/);
-
-  // Skip the header part before the first release
-  for (let i = 1; i < rawSections.length; i++) {
-    const rawRelease = rawSections[i];
-    const lines = rawRelease.split("\n");
-    const headerLine = lines[0].trim();
-
-    // Parse version and date, e.g. "[3.0.0] - 2026-07-07"
-    const match = headerLine.match(/\[(.*?)\]\s*-\s*(.*)/);
-    if (!match) continue;
-
-    const version = match[1];
-    const date = match[2];
-
-    const release: ChangelogRelease = {
-      version,
-      date,
-      sections: [],
-    };
-
-    let currentSection: ChangelogSection | null = null;
-    let descriptionLines: string[] = [];
-
-    for (let j = 1; j < lines.length; j++) {
-      const line = lines[j].trim();
-      if (!line) continue;
-
-      if (line.startsWith("### ")) {
-        // New subsection (e.g., User Impact: New Capabilities)
-        const type = line.replace("### ", "").trim();
-        currentSection = { type, items: [] };
-        release.sections.push(currentSection);
-      } else if (line.startsWith("- ")) {
-        // List item inside a subsection
-        if (currentSection) {
-          // Remove Markdown bold markers internally if any
-          const cleanItem = line.replace("- ", "").replace(/\*\*/g, "").trim();
-          currentSection.items.push(cleanItem);
-        }
-      } else {
-        // Description text or title (if before any "###" section)
-        if (release.sections.length === 0) {
-          descriptionLines.push(line);
-        }
-      }
-    }
-
-    if (descriptionLines.length > 0) {
-      release.description = descriptionLines.join(" ");
-    }
-
-    releases.push(release);
-  }
-
-  return releases;
-}
+import { loadChangelog } from "@/lib/release-notes";
 
 export default function ReleasesPage() {
-  let releases: ChangelogRelease[] = [];
-
-  try {
-    const filePath = path.join(process.cwd(), "CHANGELOG.md");
-    const changelogContent = fs.readFileSync(filePath, "utf8");
-    releases = parseChangelog(changelogContent);
-  } catch (error) {
-    console.error("Error loading CHANGELOG.md:", error);
-  }
+  const releases = loadChangelog();
 
   return (
     <div className="bg-[#f8fafc] min-h-screen relative overflow-hidden font-sans">

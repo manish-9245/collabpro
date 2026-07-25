@@ -47,8 +47,14 @@ const mockApiKeyDelete = vi.fn();
 const mockSharedLinkCreate = vi.fn();
 const mockSharedLinkUpdate = vi.fn();
 const mockSharedLinkDelete = vi.fn();
+const mockSharedLinkDeleteMany = vi.fn();
 const mockSharedLinkFindUnique = vi.fn();
 const mockFileFindUnique = vi.fn();
+const mockCheckFileAccess = vi.fn();
+
+vi.mock('@/lib/file-access', () => ({
+  checkFileAccess: (...args: any[]) => mockCheckFileAccess(...args),
+}));
 
 vi.mock('@/lib/db', () => ({
   prisma: {
@@ -68,6 +74,7 @@ vi.mock('@/lib/db', () => ({
       create: (...args: any[]) => mockSharedLinkCreate(...args),
       update: (...args: any[]) => mockSharedLinkUpdate(...args),
       delete: (...args: any[]) => mockSharedLinkDelete(...args),
+      deleteMany: (...args: any[]) => mockSharedLinkDeleteMany(...args),
       findUnique: (...args: any[]) => mockSharedLinkFindUnique(...args),
     },
     file: {
@@ -86,6 +93,9 @@ describe('Audit logging for authentication events (Issue 176)', () => {
     cookiesMock = {};
     currentSessionUser = null;
     vi.clearAllMocks();
+    // Share routes now gate on checkFileAccess (PR #204); default to allowed
+    // so existing scenarios don't need to opt in individually.
+    mockCheckFileAccess.mockResolvedValue(true);
   });
 
   describe('POST /api/auth/login', () => {
@@ -413,6 +423,7 @@ describe('Audit logging for authentication events (Issue 176)', () => {
 
     it('logs share:role-change when updating the role of an existing link', async () => {
       currentSessionUser = { email: 'shareuser-176@collabpro.com' };
+      mockSharedLinkFindUnique.mockResolvedValueOnce({ id: 'link-176', fileId: 'file-176', role: 'viewer', isActive: true });
       mockFileFindUnique.mockResolvedValueOnce({ id: 'file-176', teamId: 'team-abc-176' });
       mockSharedLinkUpdate.mockResolvedValueOnce({ id: 'link-176', fileId: 'file-176', role: 'editor', isActive: true });
 
@@ -437,6 +448,7 @@ describe('Audit logging for authentication events (Issue 176)', () => {
       // record must reflect the real link/file/team being changed, not
       // whatever fileId happened to be in the body.
       currentSessionUser = { email: 'shareuser-176@collabpro.com' };
+      mockSharedLinkFindUnique.mockResolvedValueOnce({ id: 'link-176', fileId: 'file-REAL-176', role: 'viewer', isActive: true });
       mockSharedLinkUpdate.mockResolvedValueOnce({ id: 'link-176', fileId: 'file-REAL-176', role: 'editor', isActive: true });
       mockFileFindUnique.mockImplementation((args: any) => {
         if (args.where.id === 'file-REAL-176') {
@@ -468,7 +480,7 @@ describe('Audit logging for authentication events (Issue 176)', () => {
       currentSessionUser = { email: 'shareuser-176@collabpro.com' };
       mockSharedLinkFindUnique.mockResolvedValueOnce({ id: 'link-176', fileId: 'file-176' });
       mockFileFindUnique.mockResolvedValueOnce({ id: 'file-176', teamId: 'team-abc-176' });
-      mockSharedLinkDelete.mockResolvedValueOnce({});
+      mockSharedLinkDeleteMany.mockResolvedValueOnce({ count: 1 });
 
       const req = new Request('http://localhost/api/share?sharedLinkId=link-176', {
         method: 'DELETE',

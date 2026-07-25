@@ -44,6 +44,23 @@ export const LIMITS = {
   // users mistyping passwords, while still capping credential stuffing.
   LOGIN_PER_IP: { windowMs: 15 * 60 * 1000, maxAttempts: 30 },
   REGISTER_PER_IP: { windowMs: 60 * 60 * 1000, maxAttempts: 10 },
+  // Share-link password verification: unauthenticated by design, and unlike
+  // LOGIN there is no "account" to key on — only a link (public, shared by
+  // definition) and a claimed IP (spoofable). Neither alone is sufficient:
+  // keying only on IP is trivially bypassed by rotating x-forwarded-for;
+  // keying only on the link lets one attacker's (or one fat-fingering
+  // visitor's) failed attempts lock out every *other* legitimate visitor of
+  // that same link for the whole window. So two gates apply together:
+  // - SHARE_VERIFY: primary, keyed on (link, ip) — bounds attempts from one
+  //   apparent source against one link. Rotating IP resets only the
+  //   rotating attacker's own fresh bucket; it doesn't touch other
+  //   visitors' ability to verify against the same link.
+  // - SHARE_VERIFY_PER_LINK: secondary, keyed on the link alone, deliberately
+  //   much more generous — a backstop against a genuinely distributed
+  //   brute force (many IPs against one link), set high enough that a
+  //   handful of legitimate visitors occasionally mistyping never trips it.
+  SHARE_VERIFY: { windowMs: 15 * 60 * 1000, maxAttempts: 10 },
+  SHARE_VERIFY_PER_LINK: { windowMs: 15 * 60 * 1000, maxAttempts: 60 },
 }
 
 /**
