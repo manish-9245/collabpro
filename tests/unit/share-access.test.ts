@@ -17,6 +17,7 @@ const mockSharedLinkDeleteMany = vi.fn();
 
 const mockFileFindUnique = vi.fn();
 const mockFileUpdate = vi.fn();
+const mockFileUpdateMany = vi.fn();
 
 const mockTeamMemberFindFirst = vi.fn();
 
@@ -34,6 +35,9 @@ vi.mock('@/lib/db', () => ({
     file: {
       findUnique: (...args: any[]) => mockFileFindUnique(...args),
       update: (...args: any[]) => mockFileUpdate(...args),
+      // files:updateDocument / files:updateWhiteboard write via a
+      // compare-and-swap prisma.file.updateMany (issue #197 partial).
+      updateMany: (...args: any[]) => mockFileUpdateMany(...args),
     },
     teamMember: {
       findFirst: (...args: any[]) => mockTeamMemberFindFirst(...args),
@@ -214,11 +218,14 @@ describe('Link Sharing Access Controls & Guest Privileges (Issue 58)', () => {
         isActive: true,
       });
 
-      // Stub document update prisma resolution
-      mockFileUpdate.mockResolvedValueOnce({
+      // casUpdateDocument reads the file first (to build the CAS predicate
+      // from its exact raw current value) before writing it.
+      mockFileFindUnique.mockResolvedValueOnce({
         id: 'file-123',
         document: '{"blocks":[]}',
       });
+      // Stub the compare-and-swap document update prisma resolution
+      mockFileUpdateMany.mockResolvedValueOnce({ count: 1 });
 
       const req = new Request('http://localhost/api/state-sync', {
         method: 'POST',

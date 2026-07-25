@@ -1,14 +1,15 @@
 import { prisma } from './db';
 import { getCachedFile, invalidateCachedFile } from './redis-cache';
-import { decodeCrdtState } from './crdt';
+import { decodeState } from './state-encode';
 
 /**
- * Extracts indexable search string terms from CRDT encoded whiteboard canvases
+ * Extracts indexable search string terms from whiteboard canvases (plain JSON;
+ * transparently reads legacy pre-#188 Yjs-wrapped rows too via decodeState).
  */
 export function extractTextFromWhiteboard(whiteboard: string | null | undefined): string {
   if (!whiteboard) return "";
   try {
-    const decoded = decodeCrdtState(whiteboard, []);
+    const decoded = decodeState(whiteboard, []);
     let elements: any[] = [];
     if (Array.isArray(decoded)) {
       elements = decoded;

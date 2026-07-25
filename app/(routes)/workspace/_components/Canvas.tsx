@@ -3,7 +3,7 @@ import { Excalidraw, MainMenu, WelcomeScreen } from "@excalidraw/excalidraw";
 import "@excalidraw/excalidraw/index.css";
 import { FILE } from '../../dashboard/_components/FileList';
 import { api, useMutation, useQuery, wsClient } from '@/lib/state-sync/react';
-import { encodeCrdtState, decodeCrdtState } from '@/lib/crdt';
+import { encodeState, decodeState } from '@/lib/state-encode';
 import { buildIconNode } from './CanvasAssetBuilder';
 import { Sparkles, Cloud, Search, Loader2, ChevronLeft, ChevronRight, Plus, Trash2, Upload, BookOpen, Link, Check, Download, Info, Globe } from 'lucide-react';
 import { toast } from 'sonner';
@@ -728,7 +728,7 @@ function Canvas({
                 return;
             }
             
-            const decodedState = decodeCrdtState(fileData.whiteboard, []);
+            const decodedState = decodeState(fileData.whiteboard, []);
             let serverElements = [];
             let serverFiles: any = {};
             if (Array.isArray(decodedState)) {
@@ -815,7 +815,7 @@ function Canvas({
             elements: whiteBoardData || [],
             files: filesObj
         };
-        const crdtStr = encodeCrdtState(stateToSave);
+        const crdtStr = encodeState(stateToSave);
         lastSavedDataRef.current = crdtStr;
         updateWhiteboard({
             _id:fileId,
@@ -936,7 +936,7 @@ function Canvas({
             elements: excalidrawElements,
             files: filesObj
         };
-        const currentCrdtStr = encodeCrdtState(stateToSave);
+        const currentCrdtStr = encodeState(stateToSave);
         // Avoid auto-saving if elements didn't change (e.g. on simple pan/zoom view changes)
         if (currentCrdtStr === lastSavedDataRef.current || !excalidrawElements || excalidrawElements.length === 0) {
             return;
@@ -1500,7 +1500,7 @@ function Canvas({
     const getInitialCanvasData = () => {
         if (!fileData?.whiteboard) return { elements: [] };
         try {
-            const decoded = decodeCrdtState(fileData.whiteboard, []);
+            const decoded = decodeState(fileData.whiteboard, []);
             if (Array.isArray(decoded)) {
                 return { elements: decoded };
             } else if (decoded && typeof decoded === 'object') {

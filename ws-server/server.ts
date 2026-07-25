@@ -4,124 +4,36 @@ import { prisma } from '../lib/db';
 import { verifyToken } from '../lib/session-auth/jwt';
 import Redis from 'ioredis';
 import amqplib from 'amqplib';
-import * as Y from 'yjs';
-
-// GrahakAI WebSocket Performance Sync Helpers
-function parseJsonIfString(value: any): any {
-  if (typeof value !== 'string') return value;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return value;
-  }
-}
-
-function asEditorDocument(value: any): any {
-  const parsed = parseJsonIfString(value);
-  if (parsed && typeof parsed === 'object' && Array.isArray(parsed.blocks)) {
-    return parsed;
-  }
-
-  if (typeof parsed === 'string') {
-    const text = parsed.trim();
-    return {
-      time: Date.now(),
-      version: "2.8.1",
-      blocks: text ? [
-        {
-          id: String(Math.random()),
-          type: 'paragraph',
-          data: { text }
-        }
-      ] : []
-    };
-  }
-
-  throw new Error("Invalid document payload.");
-}
-
-function asWhiteboardElements(value: any): any[] {
-  const parsed = parseJsonIfString(value);
-  if (Array.isArray(parsed)) return parsed;
-  if (parsed && typeof parsed === 'object' && Array.isArray(parsed.elements)) {
-    return parsed.elements;
-  }
-  return [];
-}
-
-function mergeDocumentBlocks(currentDoc: any, incomingDoc: any): any {
-  const currentBlocks = Array.isArray(currentDoc.blocks) ? currentDoc.blocks : [];
-  const incomingBlocks = Array.isArray(incomingDoc.blocks) ? incomingDoc.blocks : [];
-  return {
-    ...currentDoc,
-    ...incomingDoc,
-    time: Date.now(),
-    blocks: [
-      ...currentBlocks,
-      ...incomingBlocks.map((block: any) =>
-        block && typeof block === 'object' && block.id ? block : { ...block, id: String(Math.random()) }
-      )
-    ]
-  };
-}
-
-function mergeWhiteboardById(currentElements: any[], incomingElements: any[]): any[] {
-  const merged = new Map<string, any>();
-  const ordered: string[] = [];
-
-  for (const element of currentElements) {
-    if (!element || typeof element !== 'object') continue;
-    const key = typeof element.id === 'string' && element.id.length > 0 ? element.id : String(Math.random());
-    if (!merged.has(key)) ordered.push(key);
-    merged.set(key, element);
-  }
-
-  for (const element of incomingElements) {
-    if (!element || typeof element !== 'object') continue;
-    const key = typeof element.id === 'string' && element.id.length > 0 ? element.id : String(Math.random());
-    if (!merged.has(key)) ordered.push(key);
-    merged.set(key, element);
-  }
-
-  return ordered.map((key) => merged.get(key)).filter(Boolean);
-}
-
-function mergeWhiteboardPayloads(currentStr: string, incomingStr: string): string {
-  try {
-    const currentParsed = parseJsonIfString(currentStr);
-    const incomingParsed = parseJsonIfString(incomingStr);
-
-    if (currentParsed && typeof currentParsed === 'object' && currentParsed.yjs && currentParsed.data && 
-        incomingParsed && typeof incomingParsed === 'object' && incomingParsed.yjs && incomingParsed.data) {
-      const currentUpdate = Buffer.from(currentParsed.data, 'base64');
-      const incomingUpdate = Buffer.from(incomingParsed.data, 'base64');
-      const mergedUpdate = Y.mergeUpdates([new Uint8Array(currentUpdate), new Uint8Array(incomingUpdate)]);
-      const base64 = Buffer.from(mergedUpdate).toString('base64');
-      return JSON.stringify({
-        yjs: true,
-        data: base64
-      });
-    }
-  } catch (e) {
-    console.error("Yjs merge failed in mergeWhiteboardPayloads:", e);
-  }
-
-  try {
-    const currentElements = asWhiteboardElements(currentStr || '[]');
-    const incomingElements = asWhiteboardElements(incomingStr);
-    const mergedElements = mergeWhiteboardById(currentElements, incomingElements);
-    return JSON.stringify(mergedElements);
-  } catch (e) {
-    return incomingStr;
-  }
-}
+import { hasFileAccess as checkFileAccessDb, checkMutationAuth as checkMutationAuthDb } from './file-access';
+import { FileAccessCache } from './access-cache';
+import {
+  selectSubscribedConnections,
+  selectRecipientsForRedisMessage,
+  deliverToConnections,
+  isSelfOriginatedMessage,
+} from './collab-broadcast';
+import {
+  executeQuery as wsExecuteQuery,
+  executeMutation as wsExecuteMutation,
+  fetchQueryUpdatePayload,
+  runMutation,
+} from './mutations';
+import { queueDbWrite as sharedQueueDbWrite } from './queue-db-write';
 
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : (process.env.WS_PORT ? parseInt(process.env.WS_PORT, 10) : 3001);
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://localhost:5672';
 
+// Issue found in review (Group 5 #2): a unique id for this process/replica,
+// stamped onto every Redis publish so the Redis-consume path can recognize
+// (and skip) a message this same replica already delivered locally — Redis
+// pub/sub otherwise echoes a publish back to the publisher's own
+// subscription, causing local subscribers to receive it twice.
+const REPLICA_ID = crypto.randomUUID();
+
 interface ClientConnection {
+  id: string;
   ws: WebSocket;
   user: {
     id: string;
@@ -132,6 +44,19 @@ interface ClientConnection {
   joinedRooms: Set<string>;
   subscriptions: Map<string, { path: string; args: any }>;
   isAlive: boolean;
+  // Issue #198: per-connection file-access decision cache (short TTL),
+  // populated on `join`, consulted by the `cursor` and mutation handlers so
+  // steady-state cursor traffic never hits the database.
+  accessCache: FileAccessCache;
+}
+
+async function hasFileAccess(connection: ClientConnection, fileId: string, email: string): Promise<boolean> {
+  const cached = connection.accessCache.get(connection.id, fileId);
+  if (cached !== undefined) return cached;
+
+  const allowed = await checkFileAccessDb(prisma, fileId, email);
+  connection.accessCache.set(connection.id, fileId, allowed);
+  return allowed;
 }
 
 const activeConnections = new Set<ClientConnection>();
@@ -188,13 +113,23 @@ try {
     if (channel === 'collabpro:channel:canvas') {
       try {
         const parsed = JSON.parse(messageStr);
-        const { type, fileId, senderEmail, payload } = parsed;
 
-        activeConnections.forEach((conn) => {
-          if (conn.user.id !== senderEmail && conn.joinedRooms.has(fileId)) {
-            conn.ws.send(JSON.stringify(payload));
-          }
-        });
+        // Issue found in review (Group 5 #2): skip a message this exact
+        // replica published itself — it was already delivered to local
+        // connections directly, and Redis pub/sub otherwise echoes the
+        // publish back through this replica's own subscription, causing
+        // double delivery.
+        if (isSelfOriginatedMessage(parsed, REPLICA_ID)) return;
+
+        const { fileId, senderEmail, payload } = parsed;
+
+        // Issue #197 (partial): route through the same recipient-selection
+        // logic the local same-process broadcast uses, so a `query-update`
+        // received from another replica only reaches connections actually
+        // subscribed to that query (not every connection merely joined to
+        // the room, which is still correct for cursor/other payload types).
+        const recipients = selectRecipientsForRedisMessage(activeConnections, { fileId, senderEmail, payload });
+        deliverToConnections(recipients, payload);
       } catch (err: any) {
         console.error("Redis message handler failed:", err);
       }
@@ -222,63 +157,36 @@ async function initRabbitMQ() {
     await mqChannel.assertQueue(QUEUE_NAME, { durable: true });
     console.log('🐇 [RabbitMQ] Connected to message broker successfully.');
 
-    // Consumer to process queue items (GrahakAI Concurrent Merging & Delta boundary)
+    // Consumer for this queue. `queueDbWrite` below performs the
+    // authoritative write synchronously and awaits it BEFORE this message
+    // is ever published — by the time a message reaches here, the write it
+    // describes has already committed. This consumer does not persist or
+    // replay anything (see the bug this avoids, below) — it only drains the
+    // queue and logs receipt so messages don't pile up unacked. It is NOT
+    // an audit trail: nothing here is queryable or retained. If a real
+    // audit/durability record of these writes is needed later, that
+    // requires actually persisting `payload` somewhere (a table, a log
+    // shipper, etc.) — not this queue, which #170 already tracks as
+    // largely-unused infrastructure to reconsider.
+    //
+    // Bug found in review (round 2, Group 1): this used to re-apply `value`
+    // via casUpdateDocument/casUpdateWhiteboard. That looks idempotent but
+    // isn't: the CAS predicate only checks "does the row's CURRENT raw value
+    // match what I just read", not "is my payload actually the newest
+    // version" — so a message that sits in the queue (broker restart,
+    // redelivery, slow consumer) and gets processed after one or more
+    // *newer* direct writes already landed would still pass that predicate
+    // (current == what this replay just read) and overwrite the newer
+    // content with this stale `value`. Never re-applying the write here
+    // removes that class of bug entirely.
     mqChannel.consume(QUEUE_NAME, async (msg: any) => {
       if (msg !== null) {
         try {
           const payload = JSON.parse(msg.content.toString());
-          const { fileId, type, value } = payload;
-          
-          const file = await prisma.file.findUnique({
-            where: { id: fileId },
-            select: { id: true, document: true, whiteboard: true }
-          });
-          
-          let nextValue = value;
-          if (file) {
-            if (type === 'document') {
-              try {
-                const currentDoc = asEditorDocument(file.document || '{"blocks":[]}');
-                const incomingDoc = asEditorDocument(value);
-                nextValue = JSON.stringify(mergeDocumentBlocks(currentDoc, incomingDoc));
-              } catch (e) {
-                console.error("RabbitMQ doc merge failed, using direct:", e);
-              }
-            } else if (type === 'whiteboard') {
-              try {
-                const parsedIncoming = typeof value === 'string' ? JSON.parse(value) : value;
-                if (parsedIncoming && parsedIncoming.isDelta) {
-                  const currentElements = asWhiteboardElements(file.whiteboard || '[]');
-                  const currentMap = new Map();
-                  currentElements.forEach((el) => { if (el && el.id) currentMap.set(el.id, el); });
-                  
-                  if (Array.isArray(parsedIncoming.deleted)) {
-                    parsedIncoming.deleted.forEach((id: string) => { currentMap.delete(id); });
-                  }
-                  if (Array.isArray(parsedIncoming.updated)) {
-                    parsedIncoming.updated.forEach((el: any) => { if (el && el.id) currentMap.set(el.id, el); });
-                  }
-                  nextValue = JSON.stringify(Array.from(currentMap.values()));
-                } else {
-                  nextValue = mergeWhiteboardPayloads(file.whiteboard || '[]', value);
-                }
-              } catch (e) {
-                console.error("RabbitMQ whiteboard merge failed, using direct:", e);
-              }
-            }
-          }
-
-          const updateData: any = {};
-          updateData[type] = nextValue;
-          
-          await prisma.file.update({
-            where: { id: fileId },
-            data: updateData,
-          });
-          console.log(`💾 [RabbitMQ DB Commit] Durable update flushed to DB for file: ${fileId}`);
+          console.log(`💾 [RabbitMQ] Drained record for file: ${payload.fileId} (${payload.type}) — write already committed synchronously, not persisted here.`);
           mqChannel?.ack(msg);
         } catch (err: any) {
-          console.error(`❌ [RabbitMQ DB Commit Error] Failed flushing updates:`, err.message);
+          console.error(`❌ [RabbitMQ] Failed to parse queued record:`, err.message);
           mqChannel?.nack(msg, false, false); // Do not requeue on fatal error
         }
       }
@@ -320,19 +228,14 @@ async function markMutationProcessed(mutationId: string): Promise<void> {
   }
 }
 
-async function queueDbWrite(fileId: string, type: 'document' | 'whiteboard' | 'fileName', value: string, executeSave: () => Promise<any>): Promise<any> {
-  if (mqChannel) {
-    try {
-      const payload = { fileId, type, value, timestamp: Date.now() };
-      mqChannel.sendToQueue(QUEUE_NAME, Buffer.from(JSON.stringify(payload)), {
-        persistent: true
-      });
-      return;
-    } catch (err) {
-      console.warn('[RabbitMQ Queue Error] Failed to publish message, direct save will handle the write:', err);
-    }
-  }
-  return await executeSave();
+// Issue found in review round 2 (Group 1 — regression against #172):
+// previously defined inline here, resolving as soon as a message was handed
+// to RabbitMQ rather than once the DB write actually completed, so the
+// client could be told "saved" before the write was even attempted. Now
+// delegates to the shared, unit-tested `./queue-db-write.ts`, which always
+// executes and awaits the authoritative save first.
+function queueDbWrite(fileId: string, type: 'document' | 'whiteboard' | 'fileName', value: string, executeSave: () => Promise<any>): Promise<any> {
+  return sharedQueueDbWrite(mqChannel, QUEUE_NAME, fileId, type, value, executeSave);
 }
 
 const server = createServer((req, res) => {
@@ -381,61 +284,11 @@ function authenticateRequest(req: any): any {
   return null;
 }
 
-async function hasFileAccess(fileId: string, email: string): Promise<boolean> {
-  if (!fileId || !email) return false;
-  try {
-    const file = await prisma.file.findUnique({
-      where: { id: fileId }
-    });
-    if (!file) return false;
-    if (file.createdBy === email) return true;
-    
-    const teamMember = await prisma.teamMember.findFirst({
-      where: {
-        teamId: file.teamId,
-        userEmail: email
-      }
-    });
-    return !!teamMember;
-  } catch (error) {
-    console.error(`[WS AUTH CHECK ERROR] Failed to check access:`, error);
-    return false;
-  }
-}
-
-async function checkMutationAuth(fileId: string, email: string): Promise<{ allowed: boolean; error?: string }> {
-  const hasAccess = await hasFileAccess(fileId, email);
-  if (!hasAccess) {
-    return { allowed: false, error: 'Forbidden: You do not have access to this file' };
-  }
-
-  try {
-    const file = await prisma.file.findUnique({
-      where: { id: fileId },
-      select: { createdBy: true, teamId: true }
-    });
-    if (!file) return { allowed: false, error: 'File not found' };
-
-    if (file.createdBy === email) return { allowed: true };
-
-    const teamMember = await prisma.teamMember.findFirst({
-      where: { teamId: file.teamId, userEmail: email },
-      select: { role: true }
-    });
-
-    if (teamMember) {
-      if (teamMember.role === 'viewer') {
-        return { allowed: false, error: 'Forbidden: Viewers cannot modify files' };
-      }
-      return { allowed: true };
-    }
-
-    return { allowed: true };
-  } catch (error) {
-    console.error(`[WS MUTATION AUTH ERROR] Failed to check mutation auth:`, error);
-    return { allowed: false, error: 'Internal auth check error' };
-  }
-}
+// checkMutationAuth (imported from ./file-access) deliberately does NOT go
+// through `connection.accessCache` — see the doc comment on it. Mutation
+// authorization always re-checks the database fresh; only cursor traffic
+// (via `hasFileAccess` above) is allowed to trade a short staleness window
+// for not hitting the DB on every message (issue found in review, Group 5 #1).
 
 server.on('upgrade', (request, socket, head) => {
   console.log('[WS HANDSHAKE] Upgrade request received...');
@@ -457,11 +310,13 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
   console.log(`[WS CONNECTED] User connected: ${user.name} (${user.email})`);
 
   const connection: ClientConnection = {
+    id: crypto.randomUUID(),
     ws,
     user,
     joinedRooms: new Set<string>(),
     subscriptions: new Map<string, { path: string; args: any }>(),
     isAlive: true,
+    accessCache: new FileAccessCache(),
   };
 
   activeConnections.add(connection);
@@ -479,7 +334,7 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
         case 'join': {
           const { fileId } = message;
           if (fileId) {
-            const hasAccess = await hasFileAccess(fileId, user.email);
+            const hasAccess = await hasFileAccess(connection, fileId, user.email);
             if (!hasAccess) {
               console.warn(`[WS ROOM SECURITY REJECT] User ${user.id} attempted unauthorized join to: ${fileId}`);
               ws.send(JSON.stringify({ type: 'error', message: 'Forbidden: You do not have access to this room' }));
@@ -495,7 +350,7 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
         case 'cursor': {
           const { fileId, x, y, name, color, isCanvas } = message;
           if (fileId) {
-            const hasAccess = await hasFileAccess(fileId, user.email);
+            const hasAccess = await hasFileAccess(connection, fileId, user.email);
             if (!hasAccess) {
               break;
             }
@@ -524,6 +379,7 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
                 type: 'cursor',
                 fileId,
                 senderEmail: user.id,
+                originId: REPLICA_ID,
                 payload: cursorPayload
               })).catch((err) => { console.error("Redis cursor publish failed:", err); });
             }
@@ -545,7 +401,7 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
           const { path, args } = message;
           if (path === 'files:getFileById') {
             const fileId = args?._id || args?.fileId;
-            const hasAccess = await hasFileAccess(fileId, user.email);
+            const hasAccess = await hasFileAccess(connection, fileId, user.email);
             if (!hasAccess) {
               console.warn(`[WS SUB SECURITY REJECT] User ${user.id} attempted unauthorized subscription to: ${fileId}`);
               ws.send(JSON.stringify({ type: 'error', message: 'Forbidden: You do not have access to this subscription' }));
@@ -583,7 +439,7 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
               ws.send(JSON.stringify({ type: 'mutation-result', path, success: true, data: { skipped: true } }));
               break;
             }
-            const auth = await checkMutationAuth(targetId, user.email);
+            const auth = await checkMutationAuthDb(prisma as any, targetId, user.email);
             if (!auth.allowed) {
               console.warn(`[WS MUTATION SECURITY REJECT] User ${user.id} attempted unauthorized mutation "${path}" on: ${targetId}: ${auth.error}`);
               ws.send(JSON.stringify({ type: 'error', message: auth.error }));
@@ -592,37 +448,51 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
           }
           console.log(`[WS MUTATION] Executing mutation "${path}" for fileId "${fileId}"`);
 
-          try {
-            const result = await executeMutation(path, args);
-            if (mutationId) {
-              await markMutationProcessed(mutationId);
-            }
-            ws.send(JSON.stringify({ type: 'mutation-result', path, success: true, data: result }));
+          // Issue #172 remainder: routed through runMutation() so a
+          // rejection from the (now properly awaited) queueDbWrite call
+          // inside executeMutation reaches the client as
+          // `{ success: false }` instead of being reported as success
+          // regardless.
+          const resultMessage = await runMutation(executeMutation, path, args);
+          ws.send(JSON.stringify(resultMessage));
 
-            const targetRoom = fileId || args?._id || args?.fileId;
-            if (targetRoom) {
-              // 1. Broadcast locally
-              await broadcastQueryUpdateToRoom(targetRoom, 'files:getFileById');
+          if (!resultMessage.success) {
+            console.error(`[WS MUTATION ERROR] Mutation "${path}" failed:`, resultMessage.error);
+            break;
+          }
 
-              // 2. Publish to Redis for cluster updates
-              if (pubClient && isRedisAvailable) {
-                const updatedData = await executeQuery('files:getFileById', { _id: targetRoom });
-                pubClient.publish('collabpro:channel:canvas', JSON.stringify({
-                  type: 'mutation-update',
-                  fileId: targetRoom,
-                  senderEmail: user.id,
-                  payload: {
-                    type: 'query-update',
-                    path: 'files:getFileById',
-                    args: { _id: targetRoom },
-                    data: updatedData,
-                  }
-                })).catch((err) => { console.error("Redis mutation publish failed:", err); });
-              }
+          if (mutationId) {
+            await markMutationProcessed(mutationId);
+          }
+
+          const targetRoom = fileId || args?._id || args?.fileId;
+          if (targetRoom) {
+            // Issue #198 / #197 (partial): read the file exactly ONCE and
+            // reuse it for both the local broadcast and the Redis publish
+            // (previously fetched separately for each), and route the local
+            // delivery through the same subscription-matching selector used
+            // for cross-replica messages received over Redis, so both paths
+            // agree on who gets the update.
+            const { payload: queryUpdatePayload } = await fetchQueryUpdatePayload(prisma, targetRoom);
+
+            const localRecipients = selectSubscribedConnections(
+              activeConnections,
+              targetRoom,
+              'files:getFileById',
+              { _id: targetRoom }
+            );
+            const recipientCount = deliverToConnections(localRecipients, queryUpdatePayload);
+            console.log(`[WS BROADCAST] Pushed query update "files:getFileById" for room "${targetRoom}" to ${recipientCount} subscribers.`);
+
+            if (pubClient && isRedisAvailable) {
+              pubClient.publish('collabpro:channel:canvas', JSON.stringify({
+                type: 'mutation-update',
+                fileId: targetRoom,
+                senderEmail: user.id,
+                originId: REPLICA_ID,
+                payload: queryUpdatePayload,
+              })).catch((err) => { console.error("Redis mutation publish failed:", err); });
             }
-          } catch (err: any) {
-            console.error(`[WS MUTATION ERROR] Mutation failed:`, err);
-            ws.send(JSON.stringify({ type: 'mutation-result', path, success: false, error: err.message }));
           }
           break;
         }
@@ -664,159 +534,13 @@ wss.on('close', () => {
   clearInterval(heartbeatInterval);
 });
 
-async function executeQuery(path: string, args: any): Promise<any> {
-  try {
-    switch (path) {
-      case 'files:getFileById': {
-        const { _id } = args || {};
-
-        const file = await prisma.file.findUnique({
-          where: { id: _id },
-        });
-
-        return mapConvexIds(file);
-      }
-      default:
-        console.warn(`[WS QUERY] No specific optimization for query path: ${path}`);
-        return null;
-    }
-  } catch (err) {
-    console.error(`[WS QUERY ERROR] Failed executing ${path}:`, err);
-    return null;
-  }
-}
-
-async function executeMutation(path: string, args: any): Promise<any> {
-  switch (path) {
-    case 'files:updateDocument': {
-      const { _id, document } = args || {};
-
-      await queueDbWrite(_id, 'document', document, async () => {
-        const file = await prisma.file.findUnique({
-          where: { id: _id },
-          select: { document: true }
-        });
-        let nextValue = document;
-        if (file) {
-          try {
-            const currentDoc = asEditorDocument(file.document || '{"blocks":[]}');
-            const incomingDoc = asEditorDocument(document);
-            nextValue = JSON.stringify(mergeDocumentBlocks(currentDoc, incomingDoc));
-          } catch (e) {
-            console.error("Document merge failed in executeMutation:", e);
-          }
-        }
-        return prisma.file.update({
-          where: { id: _id },
-          data: { document: nextValue },
-        });
-      });
-
-      return { id: _id, document, _id };
-    }
-    case 'files:updateWhiteboard': {
-      const { _id, whiteboard } = args || {};
-
-      await queueDbWrite(_id, 'whiteboard', whiteboard, async () => {
-        const file = await prisma.file.findUnique({
-          where: { id: _id },
-          select: { whiteboard: true }
-        });
-        let nextValue = whiteboard;
-        if (file) {
-          try {
-            const parsedIncoming = typeof whiteboard === 'string' ? JSON.parse(whiteboard) : whiteboard;
-            if (parsedIncoming && parsedIncoming.isDelta) {
-              const currentElements = asWhiteboardElements(file.whiteboard || '[]');
-              const currentMap = new Map<string, any>();
-              currentElements.forEach((el: any) => { if (el && el.id) currentMap.set(el.id, el); });
-              
-              if (Array.isArray(parsedIncoming.deleted)) {
-                parsedIncoming.deleted.forEach((id: string) => { currentMap.delete(id); });
-              }
-              if (Array.isArray(parsedIncoming.updated)) {
-                parsedIncoming.updated.forEach((el: any) => { if (el && el.id) currentMap.set(el.id, el); });
-              }
-              nextValue = JSON.stringify(Array.from(currentMap.values()));
-            } else {
-              nextValue = mergeWhiteboardPayloads(file.whiteboard || '[]', whiteboard);
-            }
-          } catch (e) {
-            console.error("Whiteboard merge failed in executeMutation:", e);
-          }
-        }
-        return prisma.file.update({
-          where: { id: _id },
-          data: { whiteboard: nextValue },
-        });
-      });
-
-      return { id: _id, whiteboard, _id };
-    }
-    case 'files:updateFileName': {
-      const { _id, fileName } = args || {};
-
-      await queueDbWrite(_id, 'fileName', fileName, async () => {
-        return prisma.file.update({
-          where: { id: _id },
-          data: { fileName },
-        });
-      });
-
-      return { id: _id, fileName, _id };
-    }
-    default:
-      throw new Error(`Unsupported or unoptimized mutation over WebSocket: ${path}`);
-  }
-}
-
-async function broadcastQueryUpdateToRoom(fileId: string, queryPath: string) {
-  const updatedData = await executeQuery(queryPath, { _id: fileId });
-  const payload = JSON.stringify({
-    type: 'query-update',
-    path: queryPath,
-    args: { _id: fileId },
-    data: updatedData,
-  });
-
-  let recipientCount = 0;
-  activeConnections.forEach((conn) => {
-    if (conn.joinedRooms.has(fileId)) {
-      const subKey = `${queryPath}:${JSON.stringify({ _id: fileId })}`;
-      if (conn.subscriptions.has(subKey)) {
-        conn.ws.send(payload);
-        recipientCount++;
-      }
-    }
-  });
-
-  console.log(`[WS BROADCAST] Pushed query update "${queryPath}" for room "${fileId}" to ${recipientCount} subscribers.`);
-}
-
-function mapConvexIds(obj: any): any {
-  if (!obj) return obj;
-  if (Array.isArray(obj)) {
-    return obj.map(mapConvexIds);
-  }
-  if (typeof obj === 'object') {
-    if (obj instanceof Date) return obj.toISOString();
-
-    const newObj: any = {};
-    for (const key of Object.getOwnPropertyNames(obj)) {
-      newObj[key] = mapConvexIds(obj[key]);
-    }
-    for (const key in obj) {
-      if (!(key in newObj)) {
-        newObj[key] = mapConvexIds(obj[key]);
-      }
-    }
-    if (obj.id !== undefined && obj._id === undefined) {
-      newObj._id = obj.id;
-    }
-    return newObj;
-  }
-  return obj;
-}
+// Issue #189: executeQuery/executeMutation used to be defined inline here,
+// duplicating (and diverging from) the Next.js app's copy. They're now
+// extracted to ./mutations.ts (parameterized on the prisma client and
+// queueDbWrite so they're unit-testable without a live socket harness) and
+// bound to the real prisma client / queueDbWrite here.
+const executeQuery = (path: string, args: any) => wsExecuteQuery(prisma, path, args);
+const executeMutation = (path: string, args: any) => wsExecuteMutation(prisma, queueDbWrite, path, args);
 
 server.listen(PORT, () => {
   console.log(`[CollabPro WS SERVER] Standalone WebSocket Gateway running on http://localhost:${PORT}`);
