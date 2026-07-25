@@ -1,6 +1,9 @@
 interface RateLimitEntry {
   count: number
   resetAt: number
+  // Tracks whether a caller has already been told (via `firstBlock` below)
+  // that this key tripped into the blocked state during the current window.
+  blockNoticeSent: boolean
 }
 
 const store = new Map<string, RateLimitEntry>()
@@ -75,22 +78,32 @@ export function getClientIp(request: Request): string {
   return request.headers.get('x-real-ip')?.trim() || 'unknown'
 }
 
+/**
+ * `firstBlock` is true exactly once per window: on the request that causes
+ * this key to transition from allowed to blocked. Every subsequent request
+ * while still blocked returns `firstBlock: false`. This lets callers avoid
+ * writing one audit-log row per rejected attempt — an attacker hammering a
+ * blocked endpoint would otherwise turn the rate limiter, which exists to
+ * bound load during an attack, into an unbounded audit-log write amplifier.
+ */
 export function checkRateLimit(
   key: string,
   config: RateLimitConfig,
-): { allowed: boolean; remaining: number; resetAt: number } {
+): { allowed: boolean; remaining: number; resetAt: number; firstBlock: boolean } {
   const now = Date.now()
   const entry = store.get(key)
 
   if (!entry || entry.resetAt <= now) {
-    store.set(key, { count: 1, resetAt: now + config.windowMs })
-    return { allowed: true, remaining: config.maxAttempts - 1, resetAt: now + config.windowMs }
+    store.set(key, { count: 1, resetAt: now + config.windowMs, blockNoticeSent: false })
+    return { allowed: true, remaining: config.maxAttempts - 1, resetAt: now + config.windowMs, firstBlock: false }
   }
 
   if (entry.count >= config.maxAttempts) {
-    return { allowed: false, remaining: 0, resetAt: entry.resetAt }
+    const firstBlock = !entry.blockNoticeSent
+    entry.blockNoticeSent = true
+    return { allowed: false, remaining: 0, resetAt: entry.resetAt, firstBlock }
   }
 
   entry.count++
-  return { allowed: true, remaining: config.maxAttempts - entry.count, resetAt: entry.resetAt }
+  return { allowed: true, remaining: config.maxAttempts - entry.count, resetAt: entry.resetAt, firstBlock: false }
 }

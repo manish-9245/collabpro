@@ -4,10 +4,10 @@ import { prisma } from './db';
  * Persists an immutable security audit event into the database.
  */
 export async function logAuditEvent(
-  teamId: string, 
-  userEmail: string, 
-  action: string, 
-  context: any, 
+  teamId: string | null,
+  userEmail: string,
+  action: string,
+  context: Record<string, unknown>,
   ipAddress: string = "127.0.0.1"
 ) {
   try {
