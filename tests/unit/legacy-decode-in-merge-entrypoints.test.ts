@@ -76,6 +76,19 @@ describe('asWhiteboardElements decodes legacy Yjs rows instead of throwing/retur
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe('legacy-el-1');
   });
+
+  it('recovers a legacy element\'s points as a real array of [x,y] pairs (Group 3 review round 4)', () => {
+    // Uses the full setDeep-based fixture (encodeLegacyDocFixture), not
+    // encodeLegacyArrayFixture's shallow Object.entries copy, since only
+    // setDeep reproduces the old encoder's actual nested-array-as-Y.Map
+    // encoding that this normalization exists to recover from.
+    const stored = encodeLegacyDocFixture({
+      elements: [{ id: 'el-1', type: 'line', points: [[0, 0], [10, 20], [30, 5]] }],
+    });
+    const result = asWhiteboardElements(stored);
+    expect(Array.isArray(result[0].points)).toBe(true);
+    expect(result[0].points).toEqual([[0, 0], [10, 20], [30, 5]]);
+  });
 });
 
 describe('asWhiteboardPayload decodes legacy Yjs rows and preserves files where present', () => {

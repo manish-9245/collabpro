@@ -54,26 +54,31 @@ describe('decodeLegacyCrdtState (issue #188 backward-compat read path)', () => {
     expect(decoded).toEqual(legacyState);
   });
 
-  it('decodes nested arrays (e.g. whiteboard element points) back to real arrays, not Y.Array/Y.Map shapes', () => {
+  it('decodes a Y.Array property fully (e.g. points itself) but leaves each array-typed ITEM within it as a numeric-keyed object', () => {
+    // `points` itself is a direct property value, which the old encoder
+    // always gave a real Y.Array - that decodes back to a real array fine.
+    // But each [x, y] pair WITHIN points is an array-typed ITEM of that
+    // array, the one shape the old encoder's item-wrapping logic couldn't
+    // represent unambiguously (it wraps any object-typed item, including a
+    // nested array, in a Y.Map using numeric-string keys). That shape is
+    // indistinguishable here from a genuine object whose keys happen to be
+    // numeric strings, so this generic decoder deliberately does not guess.
+    // Schema-aware callers recover it themselves (see
+    // coerceNumericKeyedArray in lib/state-sync-helpers.ts, used
+    // specifically for Excalidraw's `points`).
     const legacyState = {
       elements: [
-        { id: 'el-1', type: 'line', points: [[0, 0], [10, 20], [30, 5]] },
+        { id: 'el-1', type: 'line', points: [[0, 0], [10, 20]] },
       ],
     };
     const stored = encodeLegacyFixture(legacyState);
 
     const decoded = decodeLegacyCrdtState(stored, null);
-    expect(decoded).toEqual(legacyState);
     expect(Array.isArray(decoded.elements[0].points)).toBe(true);
-    expect(Array.isArray(decoded.elements[0].points[0])).toBe(true);
+    expect(decoded.elements[0].points).toEqual([{ '0': 0, '1': 0 }, { '0': 10, '1': 20 }]);
   });
 
-  it('does not coerce a genuine object with numeric-string keys (not an array item) into an array', () => {
-    // A Y.Map with contiguous numeric-string keys is ambiguous in general -
-    // the legacy encoder used the exact same shape for both a nested array
-    // and a plain object whose keys happen to be "0", "1", .... Only the
-    // array-item position is structurally guaranteed to have come from a
-    // real array; an ordinary object property must be left as an object.
+  it('does not coerce a genuine object with numeric-string keys into an array', () => {
     const legacyState = {
       lookup: { '0': 'zero', '1': 'one' },
     };

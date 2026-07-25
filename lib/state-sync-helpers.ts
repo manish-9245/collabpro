@@ -74,6 +74,43 @@ function coerceToElementsArray(value: any): any[] {
 }
 
 /**
+ * Recovers a real array from the Y.Map-with-numeric-string-keys shape the
+ * legacy Yjs encoder produced for a nested array (array item whose own
+ * value was itself an array — see `lib/legacy-crdt-decode.ts`, which
+ * deliberately does NOT do this conversion generically, since that shape is
+ * indistinguishable from a genuine object with numeric-string keys without
+ * schema knowledge). This is schema-scoped: only called on Excalidraw
+ * elements' `points` field below, where the value is always an array by
+ * Excalidraw's own type contract, so there's no ambiguity to guess wrong on.
+ */
+function coerceNumericKeyedArray(value: any): any {
+  if (Array.isArray(value)) return value;
+  if (!value || typeof value !== 'object') return value;
+  const keys = Object.keys(value);
+  if (keys.length === 0 || !keys.every((k) => /^\d+$/.test(k))) return value;
+  const indices = keys.map(Number).sort((a, b) => a - b);
+  if (!indices.every((n, i) => n === i)) return value;
+  return indices.map((i) => value[String(i)]);
+}
+
+/**
+ * Legacy-decoded Excalidraw elements can have a `points` field whose OWN
+ * array-ness survives decoding fine (it's a direct property value, which
+ * the old encoder always gave a real Y.Array), but each [x, y] pair WITHIN
+ * it is an array-of-an-array-item — the one shape the legacy encoder
+ * couldn't represent unambiguously — so each pair needs recovery.
+ */
+function normalizeLegacyElementPoints(elements: any[]): any[] {
+  return elements.map((el) => {
+    if (!el || typeof el !== 'object' || !Array.isArray(el.points)) return el;
+    return {
+      ...el,
+      points: el.points.map(coerceNumericKeyedArray),
+    };
+  });
+}
+
+/**
  * Attempts to decode `value` as a legacy pre-#188 Yjs-wrapped payload
  * (`{ yjs: true, data: <base64> }`). Returns `undefined` if `value` doesn't
  * look like that envelope at all, so callers can tell "not legacy format"
@@ -142,7 +179,7 @@ export function asWhiteboardElements(value: unknown): any[] {
 
   const legacyDecoded = tryDecodeLegacy(value);
   if (legacyDecoded !== undefined) {
-    return coerceToElementsArray(legacyDecoded);
+    return normalizeLegacyElementPoints(coerceToElementsArray(legacyDecoded));
   }
 
   throw new Error("Invalid whiteboard payload. Expected Excalidraw elements array or { elements }.");
@@ -182,7 +219,7 @@ export function asWhiteboardPayload(value: unknown): WhiteboardPayload {
     if (legacyDecoded && typeof legacyDecoded === 'object') {
       const files = (legacyDecoded as any).files;
       return {
-        elements: coerceToElementsArray(legacyDecoded),
+        elements: normalizeLegacyElementPoints(coerceToElementsArray(legacyDecoded)),
         files: files && typeof files === 'object' ? files : {},
       };
     }
