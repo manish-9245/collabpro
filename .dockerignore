@@ -1,0 +1,20 @@
+node_modules
+.next
+.git
+.github
+coverage
+playwright-report
+test-results
+dev.db
+*.db
+*.sqlite
+.kilo
+.context
+arch-review
+docs
+tsconfig.tsbuildinfo
+.env*
+README.md
+# CHANGELOG.md intentionally NOT excluded: app/releases/page.tsx reads it at
+# build/runtime via lib/release-notes.ts, so excluding it here made the
+# /releases page render with no content in every Docker deploy.

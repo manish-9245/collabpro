@@ -6,6 +6,18 @@ export type RouteHandler = (
   context?: any
 ) => Promise<NextResponse> | NextResponse;
 
+/**
+ * A typed error that carries its own HTTP status code, so route handlers can
+ * signal a specific, intentional failure (404, 403, 409, ...) instead of
+ * every thrown error collapsing into a generic 500 in withErrorHandler.
+ */
+export class HttpError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+    this.name = "HttpError";
+  }
+}
+
 export function withErrorHandler(handler: RouteHandler): RouteHandler {
   return async (request: any, context?: any) => {
     const start = Date.now();
@@ -32,8 +44,12 @@ export function withErrorHandler(handler: RouteHandler): RouteHandler {
         method,
         durationMs: duration
       });
-      
-      const rawMessage = error instanceof Error 
+
+      if (error instanceof HttpError) {
+        return NextResponse.json({ error: error.message }, { status: error.status });
+      }
+
+      const rawMessage = error instanceof Error
         ? error.message 
         : (error && typeof error === "object" ? String((error as any).message || JSON.stringify(error)) : String(error));
       const safeMessage = rawMessage || "An unexpected error occurred.";
