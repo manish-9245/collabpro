@@ -27,6 +27,21 @@ CREATE INDEX "FilePresence_fileId_lastSeenAt_idx" ON "FilePresence"("fileId", "l
 CREATE INDEX "Notification_userEmail_createdAt_idx" ON "Notification"("userEmail", "createdAt");
 
 -- FileVersion: version history lookups filter by fileId ordered by version.
+-- Preflight: the exact race this constraint closes (two concurrent
+-- files:createVersion calls computing the same "next version" under
+-- read-committed isolation) may have already left duplicate (fileId, version)
+-- pairs in production. Renumber every file's versions sequentially by creation
+-- order first — no rows dropped, relative order preserved — so the unique
+-- index below can't abort on pre-existing duplicates.
+WITH ranked AS (
+  SELECT "id", ROW_NUMBER() OVER (PARTITION BY "fileId" ORDER BY "createdAt", "id") AS "rn"
+  FROM "FileVersion"
+)
+UPDATE "FileVersion" fv
+SET "version" = ranked."rn"
+FROM ranked
+WHERE fv."id" = ranked."id" AND fv."version" IS DISTINCT FROM ranked."rn";
+
 -- UNIQUE (not just indexed): two concurrent files:createVersion calls for the
 -- same file can both compute the same "next version number" under
 -- read-committed isolation. This constraint turns that race into a

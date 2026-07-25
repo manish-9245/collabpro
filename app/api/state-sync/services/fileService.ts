@@ -538,6 +538,13 @@ export async function handleFileService(path: string, args: any, authUserEmail: 
         attempt += 1;
         try {
           created = await prisma.$transaction(async (tx) => {
+            // Serialize concurrent createVersion calls for the *same* file so
+            // the version-number race below can't be forced into exhausting
+            // the bounded P2002 retries by sustained same-file contention
+            // (e.g. 11+ concurrent checkpoints on one file). Different files
+            // hash to different lock keys and proceed fully in parallel.
+            await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${fileId}))`;
+
             // Find highest version. On a retry, this re-read happens inside a
             // fresh transaction/statement, so it sees whatever the previously
             // "winning" concurrent request just committed.

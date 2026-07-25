@@ -105,8 +105,10 @@ describe('Redis-Backed Rate Limiter (Issue 197)', () => {
 
       // Simulate the exact failure this fix targets: a counter that exists
       // (e.g. from a crash between INCR and EXPIRE under the old two-step
-      // implementation) but carries no TTL.
-      store.set(key, { count: 5000, ttlMs: -1 });
+      // implementation) but carries no TTL. Pre-seed under the same
+      // `ratelimit:` prefix checkRateLimitRedis uses, or the lookup below
+      // never observes this entry and the self-heal path goes untested.
+      store.set(`ratelimit:${key}`, { count: 5000, ttlMs: -1 });
 
       const result = await checkRateLimit(key, config);
 
