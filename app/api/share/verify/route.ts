@@ -50,7 +50,14 @@ export async function POST(request: Request) {
       checkRateLimit(`share-verify:link-total:${link.id}`, LIMITS.SHARE_VERIFY_PER_LINK),
     ]);
     if (!linkIpLimit.allowed || !linkOnlyLimit.allowed) {
-      const resetAt = Math.max(linkIpLimit.resetAt, linkOnlyLimit.resetAt);
+      // Only the rejected bucket(s) should determine the retry delay - if
+      // just one gate rejected, the other (still-allowed) bucket's later
+      // resetAt shouldn't push out a retry that would actually succeed sooner.
+      const rejectedResetAts = [
+        ...(linkIpLimit.allowed ? [] : [linkIpLimit.resetAt]),
+        ...(linkOnlyLimit.allowed ? [] : [linkOnlyLimit.resetAt]),
+      ];
+      const resetAt = Math.max(...rejectedResetAts);
       return NextResponse.json(
         { error: 'Too many attempts. Please try again later.' },
         {
