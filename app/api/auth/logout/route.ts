@@ -21,5 +21,14 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const redirectUrl = searchParams.get('post_logout_redirect_url') || '/';
 
-  return NextResponse.redirect(new URL(redirectUrl, request.url));
+  // request.url's origin reflects the app's internal bind address (e.g.
+  // 0.0.0.0:8080 in a container), not the public domain, once behind
+  // Railway's reverse proxy - the same proxy-header problem getClientIp()
+  // in lib/rate-limiter.ts solves for IPs. Forwarded headers carry the real
+  // public host/protocol; request.url is only the fallback for local dev.
+  const forwardedHost = request.headers.get('x-forwarded-host') || request.headers.get('host');
+  const forwardedProto = request.headers.get('x-forwarded-proto') || 'https';
+  const origin = forwardedHost ? `${forwardedProto}://${forwardedHost}` : request.url;
+
+  return NextResponse.redirect(new URL(redirectUrl, origin));
 }

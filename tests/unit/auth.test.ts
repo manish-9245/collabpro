@@ -395,5 +395,19 @@ describe('Authentication & Session Management', () => {
       expect(res.status).toBe(307);
       expect(res.headers.get('location')).toBe('http://localhost/');
     });
+
+    it('redirects to the public host from x-forwarded-host, not the request URL\'s origin (bug: redirected to the internal 0.0.0.0:8080 bind address behind Railway\'s reverse proxy)', async () => {
+      cookiesMock['session_token'] = 'dummy-token';
+
+      const req = new Request('http://0.0.0.0:8080/api/auth/logout?post_logout_redirect_url=/login', {
+        headers: {
+          'x-forwarded-host': 'collabpro.buildwithmanish.com',
+          'x-forwarded-proto': 'https',
+        },
+      });
+      const res = await logoutGET(req);
+
+      expect(res.headers.get('location')).toBe('https://collabpro.buildwithmanish.com/login');
+    });
   });
 });
