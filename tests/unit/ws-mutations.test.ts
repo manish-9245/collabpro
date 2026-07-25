@@ -66,6 +66,28 @@ describe('ws-server/mutations executeMutation (issue #172 remainder — await pr
     });
     expect(result._id).toBe('file-1');
   });
+
+  it('returns the CAS-canonical saved value, not the raw request body, when they differ', async () => {
+    const prismaClient = basePrisma();
+    // Simulates casUpdateDocument/casUpdateWhiteboard reconciling the write
+    // against concurrent changes: what actually lands can differ from what
+    // this client sent. The response must reflect that, not just echo back
+    // the request.
+    const queueDbWrite = vi.fn().mockResolvedValue({ blocks: [{ id: 'merged-block' }] });
+
+    const docResult = await executeMutation(prismaClient as any, queueDbWrite, 'files:updateDocument', {
+      _id: 'file-1',
+      document: '{"blocks":[]}',
+    });
+    expect(docResult.document).toEqual({ blocks: [{ id: 'merged-block' }] });
+
+    const wbQueueDbWrite = vi.fn().mockResolvedValue('{"elements":[{"id":"merged-el"}],"files":{}}');
+    const wbResult = await executeMutation(prismaClient as any, wbQueueDbWrite, 'files:updateWhiteboard', {
+      _id: 'file-1',
+      whiteboard: '[]',
+    });
+    expect(wbResult.whiteboard).toBe('{"elements":[{"id":"merged-el"}],"files":{}}');
+  });
 });
 
 describe('runMutation (client sees success:false on save failure, issue #172 remainder)', () => {
@@ -122,5 +144,14 @@ describe('executeQuery (issue #189 — shared with the mapConvexIds/state-sync-h
 
     const result = await executeQuery(prismaClient as any, 'files:getFileById', { _id: 'file-1' });
     expect(result._id).toBe('file-1');
+  });
+
+  it('propagates a DB read failure instead of returning null, so callers cannot mistake it for a legitimate not-found', async () => {
+    const findUnique = vi.fn().mockRejectedValue(new Error('connection reset'));
+    const prismaClient = { file: { findUnique, update: vi.fn() } };
+
+    await expect(
+      executeQuery(prismaClient as any, 'files:getFileById', { _id: 'file-1' })
+    ).rejects.toThrow('connection reset');
   });
 });

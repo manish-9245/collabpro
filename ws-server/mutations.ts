@@ -41,7 +41,13 @@ export async function executeQuery(prismaClient: MutationPrismaClient, path: str
     }
   } catch (err) {
     console.error(`[WS QUERY ERROR] Failed executing ${path}:`, err);
-    return null;
+    // Re-throw rather than returning null: null is also the legitimate
+    // result for "file not found", and a caller (the post-mutation
+    // query-update broadcaster in server.ts) can't tell a transient read
+    // failure apart from an actual deletion. Swallowing it here previously
+    // meant a DB hiccup got broadcast to every subscriber as "this file's
+    // content is now null" instead of just skipping that update.
+    throw err;
   }
 }
 
@@ -95,20 +101,23 @@ export async function executeMutation(
     case 'files:updateDocument': {
       const { _id, document } = args || {};
 
-      await queueDbWrite(_id, 'document', document, () =>
+      const saved = await queueDbWrite(_id, 'document', document, () =>
         casUpdateDocument(prismaClient, _id, document)
       );
 
-      return { id: _id, document, _id };
+      // Return the canonical saved value (CAS can merge/reconcile it against
+      // concurrent writes), not the raw request body — echoing back what the
+      // client sent regardless of what actually landed masks any merge.
+      return { id: _id, document: saved, _id };
     }
     case 'files:updateWhiteboard': {
       const { _id, whiteboard } = args || {};
 
-      await queueDbWrite(_id, 'whiteboard', whiteboard, () =>
+      const saved = await queueDbWrite(_id, 'whiteboard', whiteboard, () =>
         casUpdateWhiteboard(prismaClient, _id, whiteboard)
       );
 
-      return { id: _id, whiteboard, _id };
+      return { id: _id, whiteboard: saved, _id };
     }
     case 'files:updateFileName': {
       const { _id, fileName } = args || {};

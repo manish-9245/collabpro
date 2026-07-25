@@ -85,10 +85,17 @@ export async function casUpdateDocument(
       where: { id: targetFileId },
       select: { document: true },
     });
+    // A nonexistent file is not a concurrency conflict - the updateMany
+    // below would just keep returning count:0 (matching zero rows) on every
+    // attempt, silently burning all maxAttempts retries before surfacing the
+    // wrong error ("concurrent updates"). Fail fast with the real reason.
+    if (!file) {
+      throw new Error("File not found");
+    }
     // Raw value exactly as stored — never normalized/synthesized. A
     // brand-new file's `document` column is the empty string, and the CAS
     // predicate must match THAT, not a stand-in default object.
-    const rawCurrentDocString = file?.document ?? '';
+    const rawCurrentDocString = file.document ?? '';
 
     const updated = await prismaClient.file.updateMany({
       where: { id: targetFileId, document: rawCurrentDocString },
@@ -145,7 +152,12 @@ export async function casUpdateWhiteboard(
       where: { id: targetFileId },
       select: { whiteboard: true },
     });
-    const rawCurrentWhiteboardString = file?.whiteboard ?? '';
+    // See casUpdateDocument above: a nonexistent file isn't a concurrency
+    // conflict, fail fast instead of burning every retry attempt.
+    if (!file) {
+      throw new Error("File not found");
+    }
+    const rawCurrentWhiteboardString = file.whiteboard ?? '';
 
     // Issue found in review (Group 5): a malformed incoming payload must be
     // REJECTED (thrown, so the caller's mutation fails and the client sees

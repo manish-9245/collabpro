@@ -62,8 +62,20 @@ export function selectRoomConnections<T extends ClientConnectionLike>(
 
 export function deliverToConnections<T extends ClientConnectionLike>(connections: T[], payload: any): number {
   const json = JSON.stringify(payload);
-  connections.forEach((conn) => conn.ws.send(json));
-  return connections.length;
+  let delivered = 0;
+  for (const conn of connections) {
+    // ws.send() throws synchronously if the socket is already closing/closed.
+    // One dead connection must not abort delivery to every connection after
+    // it in the list (or, since this is called from within the mutation
+    // handler's outer try/catch, abort the Redis publish that follows it).
+    try {
+      conn.ws.send(json);
+      delivered++;
+    } catch (err) {
+      console.error('[WS BROADCAST] Failed to deliver to a connection, skipping it:', err);
+    }
+  }
+  return delivered;
 }
 
 /**

@@ -206,6 +206,12 @@ describe('Link Sharing Access Controls & Guest Privileges (Issue 58)', () => {
         isActive: true,
       });
 
+      // casUpdateDocument reads the file first (to build the CAS predicate
+      // from its exact raw current value) before writing it.
+      mockFileFindUnique.mockResolvedValueOnce({
+        id: 'file-123',
+        document: '{"blocks":[]}',
+      });
       // Stub the compare-and-swap document update prisma resolution
       mockFileUpdateMany.mockResolvedValueOnce({ count: 1 });
 

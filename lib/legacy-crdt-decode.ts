@@ -51,22 +51,42 @@ export function decodeLegacyCrdtState(storedStr: string | null | undefined, fall
 
       const map = doc.getMap('state');
 
+      // Recursively decode every nested Y value, not just direct Y.Map
+      // children of a Y.Array — an array item that is itself a Y.Array
+      // (e.g. a whiteboard element's `points: [[x, y], [x, y]]`) was
+      // previously left as an unconverted Y.Array instance instead of a
+      // plain array, silently corrupting that shape on read.
+      const decodeValue = (val: any): any => {
+        if (val instanceof Y.Array) {
+          return val.toArray().map(decodeValue);
+        }
+        if (val instanceof Y.Map) {
+          const obj: any = {};
+          for (const key of Array.from(val.keys())) {
+            obj[key] = decodeValue(val.get(key));
+          }
+          return restoreArrayShape(obj);
+        }
+        return val;
+      };
+
+      // The old encoder had no native way to represent a plain array inside
+      // a Y.Map value, so nested arrays (e.g. coordinate pairs) were stored
+      // as a Y.Map with contiguous numeric string keys ("0", "1", ...).
+      // Detect that shape and restore it as a real array so legacy nested
+      // arrays don't come back as objects.
+      const restoreArrayShape = (obj: Record<string, any>): any => {
+        const keys = Object.keys(obj);
+        if (keys.length === 0 || !keys.every((k) => /^\d+$/.test(k))) return obj;
+        const indices = keys.map(Number).sort((a, b) => a - b);
+        const isContiguousFromZero = indices.every((n, i) => n === i);
+        return isContiguousFromZero ? indices.map((i) => obj[String(i)]) : obj;
+      };
+
       const getDeep = (ymap: Y.Map<any>): any => {
         const obj: any = {};
         for (const key of Array.from(ymap.keys())) {
-          const val = ymap.get(key);
-          if (val instanceof Y.Array) {
-            obj[key] = val.toArray().map((item: any) => {
-              if (item instanceof Y.Map) {
-                return getDeep(item);
-              }
-              return item;
-            });
-          } else if (val instanceof Y.Map) {
-            obj[key] = getDeep(val);
-          } else {
-            obj[key] = val;
-          }
+          obj[key] = decodeValue(ymap.get(key));
         }
         return obj;
       };

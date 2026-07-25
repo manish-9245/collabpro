@@ -54,6 +54,20 @@ describe('decodeLegacyCrdtState (issue #188 backward-compat read path)', () => {
     expect(decoded).toEqual(legacyState);
   });
 
+  it('decodes nested arrays (e.g. whiteboard element points) back to real arrays, not Y.Array/Y.Map shapes', () => {
+    const legacyState = {
+      elements: [
+        { id: 'el-1', type: 'line', points: [[0, 0], [10, 20], [30, 5]] },
+      ],
+    };
+    const stored = encodeLegacyFixture(legacyState);
+
+    const decoded = decodeLegacyCrdtState(stored, null);
+    expect(decoded).toEqual(legacyState);
+    expect(Array.isArray(decoded.elements[0].points)).toBe(true);
+    expect(Array.isArray(decoded.elements[0].points[0])).toBe(true);
+  });
+
   it('falls back to the parsed value when the payload is plain JSON, not yjs-wrapped', () => {
     const plain = { time: 1000, blocks: [] };
     const stored = JSON.stringify(plain);

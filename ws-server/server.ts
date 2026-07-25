@@ -4,10 +4,6 @@ import { prisma } from '../lib/db';
 import { verifyToken } from '../lib/session-auth/jwt';
 import Redis from 'ioredis';
 import amqplib from 'amqplib';
-// Canonical merge/normalization helpers (issue #189). This process runs
-// outside the Next.js bundler via tsx, so — like the existing `../lib/db`
-// import above — it uses a relative path rather than the "@/" alias.
-import { casUpdateDocument, casUpdateWhiteboard } from '../lib/cas-writes';
 import { hasFileAccess as checkFileAccessDb, checkMutationAuth as checkMutationAuthDb } from './file-access';
 import { FileAccessCache } from './access-cache';
 import {
@@ -161,37 +157,30 @@ async function initRabbitMQ() {
     await mqChannel.assertQueue(QUEUE_NAME, { durable: true });
     console.log('🐇 [RabbitMQ] Connected to message broker successfully.');
 
-    // Consumer for durability/replay records (issue found in review, Group 1:
-    // since `queueDbWrite` below now performs the authoritative write
-    // synchronously BEFORE publishing here, this consumer is a secondary
-    // replay path, not the source of truth for success/failure). It reuses
-    // the exact same `casUpdateDocument`/`casUpdateWhiteboard` the direct
-    // write path uses — not a third bespoke merge implementation — so a
-    // redundant replay can never regress the replace-semantics/files-map/
-    // legacy-decode fixes those functions carry. Because the direct write
-    // already applied `value` by the time this runs, re-applying it here is
-    // idempotent (a harmless no-op in the common case).
+    // Consumer for durability/replay records. `queueDbWrite` below performs
+    // the authoritative write synchronously and awaits it BEFORE this
+    // message is ever published — by the time a message reaches here, the
+    // write it describes has already committed. This is therefore an
+    // audit/durability sink only, not a second write path.
+    //
+    // Bug found in review (round 2, Group 1): this used to re-apply `value`
+    // via casUpdateDocument/casUpdateWhiteboard. That looks idempotent but
+    // isn't: the CAS predicate only checks "does the row's CURRENT raw value
+    // match what I just read", not "is my payload actually the newest
+    // version" — so a message that sits in the queue (broker restart,
+    // redelivery, slow consumer) and gets processed after one or more
+    // *newer* direct writes already landed would still pass that predicate
+    // (current == what this replay just read) and overwrite the newer
+    // content with this stale `value`. Never re-applying the write here
+    // removes that class of bug entirely.
     mqChannel.consume(QUEUE_NAME, async (msg: any) => {
       if (msg !== null) {
         try {
           const payload = JSON.parse(msg.content.toString());
-          const { fileId, type, value } = payload;
-
-          if (type === 'document') {
-            await casUpdateDocument(prisma as any, fileId, value);
-          } else if (type === 'whiteboard') {
-            await casUpdateWhiteboard(prisma as any, fileId, value);
-          } else {
-            await prisma.file.update({
-              where: { id: fileId },
-              data: { [type]: value },
-            });
-          }
-
-          console.log(`💾 [RabbitMQ DB Commit] Durable replay record processed for file: ${fileId}`);
+          console.log(`💾 [RabbitMQ Durability Record] Received for file: ${payload.fileId} (${payload.type}) — write already committed synchronously, no-op.`);
           mqChannel?.ack(msg);
         } catch (err: any) {
-          console.error(`❌ [RabbitMQ DB Commit Error] Failed flushing updates:`, err.message);
+          console.error(`❌ [RabbitMQ Durability Record Error] Failed to parse record:`, err.message);
           mqChannel?.nack(msg, false, false); // Do not requeue on fatal error
         }
       }

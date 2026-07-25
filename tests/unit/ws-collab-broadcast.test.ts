@@ -61,6 +61,22 @@ describe('ws-server/collab-broadcast (issue #197 partial — single code path, l
     expect(b.ws.send).toHaveBeenCalledWith(JSON.stringify(payload));
   });
 
+  it('deliverToConnections skips a connection whose send() throws (closed socket) instead of aborting the whole fan-out', () => {
+    const a = makeConn('a', ['file-1']);
+    const b = makeConn('b', ['file-1']);
+    const c = makeConn('c', ['file-1']);
+    (b.ws.send as any).mockImplementation(() => {
+      throw new Error('WebSocket is not open: readyState 3 (CLOSED)');
+    });
+    const payload = buildQueryUpdatePayload('files:getFileById', { _id: 'file-1' }, { fileName: 'doc' });
+
+    const count = deliverToConnections([a, b, c], payload);
+
+    expect(count).toBe(2);
+    expect(a.ws.send).toHaveBeenCalledWith(JSON.stringify(payload));
+    expect(c.ws.send).toHaveBeenCalledWith(JSON.stringify(payload));
+  });
+
   describe('selectRecipientsForRedisMessage — cross-replica fan-out routing', () => {
     it('routes a query-update message through subscription matching, like the local broadcast path', () => {
       const key = subscriptionKey('files:getFileById', { _id: 'file-1' });

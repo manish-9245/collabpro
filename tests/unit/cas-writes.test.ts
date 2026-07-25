@@ -118,6 +118,18 @@ describe('casUpdateDocument (review round 2, Group 1 + Group 2)', () => {
     expect(result.blocks.map((b: any) => b.id)).toEqual(['new-1']);
     expect(updateMany).toHaveBeenCalledTimes(1);
   });
+
+  it('fails fast with "File not found" instead of burning every retry attempt on a nonexistent file', async () => {
+    const findUnique = vi.fn().mockResolvedValue(null);
+    const updateMany = vi.fn();
+    const client = { file: { findUnique, updateMany } };
+
+    await expect(
+      casUpdateDocument(client as any, 'nonexistent-file', JSON.stringify({ blocks: [] }))
+    ).rejects.toThrow('File not found');
+    expect(findUnique).toHaveBeenCalledTimes(1);
+    expect(updateMany).not.toHaveBeenCalled();
+  });
 });
 
 describe('casUpdateWhiteboard (review round 2, Group 1 + Group 2)', () => {
@@ -207,5 +219,17 @@ describe('casUpdateWhiteboard (review round 2, Group 1 + Group 2)', () => {
 
     const parsed = JSON.parse(result);
     expect(parsed.elements.map((e: any) => e.id)).toEqual(['el-1']);
+  });
+
+  it('fails fast with "File not found" instead of burning every retry attempt on a nonexistent file', async () => {
+    const findUnique = vi.fn().mockResolvedValue(null);
+    const updateMany = vi.fn();
+    const client = { file: { findUnique, updateMany } };
+
+    await expect(
+      casUpdateWhiteboard(client as any, 'nonexistent-file', JSON.stringify({ elements: [], files: {} }))
+    ).rejects.toThrow('File not found');
+    expect(findUnique).toHaveBeenCalledTimes(1);
+    expect(updateMany).not.toHaveBeenCalled();
   });
 });
