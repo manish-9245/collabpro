@@ -28,20 +28,34 @@ export function isSvgContent(buffer: Uint8Array): boolean {
 
     let text = headerText.replace(/^\uFEFF/, "").trim();
 
-    // Strip a single leading XML declaration: <?xml version="1.0" ...?>
-    text = text.replace(/^<\?xml[^>]*\?>/i, "").trim();
+    // Repeatedly strip legal XML prolog constructs — in any order and any number of
+    // times — until nothing more can be stripped. A single fixed-order pass isn't
+    // enough: a spec-legal SVG can have, e.g., an <?xml?> declaration followed by an
+    // <?xml-stylesheet?> processing instruction (and/or comments, and/or a DOCTYPE)
+    // before the <svg> root element ever appears.
+    let previous: string;
+    do {
+      previous = text;
 
-    // Strip any leading XML comments: <!-- ... -->
-    while (/^<!--/.test(text)) {
-      const end = text.indexOf("-->");
-      if (end === -1) break;
-      text = text.slice(end + 3).trim();
-    }
+      // Any processing instruction, including the XML declaration itself: <?target ...?>
+      text = text.replace(/^<\?[\s\S]*?\?>/, "").trim();
 
-    // Strip a leading DOCTYPE declaration, with or without an internal subset in [...]
-    text = text.replace(/^<!doctype[^>[]*(\[[^\]]*\])?\s*>/i, "").trim();
+      // XML comment: <!-- ... -->
+      text = text.replace(/^<!--[\s\S]*?-->/, "").trim();
 
-    return text.toLowerCase().startsWith("<svg");
+      // DOCTYPE declaration, with or without an internal subset in [...]
+      text = text.replace(/^<!doctype[^>[]*(\[[^\]]*\])?\s*>/i, "").trim();
+    } while (text.length > 0 && text !== previous);
+
+    const lower = text.toLowerCase();
+    if (!lower.startsWith("<svg")) return false;
+
+    // Require a proper element-name boundary right after "svg" (whitespace, '>', '/',
+    // or end-of-scanned-content) so "<svgfoo>" isn't misclassified as an <svg> root —
+    // it's a different, unrelated element name that merely starts with the same
+    // characters.
+    const boundary = lower.charAt(4);
+    return boundary === "" || /[\s>/]/.test(boundary);
   } catch {
     return false;
   }

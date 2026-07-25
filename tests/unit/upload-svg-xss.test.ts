@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { POST as uploadPOST } from "@/app/api/upload/route";
 import { GET as serveGET } from "@/app/api/upload/[id]/route";
 
@@ -130,6 +130,12 @@ describe("Issue #195 follow-up: filename/mimetype spoofing bypass (cubic + CodeR
     }));
   });
 
+  afterEach(() => {
+    // Restore any spies (e.g. global.fetch) here rather than inline at the end of a
+    // test body, so a mock never leaks into later tests if an earlier assertion throws.
+    vi.restoreAllMocks();
+  });
+
   const maliciousSvgBody = `<svg xmlns="http://www.w3.org/2000/svg" onload="alert(document.domain)"/>`;
 
   it("cubic bypass: real SVG bytes uploaded as evil.png / image/png must still get safe SVG treatment", async () => {
@@ -199,14 +205,12 @@ describe("Issue #195 follow-up: filename/mimetype spoofing bypass (cubic + CodeR
   });
 
   it("S3 redirect bypass: a legacy SVG-labeled S3 object is proxied with safe headers instead of redirected", async () => {
-    const fetchSpy = vi
-      .spyOn(global, "fetch")
-      .mockResolvedValue(
-        new Response(maliciousSvgBody, {
-          status: 200,
-          headers: { "Content-Type": "image/svg+xml" },
-        })
-      );
+    vi.spyOn(global, "fetch").mockResolvedValue(
+      new Response(maliciousSvgBody, {
+        status: 200,
+        headers: { "Content-Type": "image/svg+xml" },
+      })
+    );
 
     // Simulates a record created before this fix: unsafe metadata already stored on S3.
     mockUploadedFileFindUnique.mockResolvedValue({
@@ -228,7 +232,68 @@ describe("Issue #195 follow-up: filename/mimetype spoofing bypass (cubic + CodeR
     expect(getRes.headers.get("Content-Type")).toBe("application/octet-stream");
     expect(getRes.headers.get("Content-Disposition")).toContain("attachment");
     expect(getRes.headers.get("X-Content-Type-Options")).toBe("nosniff");
+  });
 
-    fetchSpy.mockRestore();
+  it("valid SVG with a processing instruction between the XML declaration and the <svg> root uploads successfully", async () => {
+    // Spec-legal SVG prolog: XML declaration, then an <?xml-stylesheet?> processing
+    // instruction, THEN the <svg> root — cubic P1: the root-element scan must skip
+    // over legal prolog constructs like this rather than requiring <svg to appear
+    // immediately after the XML declaration.
+    const svgWithProcessingInstruction =
+      `<?xml version="1.0" encoding="UTF-8"?>` +
+      `<?xml-stylesheet type="text/css" href="style.css"?>` +
+      `<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10" fill="blue"/></svg>`;
+
+    const req = buildUploadRequest("logo-with-pi.svg", "image/svg+xml", svgWithProcessingInstruction);
+    const res = await uploadPOST(req as any);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(1);
+
+    expect(mockUploadedFileCreate).toHaveBeenCalledTimes(1);
+    const createCall = mockUploadedFileCreate.mock.calls[0][0];
+    // Correctly recognized as SVG content, so it gets the same safe treatment.
+    expect(createCall.data.mimeType).toBe("application/octet-stream");
+  });
+
+  it("an existing legacy local record with a processing instruction before <svg> is still served with safe headers", async () => {
+    // Simulates a pre-fix local record: stored mimeType still says image/svg+xml, and
+    // the payload has an <?xml-stylesheet?> PI between the declaration and the <svg>
+    // root. The serving path re-derives isSvg from the actual bytes, so this must not
+    // fall through to the non-SVG branch just because the root element isn't the very
+    // first thing after the XML declaration.
+    const svgWithProcessingInstruction =
+      `<?xml version="1.0" encoding="UTF-8"?>` +
+      `<?xml-stylesheet type="text/css" href="style.css"?>` +
+      `<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10" fill="blue"/></svg>`;
+
+    mockUploadedFileFindUnique.mockResolvedValue({
+      id: "legacy-pi-id",
+      filename: "legacy-pi.svg",
+      mimeType: "image/svg+xml",
+      payload: Buffer.from(svgWithProcessingInstruction).toString("base64"),
+    });
+
+    const getReq = new Request("http://localhost/api/upload/legacy-pi-id");
+    const getRes = await serveGET(getReq as any, {
+      params: Promise.resolve({ id: "legacy-pi-id" }),
+    });
+
+    expect(getRes.headers.get("Content-Type")).toBe("application/octet-stream");
+    expect(getRes.headers.get("Content-Disposition")).toContain("attachment");
+  });
+
+  it("does not classify a non-svg element like <svgfoo> as SVG content", async () => {
+    // "<svgfoo>" starts with the literal characters "<svg" but is not an <svg> root
+    // element — there must be a proper boundary (whitespace, '>', or '/') right after
+    // "svg", not an arbitrary continuation of the tag name.
+    const content = `<svgfoo>${"A".repeat(50)}</svgfoo>`;
+    const req = buildUploadRequest("not-svg.bin", "application/octet-stream", content);
+    const res = await uploadPOST(req as any);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.success).toBe(0);
+    expect(body.message).toContain("Invalid or corrupted image file format");
+    expect(mockUploadedFileCreate).not.toHaveBeenCalled();
   });
 });
