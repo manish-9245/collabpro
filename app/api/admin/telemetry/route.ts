@@ -90,7 +90,8 @@ export async function POST(req: NextRequest) {
     await enqueueNotification(payload);
 
     return NextResponse.json({ queued: true, eventId: crypto.randomUUID() }, { status: 202 });
-  } catch (error: any) {
-    return NextResponse.json({ error: 'Invalid simulate-event payload: ' + error.message }, { status: 400 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ error: 'Invalid simulate-event payload: ' + message }, { status: 400 });
   }
 }
