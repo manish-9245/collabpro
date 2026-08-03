@@ -14,6 +14,7 @@ import { handleNotificationService } from './services/notificationService';
 import { handleSnykService } from './services/snykService';
 import { handleSonarcloudService } from './services/sonarcloudService';
 import { checkFileAccess } from '@/lib/file-access';
+import { getClientIp } from '@/lib/rate-limiter';
 
 async function checkTeamAccess(teamId: string, email: string): Promise<boolean> {
   if (!teamId) return false;
@@ -33,7 +34,7 @@ async function checkTeamAccess(teamId: string, email: string): Promise<boolean> 
 
 async function POST_handler(request: Request) {
   const ipAddress = (request && request.headers && typeof request.headers.get === 'function')
-    ? (request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || '127.0.0.1')
+    ? getClientIp(request)
     : '127.0.0.1';
 
   let body: any;

@@ -4,7 +4,7 @@ import { prisma } from '../lib/db';
 import { verifyToken } from '../lib/session-auth/jwt';
 import Redis from 'ioredis';
 import amqplib from 'amqplib';
-import { hasFileAccess as checkFileAccessDb, checkMutationAuth as checkMutationAuthDb } from './file-access';
+import { hasFileAccess as checkFileAccessDb, checkMutationAuth as checkMutationAuthDb, checkTeamAccess as checkTeamAccessDb, resolveTokenUser } from './file-access';
 import { FileAccessCache } from './access-cache';
 import {
   selectSubscribedConnections,
@@ -256,14 +256,7 @@ function authenticateRequest(req: any): any {
     const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
     const tokenQuery = url.searchParams.get('token');
     if (tokenQuery) {
-      const decoded = decodeURIComponent(tokenQuery);
-      const verified = verifyToken(decoded);
-      if (verified) return verified;
-      try {
-        return JSON.parse(decoded);
-      } catch {
-        return null;
-      }
+      return resolveTokenUser(tokenQuery, verifyToken);
     }
 
     const cookieHeader = req.headers.cookie || '';
@@ -443,6 +436,16 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
             if (!auth.allowed) {
               console.warn(`[WS MUTATION SECURITY REJECT] User ${user.id} attempted unauthorized mutation "${path}" on: ${targetId}: ${auth.error}`);
               ws.send(JSON.stringify({ type: 'error', message: auth.error }));
+              break;
+            }
+          } else if (path === 'files:createFile') {
+            // No existing row to key `checkMutationAuthDb` off yet - gate on
+            // team membership instead, matching the HTTP path's `teamPaths`
+            // check in app/api/state-sync/route.ts (issue #234).
+            const hasTeamAccess = await checkTeamAccessDb(prisma as any, args?.teamId, user.email);
+            if (!hasTeamAccess) {
+              console.warn(`[WS MUTATION SECURITY REJECT] User ${user.id} attempted unauthorized files:createFile for team: ${args?.teamId}`);
+              ws.send(JSON.stringify({ type: 'error', message: 'Forbidden: You do not have access to this team' }));
               break;
             }
           }

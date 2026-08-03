@@ -39,6 +39,22 @@ describe('Decoupled Notification Dispatcher (Issue 53)', () => {
       expect(json.error).toContain('Unauthorized');
     });
 
+    it('should fail closed with 500 when NOTIFICATION_SECRET is not configured, never falling back to a hardcoded token (issue #236)', async () => {
+      delete process.env.NOTIFICATION_SECRET;
+
+      const request = new Request('http://localhost:3000/api/notifications/dispatch', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer super-secret-ci-token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ repository: 'collabpro' }),
+      });
+
+      const response = await dispatchPOST(request);
+      expect(response.status).toBe(500);
+    });
+
     it('should ingest authenticated build reports, enqueue them, and return 202 Accepted quickly', async () => {
       mockLPush.mockResolvedValueOnce(1); // successfully appended to Redis list
 

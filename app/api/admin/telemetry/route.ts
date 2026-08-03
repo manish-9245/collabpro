@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { kafkaBroker } from '@/lib/kafka';
 import { getServerSession } from '@/lib/session-auth/server';
 import { getPgPool } from '@/lib/db';
+import { enqueueNotification, NotificationPayload } from '@/lib/notification-queue';
 
 // Force dynamic execution for real-time telemetry updates
 export const dynamic = 'force-dynamic';
@@ -68,5 +69,28 @@ export async function GET(req: NextRequest) {
   } catch (error: any) {
     console.error('[Telemetry API] Failed to aggregate infrastructure health:', error instanceof Error ? error.message : String(error));
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  }
+}
+
+// Backs the super-admin dashboard's "Simulate Event" button. Gated by the
+// same session + admin-allowlist check as GET above, instead of a
+// service-to-service bearer secret - a browser-side caller can never hold
+// that secret without shipping it in the JS bundle (issue #236).
+export async function POST(req: NextRequest) {
+  try {
+    const user = await getServerSession().getUser();
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    if (!isAdmin(user.email)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const payload: NotificationPayload = await req.json();
+    await enqueueNotification(payload);
+
+    return NextResponse.json({ queued: true, eventId: crypto.randomUUID() }, { status: 202 });
+  } catch (error: any) {
+    return NextResponse.json({ error: 'Invalid simulate-event payload: ' + error.message }, { status: 400 });
   }
 }

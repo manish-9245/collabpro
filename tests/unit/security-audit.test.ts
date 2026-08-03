@@ -44,6 +44,22 @@ describe('Asynchronous Security Audit & Quality Gate Decoupler (Issue 52)', () =
       expect(response.status).toBe(401);
     });
 
+    it('should fail closed with 500 when NOTIFICATION_SECRET is not configured, never falling back to a hardcoded token (issue #236)', async () => {
+      delete process.env.NOTIFICATION_SECRET;
+
+      const request = new Request('http://localhost:3000/api/security-audit', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ci-secret-token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ commitSha: '123456', branch: 'main', repository: 'manish-9245/collabpro' }),
+      });
+
+      const response = await securityPOST(request);
+      expect(response.status).toBe(500);
+    });
+
     it('should ingest valid audit requests, queue them, and return 202 Accepted within 100ms SLA', async () => {
       mockLPush.mockResolvedValueOnce(1);
 
