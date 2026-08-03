@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { kafkaBroker } from '@/lib/kafka';
 import { getServerSession } from '@/lib/session-auth/server';
 import { getPgPool } from '@/lib/db';
-import { enqueueNotification, notificationPayloadSchema } from '@/lib/notification-queue';
 
 // Force dynamic execution for real-time telemetry updates
 export const dynamic = 'force-dynamic';
@@ -86,6 +85,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
+    // Dynamically imported so GET above never pays for (or triggers) this
+    // module's side effect: lib/notification-queue.ts registers a Kafka
+    // consumer subscription at module scope, which lib/kafka.ts counts
+    // towards the very activeConsumers/metrics numbers GET reports - a
+    // static top-level import here would make loading the dashboard itself
+    // perturb the telemetry it displays.
+    const { enqueueNotification, notificationPayloadSchema } = await import('@/lib/notification-queue');
     const parsed = notificationPayloadSchema.safeParse(await req.json());
     if (!parsed.success) {
       return NextResponse.json({ error: 'Invalid simulate-event payload: ' + parsed.error.message }, { status: 400 });

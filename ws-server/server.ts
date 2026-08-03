@@ -4,7 +4,7 @@ import { prisma } from '../lib/db';
 import { verifyToken } from '../lib/session-auth/jwt';
 import Redis from 'ioredis';
 import amqplib from 'amqplib';
-import { hasFileAccess as checkFileAccessDb, checkMutationAuth as checkMutationAuthDb, resolveTokenUser } from './file-access';
+import { hasFileAccess as checkFileAccessDb, checkMutationAuth as checkMutationAuthDb, resolveTokenUser, resolveMutationAuthStrategy } from './file-access';
 import { checkTeamAccess as checkTeamAccessDb, type TeamAccessPrismaClient } from '../lib/team-access';
 import { FileAccessCache } from './access-cache';
 import {
@@ -421,14 +421,24 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
 
         case 'mutation': {
           const { path, args, fileId } = message;
-          const targetId = args?._id || args?.fileId;
-          // Only clients that supply an explicit, stable mutationId can be
-          // de-duplicated. Synthesising one here would make every retry look
-          // like a new mutation and cost two Redis round-trips for nothing.
-          const mutationId: string | null = args?.mutationId
-            ? `${user.id}:${path}:${targetId}:${args.mutationId}`
-            : null;
-          if (targetId) {
+          const authStrategy = resolveMutationAuthStrategy(path, args);
+          let mutationId: string | null = null;
+
+          if (authStrategy.type === 'team') {
+            const hasTeamAccess = await checkTeamAccessDb(prisma as unknown as TeamAccessPrismaClient, authStrategy.teamId, user.email);
+            if (!hasTeamAccess) {
+              console.warn(`[WS MUTATION SECURITY REJECT] User ${user.id} attempted unauthorized files:createFile for team: ${authStrategy.teamId}`);
+              ws.send(JSON.stringify({ type: 'error', message: 'Forbidden: You do not have access to this team' }));
+              break;
+            }
+          } else if (authStrategy.type === 'existing') {
+            const targetId = authStrategy.targetId;
+            // Only clients that supply an explicit, stable mutationId can be
+            // de-duplicated. Synthesising one here would make every retry look
+            // like a new mutation and cost two Redis round-trips for nothing.
+            mutationId = args?.mutationId
+              ? `${user.id}:${path}:${targetId}:${args.mutationId}`
+              : null;
             if (mutationId && await isMutationProcessed(mutationId)) {
               ws.send(JSON.stringify({ type: 'mutation-result', path, success: true, data: { skipped: true } }));
               break;
@@ -437,16 +447,6 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
             if (!auth.allowed) {
               console.warn(`[WS MUTATION SECURITY REJECT] User ${user.id} attempted unauthorized mutation "${path}" on: ${targetId}: ${auth.error}`);
               ws.send(JSON.stringify({ type: 'error', message: auth.error }));
-              break;
-            }
-          } else if (path === 'files:createFile') {
-            // No existing row to key `checkMutationAuthDb` off yet - gate on
-            // team membership instead, matching the HTTP path's `teamPaths`
-            // check in app/api/state-sync/route.ts (issue #234).
-            const hasTeamAccess = await checkTeamAccessDb(prisma as unknown as TeamAccessPrismaClient, args?.teamId, user.email);
-            if (!hasTeamAccess) {
-              console.warn(`[WS MUTATION SECURITY REJECT] User ${user.id} attempted unauthorized files:createFile for team: ${args?.teamId}`);
-              ws.send(JSON.stringify({ type: 'error', message: 'Forbidden: You do not have access to this team' }));
               break;
             }
           }

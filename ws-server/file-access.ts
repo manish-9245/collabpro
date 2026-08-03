@@ -11,6 +11,32 @@
 
 import type { SessionTokenPayload } from '../lib/session-auth/jwt';
 
+export type MutationAuthStrategy =
+  | { type: 'team'; teamId: string }
+  | { type: 'existing'; targetId: string }
+  | { type: 'none' };
+
+/**
+ * Decides which authorization check a WS `mutation` message needs before
+ * dispatch. `files:createFile` must be checked first and independent of any
+ * `_id`/`fileId` present in `args` - `executeMutation`'s create-file case
+ * never reads those fields, only `args.teamId`. Checking `targetId` first
+ * (as an earlier version of this logic did) let a caller attach an
+ * `_id`/`fileId` for a file they legitimately have access to, pass the
+ * existing-file check for THAT file, then fall through into creating a file
+ * under a completely different, never-checked `args.teamId` (issue #234).
+ */
+export function resolveMutationAuthStrategy(path: string, args: any): MutationAuthStrategy {
+  if (path === 'files:createFile') {
+    return { type: 'team', teamId: args?.teamId };
+  }
+  const targetId = args?._id || args?.fileId;
+  if (targetId) {
+    return { type: 'existing', targetId };
+  }
+  return { type: 'none' };
+}
+
 export interface FileAccessPrismaClient {
   file: {
     findUnique: (args: {
