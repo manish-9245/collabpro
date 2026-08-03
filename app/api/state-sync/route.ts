@@ -15,21 +15,10 @@ import { handleSnykService } from './services/snykService';
 import { handleSonarcloudService } from './services/sonarcloudService';
 import { checkFileAccess } from '@/lib/file-access';
 import { getClientIp } from '@/lib/rate-limiter';
+import { checkTeamAccess as checkTeamAccessDb, type TeamAccessPrismaClient } from '@/lib/team-access';
 
 async function checkTeamAccess(teamId: string, email: string): Promise<boolean> {
-  if (!teamId) return false;
-  const team = await prisma.team.findUnique({
-    where: { id: teamId }
-  });
-  if (!team) return false;
-  if (team.createdBy === email) return true;
-  const teamMember = await prisma.teamMember.findFirst({
-    where: {
-      teamId,
-      userEmail: email
-    }
-  });
-  return !!teamMember;
+  return checkTeamAccessDb(prisma as unknown as TeamAccessPrismaClient, teamId, email);
 }
 
 async function POST_handler(request: Request) {

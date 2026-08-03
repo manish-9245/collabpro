@@ -67,20 +67,26 @@ export const LIMITS = {
 
 /**
  * Resolves the client IP from proxy headers. Railway terminates TLS upstream,
- * so the socket address is always the proxy; x-forwarded-for is the only
- * signal available. A client can prepend arbitrary values to that header, but
- * cannot forge hops appended *after* theirs — so the rightmost entry (the one
- * Railway's own proxy adds) is the only one that isn't attacker-controlled.
- * The leftmost entry is exactly the spoofable one and must never be trusted.
+ * so the socket address is always the proxy. Railway's own docs document
+ * x-real-ip as the header its edge proxy itself sets from the real client
+ * connection and overwrites on the way in — a client cannot forge it — so it
+ * is checked first. x-forwarded-for is kept only as a fallback for
+ * environments where x-real-ip isn't set (local dev, a future non-Railway
+ * host); Railway doesn't document a guaranteed hop count for it, but the
+ * rightmost entry is still preferred over the leftmost, client-supplied one
+ * a request can freely set.
  */
 export function getClientIp(request: Request): string {
+  const realIp = request.headers.get('x-real-ip')?.trim()
+  if (realIp) return realIp
+
   const forwarded = request.headers.get('x-forwarded-for')
   if (forwarded) {
     const hops = forwarded.split(',').map((hop) => hop.trim()).filter(Boolean)
     const last = hops[hops.length - 1]
     if (last) return last
   }
-  return request.headers.get('x-real-ip')?.trim() || 'unknown'
+  return 'unknown'
 }
 
 /**

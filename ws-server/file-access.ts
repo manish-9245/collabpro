@@ -77,52 +77,6 @@ export function resolveTokenUser(
   }
 }
 
-export interface TeamAccessPrismaClient {
-  team: {
-    findUnique: (args: {
-      where: { id: string };
-      select: { createdBy: true };
-    }) => Promise<{ createdBy: string } | null>;
-  };
-  teamMember: {
-    findFirst: (args: {
-      where: { teamId: string; userEmail: string };
-      select: { userEmail: true };
-    }) => Promise<{ userEmail?: string } | null>;
-  };
-}
-
-/**
- * Team-membership check for WS mutations that create a new resource (no
- * existing file/row to key authorization off of yet — see `files:createFile`
- * in server.ts, issue #234). Mirrors `checkTeamAccess` in
- * `app/api/state-sync/route.ts`, the HTTP path's equivalent gate.
- */
-export async function checkTeamAccess(
-  prismaClient: TeamAccessPrismaClient,
-  teamId: string,
-  email: string
-): Promise<boolean> {
-  if (!teamId || !email) return false;
-  try {
-    const team = await prismaClient.team.findUnique({
-      where: { id: teamId },
-      select: { createdBy: true },
-    });
-    if (!team) return false;
-    if (team.createdBy === email) return true;
-
-    const teamMember = await prismaClient.teamMember.findFirst({
-      where: { teamId, userEmail: email },
-      select: { userEmail: true },
-    });
-    return !!teamMember;
-  } catch (error) {
-    console.error(`[WS AUTH CHECK ERROR] Failed to check team access:`, error);
-    return false;
-  }
-}
-
 export interface MutationAuthPrismaClient {
   file: {
     findUnique: (args: {

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { kafkaBroker } from '@/lib/kafka';
 import { getServerSession } from '@/lib/session-auth/server';
 import { getPgPool } from '@/lib/db';
-import { enqueueNotification, NotificationPayload } from '@/lib/notification-queue';
+import { enqueueNotification, notificationPayloadSchema } from '@/lib/notification-queue';
 
 // Force dynamic execution for real-time telemetry updates
 export const dynamic = 'force-dynamic';
@@ -86,8 +86,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const payload: NotificationPayload = await req.json();
-    await enqueueNotification(payload);
+    const parsed = notificationPayloadSchema.safeParse(await req.json());
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Invalid simulate-event payload: ' + parsed.error.message }, { status: 400 });
+    }
+
+    await enqueueNotification(parsed.data);
 
     return NextResponse.json({ queued: true, eventId: crypto.randomUUID() }, { status: 202 });
   } catch (error) {

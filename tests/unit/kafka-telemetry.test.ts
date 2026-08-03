@@ -2,11 +2,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { kafkaBroker } from '@/lib/kafka';
 import { GET as getTelemetryGET, POST as postTelemetryPOST } from '@/app/api/admin/telemetry/route';
 import { NextRequest } from 'next/server';
+import type { NotificationPayload } from '@/lib/notification-queue';
 
 const mockEnqueueNotification = vi.fn();
-vi.mock('@/lib/notification-queue', () => ({
-  enqueueNotification: (...args: any[]) => mockEnqueueNotification(...args),
-}));
+vi.mock('@/lib/notification-queue', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/notification-queue')>();
+  return {
+    ...actual,
+    enqueueNotification: (payload: NotificationPayload) => mockEnqueueNotification(payload),
+  };
+});
 
 // Mock session auth so the route's admin gate can be exercised deterministically.
 const mockGetUser = vi.fn();
