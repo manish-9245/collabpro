@@ -9,6 +9,8 @@
  * accordingly.
  */
 
+import type { SessionTokenPayload } from '../lib/session-auth/jwt';
+
 export interface FileAccessPrismaClient {
   file: {
     findUnique: (args: {
@@ -65,8 +67,8 @@ export async function hasFileAccess(
  */
 export function resolveTokenUser(
   tokenQuery: string,
-  verifyTokenFn: (token: string) => any
-): any {
+  verifyTokenFn: (token: string) => SessionTokenPayload | null
+): SessionTokenPayload | null {
   try {
     const decoded = decodeURIComponent(tokenQuery);
     return verifyTokenFn(decoded) ?? null;
