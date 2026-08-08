@@ -48,7 +48,7 @@ describe('MCP Client Integration Settings Hub Suite (Issue 41)', () => {
 
     await waitFor(() => expect(mockFetch).toHaveBeenCalledWith('/api/api-keys'));
 
-    await screen.findByText('Server URL:');
+    await screen.findByText('Server URL');
     const urlBlock = await screen.findByText(/^https?:\/\/.*\/api\/mcp$/);
     expect(urlBlock.textContent).toContain('/api/mcp');
   });
@@ -90,7 +90,7 @@ describe('MCP Client Integration Settings Hub Suite (Issue 41)', () => {
 
     await waitFor(() => expect(mockFetch).toHaveBeenCalledWith('/api/api-keys'));
 
-    screen.getByText('Run Handshake Diagnostics').click();
+    screen.getByText('Run Diagnostics').click();
 
     // Regression: the SDK's Streamable HTTP transport 406s any request whose
     // Accept header doesn't declare both media types (see mcp-route.test.ts
@@ -135,7 +135,7 @@ describe('MCP Client Integration Settings Hub Suite (Issue 41)', () => {
     render(React.createElement(McpSettingsHub));
 
     await waitFor(() => expect(mockFetch).toHaveBeenCalledWith('/api/api-keys'));
-    screen.getByText('Run Handshake Diagnostics').click();
+    screen.getByText('Run Diagnostics').click();
 
     await screen.findByText(/Forbidden/);
   });

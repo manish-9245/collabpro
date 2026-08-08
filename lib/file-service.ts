@@ -37,6 +37,35 @@ export function extractTextFromWhiteboard(whiteboard: string | null | undefined)
 }
 
 /**
+ * Extracts plain text from an Editor.js document (plain JSON; transparently
+ * reads legacy pre-#188 Yjs-wrapped rows too via decodeState), for feeding
+ * as LLM context. Deliberately limited to paragraph/header (`data.text`) and
+ * list (`data.items`) block types - not a full Editor.js block-type parser.
+ */
+export function extractTextFromDocument(document: string | null | undefined): string {
+  if (!document) return "";
+  try {
+    const decoded = decodeState(document, {});
+    const blocks: any[] = Array.isArray((decoded as any)?.blocks) ? (decoded as any).blocks : [];
+    const parts: string[] = [];
+    for (const block of blocks) {
+      const data = block?.data;
+      if (!data) continue;
+      if (typeof data.text === 'string' && data.text.trim()) {
+        parts.push(data.text.trim());
+      } else if (Array.isArray(data.items)) {
+        const items = data.items.filter((item: unknown) => typeof item === 'string');
+        if (items.length) parts.push(items.join(' '));
+      }
+    }
+    return parts.join("\n");
+  } catch (error) {
+    console.error("[extractTextFromDocument] error:", error);
+    return "";
+  }
+}
+
+/**
  * A highly unified, deep service module encapsulating all File database updates, 
  * whiteboard content validations, and cache invalidation triggers behind a single seam.
  * Provides maximum leverage and locality to eliminate duplicate invalidation blocks.

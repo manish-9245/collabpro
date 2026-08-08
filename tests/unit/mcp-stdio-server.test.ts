@@ -113,7 +113,7 @@ describe('scripts/mcp-server.ts stdio<->HTTP bridge', () => {
     expect(response.result.capabilities.tools).toBeTruthy();
   }, 15000);
 
-  it('forwards tools/list and relays all 4 real tool definitions back over stdio', async () => {
+  it('forwards tools/list and relays all real tool definitions back over stdio', async () => {
     const proc = startBridge({ COLLABPRO_API_KEY: 'test-key', COLLABPRO_BASE_URL: backendUrl });
 
     proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'tools/list', id: 2 }) + '\n');
@@ -125,6 +125,8 @@ describe('scripts/mcp-server.ts stdio<->HTTP bridge', () => {
       'collabpro_get_file',
       'collabpro_update_document',
       'collabpro_update_whiteboard',
+      'collabpro_search_icon_libraries',
+      'collabpro_get_library_icon',
     ]);
   }, 15000);
 

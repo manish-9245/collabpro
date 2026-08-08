@@ -70,3 +70,38 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
+
+// Backs the super-admin dashboard's "Simulate Event" button. Gated by the
+// same session + admin-allowlist check as GET above, instead of a
+// service-to-service bearer secret - a browser-side caller can never hold
+// that secret without shipping it in the JS bundle (issue #236).
+export async function POST(req: NextRequest) {
+  try {
+    const user = await getServerSession().getUser();
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    if (!isAdmin(user.email)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    // Dynamically imported so GET above never pays for (or triggers) this
+    // module's side effect: lib/notification-queue.ts registers a Kafka
+    // consumer subscription at module scope, which lib/kafka.ts counts
+    // towards the very activeConsumers/metrics numbers GET reports - a
+    // static top-level import here would make loading the dashboard itself
+    // perturb the telemetry it displays.
+    const { enqueueNotification, notificationPayloadSchema } = await import('@/lib/notification-queue');
+    const parsed = notificationPayloadSchema.safeParse(await req.json());
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Invalid simulate-event payload: ' + parsed.error.message }, { status: 400 });
+    }
+
+    await enqueueNotification(parsed.data);
+
+    return NextResponse.json({ queued: true, eventId: crypto.randomUUID() }, { status: 202 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ error: 'Invalid simulate-event payload: ' + message }, { status: 400 });
+  }
+}

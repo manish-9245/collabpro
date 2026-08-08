@@ -2,9 +2,13 @@ import { NextResponse } from 'next/server';
 import { enqueueSecurityScan, SecurityScanPayload } from '@/lib/security-queue';
 
 export async function POST(req: Request): Promise<Response> {
-  const authHeader = req.headers.get('Authorization');
-  const secret = process.env.NOTIFICATION_SECRET || 'ci-secret-token';
+  const secret = process.env.NOTIFICATION_SECRET;
+  if (!secret) {
+    console.error('NOTIFICATION_SECRET is not configured; refusing to authorize any security-audit request');
+    return NextResponse.json({ error: 'Server misconfiguration: quality gate token not set' }, { status: 500 });
+  }
 
+  const authHeader = req.headers.get('Authorization');
   if (!authHeader || !authHeader.startsWith('Bearer ') || authHeader.split(' ')[1] !== secret) {
     return NextResponse.json({ error: 'Unauthorized: Invalid quality gate token' }, { status: 401 });
   }

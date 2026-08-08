@@ -1,16 +1,28 @@
+import { z } from 'zod';
 import { ResilientQueue } from './queue';
 import { kafkaBroker } from './kafka';
 
-export interface NotificationPayload {
-  repository: string;
-  branch: string;
-  commit: string;
-  author: string;
-  build: { status: 'success' | 'failed'; durationMs: number };
-  tests: { passed: number; total: number };
-  snyk: { high: number; medium: number };
-  retryCount?: number;
-}
+export const notificationPayloadSchema = z.object({
+  repository: z.string().min(1),
+  branch: z.string().min(1),
+  commit: z.string().min(1),
+  author: z.string().min(1),
+  build: z.object({
+    status: z.enum(['success', 'failed']),
+    durationMs: z.number(),
+  }),
+  tests: z.object({
+    passed: z.number(),
+    total: z.number(),
+  }),
+  snyk: z.object({
+    high: z.number(),
+    medium: z.number(),
+  }),
+  retryCount: z.number().optional(),
+});
+
+export type NotificationPayload = z.infer<typeof notificationPayloadSchema>;
 
 // Instantiate the resilient queue specifically for notifications
 const notificationQueue = new ResilientQueue<NotificationPayload>('collabpro:queue:notifications');

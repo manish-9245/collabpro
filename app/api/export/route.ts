@@ -108,7 +108,13 @@ export async function GET(request: Request) {
     let elements: any[] = [];
     if (file.whiteboard) {
       try {
-        elements = JSON.parse(file.whiteboard);
+        const parsed = JSON.parse(file.whiteboard);
+        // The shared CAS writer (lib/cas-writes.ts) always stores whiteboards
+        // as { elements, files } now, not a bare array - this exporter
+        // predates that and needs to unwrap it the same way
+        // asWhiteboardElements() does elsewhere, or every current file
+        // renders as if it had zero elements.
+        elements = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.elements) ? parsed.elements : []);
       } catch (e) {
         console.error("Error parsing whiteboard elements:", e);
       }
@@ -122,10 +128,19 @@ export async function GET(request: Request) {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
     activeElements.forEach((el: any) => {
+      // Arrow/line elements are positioned by `points` relative to x/y and
+      // don't necessarily carry a meaningful width/height - treat a missing
+      // one as 0 rather than letting `el.x + undefined` produce NaN, which
+      // (since Math.min/max(n, NaN) is always NaN) would otherwise blank out
+      // the bounding box for every element once any single one is affected.
+      const width = Number.isFinite(el.width) ? el.width : 0;
+      const height = Number.isFinite(el.height) ? el.height : 0;
+      if (!Number.isFinite(el.x) || !Number.isFinite(el.y)) return;
+
       minX = Math.min(minX, el.x);
       minY = Math.min(minY, el.y);
-      maxX = Math.max(maxX, el.x + el.width);
-      maxY = Math.max(maxY, el.y + el.height);
+      maxX = Math.max(maxX, el.x + width);
+      maxY = Math.max(maxY, el.y + height);
     });
 
     if (minX === Infinity || activeElements.length === 0) {

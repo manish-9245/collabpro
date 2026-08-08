@@ -200,23 +200,30 @@ export default function ImageEditorModal({ isOpen, onClose, imageUrl, onSave }: 
   // Crop Ratio change
   const handleAspectRatioChange = (preset: 'free' | '1:1' | '4:3' | '16:9') => {
     setAspectRatioPreset(preset);
-    
+
     if (preset === 'free') return;
-    
+
     let ratio = 1;
     if (preset === '1:1') ratio = 1;
     else if (preset === '4:3') ratio = 4 / 3;
     else if (preset === '16:9') ratio = 16 / 9;
 
+    // The crop box's x/y/width/height are all percentages of the rendered
+    // image element, not pixels. A target ratio (e.g. 1:1) only comes out
+    // square in actual pixels if we convert through the image's real pixel
+    // aspect ratio (containerRatio) - same conversion handlePointerMove
+    // already does for drag-resize, applied here for the initial placement.
+    const imageWidth = imageRef.current?.clientWidth || 0;
+    const imageHeight = imageRef.current?.clientHeight || 0;
+    const containerRatio = imageWidth && imageHeight ? imageWidth / imageHeight : 1;
+
     updateState(prev => {
       let w = 80;
-      let h = 80;
-      
-      // Attempt to fit requested ratio
-      if (ratio > 1) {
-        h = w / ratio;
-      } else {
-        w = h * ratio;
+      let h = (w / ratio) * containerRatio;
+
+      if (h > 90) {
+        h = 90;
+        w = (h / containerRatio) * ratio;
       }
 
       const x = (100 - w) / 2;
@@ -447,33 +454,33 @@ export default function ImageEditorModal({ isOpen, onClose, imageUrl, onSave }: 
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-      {/* Dark backdrop overlay with slight blur */}
-      <div 
-        className="absolute inset-0 bg-slate-950/75 backdrop-blur-md transition-opacity duration-300 animate-in fade-in"
+      {/* Backdrop overlay with slight blur - dims the page behind the modal */}
+      <div
+        className="absolute inset-0 bg-slate-950/60 backdrop-blur-md transition-opacity duration-300 animate-in fade-in"
         onClick={onClose}
       />
 
-      {/* Editor Modal Window (Premium Dark/Glass System Theme) */}
-      <div className="relative w-full max-w-5xl bg-slate-900 border border-slate-800 rounded-[2rem] shadow-2xl overflow-hidden flex flex-col h-[85vh] max-h-[850px] animate-in zoom-in-95 duration-200 text-slate-100">
-        
+      {/* Editor Modal Window - matches the app's light UI (brand purple accents) */}
+      <div className="relative w-full max-w-5xl bg-white border border-slate-200 rounded-[2rem] shadow-2xl overflow-hidden flex flex-col h-[85vh] max-h-[850px] animate-in zoom-in-95 duration-200 text-slate-900">
+
         {/* Header toolbar */}
-        <div className="px-6 py-4.5 border-b border-slate-800/80 flex items-center justify-between bg-slate-950/40">
+        <div className="px-6 py-4.5 border-b border-slate-100 flex items-center justify-between bg-slate-50/60">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-500/10 rounded-xl text-blue-400">
-              <Sparkles className="h-5 w-5 animate-pulse" />
+            <div className="p-2 bg-[#6965db]/10 rounded-xl text-[#6965db]">
+              <Sparkles className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold tracking-tight text-white">Creative Image Manipulator</h2>
-              <p className="text-[11px] text-slate-400 font-medium">Non-destructive editing filters, crops, rotations, & sliders</p>
+              <h2 className="text-base font-bold tracking-tight text-slate-900">Creative Image Manipulator</h2>
+              <p className="text-[11px] text-slate-500 font-medium">Non-destructive editing filters, crops, rotations, & sliders</p>
             </div>
           </div>
-          
+
           <div className="flex items-center gap-2">
             {/* Undo / Redo */}
             <button
               onClick={handleUndo}
               disabled={historyIndex === 0}
-              className="p-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 rounded-xl text-slate-300 transition-colors"
+              className="p-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-slate-100 rounded-xl text-slate-600 transition-colors"
               title="Undo edit"
             >
               <Undo className="h-4 w-4" />
@@ -481,17 +488,17 @@ export default function ImageEditorModal({ isOpen, onClose, imageUrl, onSave }: 
             <button
               onClick={handleRedo}
               disabled={historyIndex === history.length - 1}
-              className="p-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 rounded-xl text-slate-300 transition-colors"
+              className="p-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-slate-100 rounded-xl text-slate-600 transition-colors"
               title="Redo edit"
             >
               <Redo className="h-4 w-4" />
             </button>
 
-            <div className="w-[1px] h-6 bg-slate-800 mx-1" />
+            <div className="w-[1px] h-6 bg-slate-200 mx-1" />
 
-            <button 
+            <button
               onClick={onClose}
-              className="p-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-slate-400 hover:text-white transition-colors"
+              className="p-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-500 hover:text-slate-900 transition-colors"
             >
               <X className="h-4 w-4" />
             </button>
@@ -499,87 +506,91 @@ export default function ImageEditorModal({ isOpen, onClose, imageUrl, onSave }: 
         </div>
 
         {/* Workspace Body Grid */}
-        <div className="flex-1 flex overflow-hidden min-h-0 bg-slate-950/20">
-          
-          {/* Main live interactive workspace stage (Left) */}
-          <div className="flex-1 flex flex-col items-center justify-center p-8 relative min-w-0 border-r border-slate-800/60 overflow-hidden">
-            
-            <div 
-              ref={containerRef}
-              className="relative max-w-full max-h-[500px] flex items-center justify-center select-none"
-            >
-              {/* Spinning loading spinner */}
-              {!imageLoaded && (
-                <div className="absolute inset-0 flex items-center justify-center bg-slate-900/40 rounded-2xl">
-                  <RefreshCw className="h-8 w-8 text-blue-500 animate-spin" />
-                </div>
-              )}
+        <div className="flex-1 flex overflow-hidden min-h-0 bg-slate-50/40">
 
-              {/* Editable base Image layer with real-time CSS filtering */}
-              <img
-                ref={imageRef}
-                src={imageUrl}
-                alt="Edit Preview"
-                onLoad={() => setImageLoaded(true)}
-                className={`max-w-full max-h-[500px] object-contain rounded-xl transition-transform duration-100 ${!imageLoaded ? 'invisible' : ''}`}
-                style={{
-                  filter: getFilterStyle(),
-                  transform: `rotate(${currentState.rotation}deg) scale(${currentState.flipH ? -1 : 1}, ${currentState.flipV ? -1 : 1})`,
-                }}
-              />
+          {/* Main live interactive workspace stage (Left) - a flex column so the
+              transform toolbar below sits in normal flow and reserves its own
+              space, rather than floating on top of the image and overlapping it */}
+          <div className="flex-1 flex flex-col p-8 relative min-w-0 border-r border-slate-100 overflow-hidden">
 
-              {/* Crop visual overlay box (rendered only when Crop tab is active) */}
-              {imageLoaded && isCropActive && (
-                <div 
-                  ref={cropOverlayRef}
-                  onPointerMove={handlePointerMove}
-                  onPointerUp={handlePointerUp}
-                  className="absolute border-2 border-dashed border-blue-500 z-10 rounded shadow-md cursor-grab active:cursor-grabbing"
+            <div className="flex-1 min-h-0 w-full flex items-center justify-center">
+              <div
+                ref={containerRef}
+                className="relative max-w-full max-h-full flex items-center justify-center select-none"
+              >
+                {/* Spinning loading spinner */}
+                {!imageLoaded && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-slate-100/60 rounded-2xl">
+                    <RefreshCw className="h-8 w-8 text-[#6965db] animate-spin" />
+                  </div>
+                )}
+
+                {/* Editable base Image layer with real-time CSS filtering */}
+                <img
+                  ref={imageRef}
+                  src={imageUrl}
+                  alt="Edit Preview"
+                  onLoad={() => setImageLoaded(true)}
+                  className={`max-w-full max-h-[440px] object-contain rounded-xl transition-transform duration-100 ${!imageLoaded ? 'invisible' : ''}`}
                   style={{
-                    left: `${currentState.crop.x}%`,
-                    top: `${currentState.crop.y}%`,
-                    width: `${currentState.crop.width}%`,
-                    height: `${currentState.crop.height}%`,
-                    boxShadow: '0 0 0 9999px rgba(15, 23, 42, 0.65)' // Dims outer area
+                    filter: getFilterStyle(),
+                    transform: `rotate(${currentState.rotation}deg) scale(${currentState.flipH ? -1 : 1}, ${currentState.flipV ? -1 : 1})`,
                   }}
-                  onPointerDown={(e) => handlePointerDown(e, 'move')}
-                >
-                  {/* Resizing crop corner nodes */}
-                  <div 
-                    className="absolute -top-1.5 -left-1.5 h-3.5 w-3.5 bg-blue-500 border border-white rounded-full cursor-nwse-resize z-20"
-                    onPointerDown={(e) => handlePointerDown(e, 'tl')}
-                  />
-                  <div 
-                    className="absolute -top-1.5 -right-1.5 h-3.5 w-3.5 bg-blue-500 border border-white rounded-full cursor-nesw-resize z-20"
-                    onPointerDown={(e) => handlePointerDown(e, 'tr')}
-                  />
-                  <div 
-                    className="absolute -bottom-1.5 -left-1.5 h-3.5 w-3.5 bg-blue-500 border border-white rounded-full cursor-nesw-resize z-20"
-                    onPointerDown={(e) => handlePointerDown(e, 'bl')}
-                  />
-                  <div 
-                    className="absolute -bottom-1.5 -right-1.5 h-3.5 w-3.5 bg-blue-500 border border-white rounded-full cursor-nwse-resize z-20"
-                    onPointerDown={(e) => handlePointerDown(e, 'br')}
-                  />
-                </div>
-              )}
+                />
+
+                {/* Crop visual overlay box (rendered only when Crop tab is active) */}
+                {imageLoaded && isCropActive && (
+                  <div
+                    ref={cropOverlayRef}
+                    onPointerMove={handlePointerMove}
+                    onPointerUp={handlePointerUp}
+                    className="absolute border-2 border-dashed border-[#6965db] z-10 rounded shadow-md cursor-grab active:cursor-grabbing"
+                    style={{
+                      left: `${currentState.crop.x}%`,
+                      top: `${currentState.crop.y}%`,
+                      width: `${currentState.crop.width}%`,
+                      height: `${currentState.crop.height}%`,
+                      boxShadow: '0 0 0 9999px rgba(15, 23, 42, 0.55)' // Dims outer area - a deliberate dark scrim over the canvas, independent of the app's light chrome, matching how every photo editor isolates the crop region
+                    }}
+                    onPointerDown={(e) => handlePointerDown(e, 'move')}
+                  >
+                    {/* Resizing crop corner nodes */}
+                    <div
+                      className="absolute -top-1.5 -left-1.5 h-3.5 w-3.5 bg-[#6965db] border border-white rounded-full cursor-nwse-resize z-20"
+                      onPointerDown={(e) => handlePointerDown(e, 'tl')}
+                    />
+                    <div
+                      className="absolute -top-1.5 -right-1.5 h-3.5 w-3.5 bg-[#6965db] border border-white rounded-full cursor-nesw-resize z-20"
+                      onPointerDown={(e) => handlePointerDown(e, 'tr')}
+                    />
+                    <div
+                      className="absolute -bottom-1.5 -left-1.5 h-3.5 w-3.5 bg-[#6965db] border border-white rounded-full cursor-nesw-resize z-20"
+                      onPointerDown={(e) => handlePointerDown(e, 'bl')}
+                    />
+                    <div
+                      className="absolute -bottom-1.5 -right-1.5 h-3.5 w-3.5 bg-[#6965db] border border-white rounded-full cursor-nwse-resize z-20"
+                      onPointerDown={(e) => handlePointerDown(e, 'br')}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
 
-            {/* Bottom mini transform shortcuts panel */}
+            {/* Transform shortcuts panel - normal flow, below the image stage */}
             {imageLoaded && (
-              <div className="absolute bottom-4.5 bg-slate-900/90 border border-slate-800/60 backdrop-blur-md py-1.5 px-3 rounded-full flex items-center gap-1 shadow-lg animate-in slide-in-from-bottom-5">
+              <div className="mt-4 shrink-0 mx-auto bg-white border border-slate-200 py-1.5 px-3 rounded-full flex items-center gap-1 shadow-md animate-in slide-in-from-bottom-3">
                 <button
                   onClick={handleRotate}
-                  className="p-2 hover:bg-slate-800 rounded-lg text-slate-300 hover:text-white transition-all flex items-center gap-1.5 text-xs font-bold"
+                  className="p-2 hover:bg-slate-100 rounded-lg text-slate-600 hover:text-slate-900 transition-all flex items-center gap-1.5 text-xs font-bold"
                   title="Rotate clockwise 90°"
                 >
                   <RotateCw className="h-3.5 w-3.5" />
                   Rotate
                 </button>
-                <div className="w-[1px] h-4 bg-slate-800 mx-1" />
+                <div className="w-[1px] h-4 bg-slate-200 mx-1" />
                 <button
                   onClick={handleFlipH}
-                  className={`p-2 hover:bg-slate-800 rounded-lg transition-all flex items-center gap-1.5 text-xs font-bold ${currentState.flipH ? 'bg-blue-600/35 text-blue-400 hover:bg-blue-600/35' : 'text-slate-300 hover:text-white'}`}
+                  className={`p-2 hover:bg-slate-100 rounded-lg transition-all flex items-center gap-1.5 text-xs font-bold ${currentState.flipH ? 'bg-[#6965db]/10 text-[#6965db] hover:bg-[#6965db]/10' : 'text-slate-600 hover:text-slate-900'}`}
                   title="Flip horizontally"
                 >
                   <FlipHorizontal className="h-3.5 w-3.5" />
@@ -587,7 +598,7 @@ export default function ImageEditorModal({ isOpen, onClose, imageUrl, onSave }: 
                 </button>
                 <button
                   onClick={handleFlipV}
-                  className={`p-2 hover:bg-slate-800 rounded-lg transition-all flex items-center gap-1.5 text-xs font-bold ${currentState.flipV ? 'bg-blue-600/35 text-blue-400 hover:bg-blue-600/35' : 'text-slate-300 hover:text-white'}`}
+                  className={`p-2 hover:bg-slate-100 rounded-lg transition-all flex items-center gap-1.5 text-xs font-bold ${currentState.flipV ? 'bg-[#6965db]/10 text-[#6965db] hover:bg-[#6965db]/10' : 'text-slate-600 hover:text-slate-900'}`}
                   title="Flip vertically"
                 >
                   <FlipVertical className="h-3.5 w-3.5" />
@@ -598,16 +609,16 @@ export default function ImageEditorModal({ isOpen, onClose, imageUrl, onSave }: 
           </div>
 
           {/* Right sidebar controls panel (Filters, sliders, crop presets) */}
-          <div className="w-80 flex flex-col h-full bg-slate-900/60 overflow-hidden">
-            
+          <div className="w-80 flex flex-col h-full bg-white overflow-hidden">
+
             {/* Sidebar Tabs */}
-            <div className="flex border-b border-slate-800/80 p-1.5 bg-slate-950/20">
+            <div className="flex border-b border-slate-100 p-1.5 bg-slate-50/60 gap-1">
               <button
                 onClick={() => {
                   setActiveTab('filters');
                   setIsCropActive(false);
                 }}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold transition-all ${activeTab === 'filters' ? 'bg-slate-800 text-white shadow-inner' : 'text-slate-400 hover:text-slate-200'}`}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold transition-all ${activeTab === 'filters' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
               >
                 <Sparkles className="h-3.5 w-3.5" />
                 Filters
@@ -617,7 +628,7 @@ export default function ImageEditorModal({ isOpen, onClose, imageUrl, onSave }: 
                   setActiveTab('adjust');
                   setIsCropActive(false);
                 }}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold transition-all ${activeTab === 'adjust' ? 'bg-slate-800 text-white shadow-inner' : 'text-slate-400 hover:text-slate-200'}`}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold transition-all ${activeTab === 'adjust' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
               >
                 <Sliders className="h-3.5 w-3.5" />
                 Adjust
@@ -627,7 +638,7 @@ export default function ImageEditorModal({ isOpen, onClose, imageUrl, onSave }: 
                   setActiveTab('crop');
                   setIsCropActive(true);
                 }}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold transition-all ${activeTab === 'crop' ? 'bg-slate-800 text-white shadow-inner' : 'text-slate-400 hover:text-slate-200'}`}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold transition-all ${activeTab === 'crop' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
               >
                 <Crop className="h-3.5 w-3.5" />
                 Crop
@@ -636,7 +647,7 @@ export default function ImageEditorModal({ isOpen, onClose, imageUrl, onSave }: 
 
             {/* Panel Tab Content scroll area */}
             <div className="flex-1 overflow-y-auto p-5.5 space-y-6">
-              
+
               {/* 1. FILTER PRESETS */}
               {activeTab === 'filters' && (
                 <div className="space-y-4">
@@ -644,7 +655,7 @@ export default function ImageEditorModal({ isOpen, onClose, imageUrl, onSave }: 
                     <Layers className="h-3.5 w-3.5" />
                     <span>Aesthetic Style Presets</span>
                   </div>
-                  
+
                   <div className="grid grid-cols-2 gap-3">
                     {PRESETS.map((preset) => {
                       const isActive = currentState.activePreset === preset.id;
@@ -652,17 +663,17 @@ export default function ImageEditorModal({ isOpen, onClose, imageUrl, onSave }: 
                         <button
                           key={preset.id}
                           onClick={() => handleApplyPreset(preset.id)}
-                          className={`group flex flex-col items-center p-3 rounded-2xl border transition-all text-center relative overflow-hidden ${isActive ? 'border-blue-500 bg-blue-600/10 text-white shadow-md' : 'border-slate-800 bg-slate-900/40 hover:bg-slate-850/50 hover:border-slate-700 text-slate-300'}`}
+                          className={`group flex flex-col items-center p-3 rounded-2xl border transition-all text-center relative overflow-hidden ${isActive ? 'border-[#6965db] bg-[#6965db]/5 text-slate-900 shadow-md shadow-[#6965db]/10' : 'border-slate-200 bg-white hover:bg-slate-50 hover:border-slate-300 text-slate-600'}`}
                         >
-                          <div 
-                            className="h-10 w-full rounded-lg bg-slate-800 mb-2 border border-slate-700 flex items-center justify-center text-[10px] font-extrabold text-slate-500 overflow-hidden relative"
+                          <div
+                            className="h-12 w-full rounded-lg bg-slate-100 mb-2 border border-slate-200 overflow-hidden relative"
                           >
-                            {/* Tiny thumbnail simulation */}
-                            <div 
-                              className="absolute inset-0 bg-gradient-to-tr from-orange-400 to-indigo-500"
+                            <img
+                              src={imageUrl}
+                              alt=""
+                              className="absolute inset-0 h-full w-full object-cover"
                               style={{ filter: preset.filter }}
                             />
-                            <span className="relative z-10 drop-shadow-md text-white">Preview</span>
                           </div>
                           <span className="text-[11px] font-bold group-hover:scale-105 transition-transform">{preset.name}</span>
                         </button>
@@ -682,7 +693,7 @@ export default function ImageEditorModal({ isOpen, onClose, imageUrl, onSave }: 
 
                   {/* Brightness */}
                   <div className="space-y-2.5">
-                    <div className="flex items-center justify-between text-xs font-bold text-slate-300">
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-700">
                       <div className="flex items-center gap-1.5">
                         <Sun className="h-3.5 w-3.5 text-orange-400" />
                         <span>Brightness</span>
@@ -698,13 +709,13 @@ export default function ImageEditorModal({ isOpen, onClose, imageUrl, onSave }: 
                         const val = parseInt(e.target.value, 10);
                         setCurrentState(prev => ({ ...prev, brightness: val, activePreset: 'custom' }));
                       }}
-                      className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                      className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-[#6965db]"
                     />
                   </div>
 
                   {/* Contrast */}
                   <div className="space-y-2.5">
-                    <div className="flex items-center justify-between text-xs font-bold text-slate-300">
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-700">
                       <div className="flex items-center gap-1.5">
                         <Contrast className="h-3.5 w-3.5 text-purple-400" />
                         <span>Contrast</span>
@@ -720,13 +731,13 @@ export default function ImageEditorModal({ isOpen, onClose, imageUrl, onSave }: 
                         const val = parseInt(e.target.value, 10);
                         setCurrentState(prev => ({ ...prev, contrast: val, activePreset: 'custom' }));
                       }}
-                      className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                      className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-[#6965db]"
                     />
                   </div>
 
                   {/* Saturation */}
                   <div className="space-y-2.5">
-                    <div className="flex items-center justify-between text-xs font-bold text-slate-300">
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-700">
                       <div className="flex items-center gap-1.5">
                         <Sparkles className="h-3.5 w-3.5 text-emerald-400" />
                         <span>Saturation</span>
@@ -742,7 +753,7 @@ export default function ImageEditorModal({ isOpen, onClose, imageUrl, onSave }: 
                         const val = parseInt(e.target.value, 10);
                         setCurrentState(prev => ({ ...prev, saturation: val, activePreset: 'custom' }));
                       }}
-                      className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                      className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-[#6965db]"
                     />
                   </div>
                 </div>
@@ -769,7 +780,7 @@ export default function ImageEditorModal({ isOpen, onClose, imageUrl, onSave }: 
                           key={preset.id}
                           type="button"
                           onClick={() => handleAspectRatioChange(preset.id as any)}
-                          className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all ${isActive ? 'border-blue-500 bg-blue-600/10 text-white shadow-inner' : 'border-slate-800 bg-slate-900/40 text-slate-400 hover:text-slate-200'}`}
+                          className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all ${isActive ? 'border-[#6965db] bg-[#6965db]/5 text-slate-900 shadow-sm' : 'border-slate-200 bg-white text-slate-500 hover:text-slate-700 hover:border-slate-300'}`}
                         >
                           {preset.name}
                         </button>
@@ -777,8 +788,8 @@ export default function ImageEditorModal({ isOpen, onClose, imageUrl, onSave }: 
                     })}
                   </div>
 
-                  <div className="p-3 bg-slate-950/40 rounded-xl border border-slate-800/80">
-                    <p className="text-[10px] leading-relaxed text-slate-400 font-medium">
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                    <p className="text-[10px] leading-relaxed text-slate-500 font-medium">
                       Drag the corner handles in the viewer to crop. Choose ratio presets above to clamp bounding bounds automatically.
                     </p>
                   </div>
@@ -790,10 +801,10 @@ export default function ImageEditorModal({ isOpen, onClose, imageUrl, onSave }: 
         </div>
 
         {/* Footer actions bar */}
-        <div className="px-6 py-4.5 border-t border-slate-800/80 flex items-center justify-between bg-slate-950/30">
+        <div className="px-6 py-4.5 border-t border-slate-100 flex items-center justify-between bg-slate-50/60">
           <button
             onClick={handleReset}
-            className="flex items-center gap-1.5 px-3.5 py-2 border border-slate-800 hover:border-slate-700 bg-slate-900 hover:bg-slate-850 rounded-xl text-xs font-bold text-slate-300 hover:text-white transition-all shadow-sm"
+            className="flex items-center gap-1.5 px-3.5 py-2 border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50 rounded-xl text-xs font-bold text-slate-600 hover:text-slate-900 transition-all shadow-sm"
           >
             <RotateCcw className="h-3.5 w-3.5" />
             Reset all
@@ -802,14 +813,14 @@ export default function ImageEditorModal({ isOpen, onClose, imageUrl, onSave }: 
           <div className="flex items-center gap-2.5">
             <button
               onClick={onClose}
-              className="px-4.5 py-2 border border-slate-800 bg-transparent hover:bg-slate-850 rounded-xl text-xs font-bold text-slate-400 hover:text-white transition-all"
+              className="px-4.5 py-2 border border-slate-200 bg-transparent hover:bg-slate-50 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-900 transition-all"
             >
               Cancel
             </button>
             <button
               onClick={handleSave}
               disabled={isSaving}
-              className="flex items-center gap-1.5 px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/50 disabled:cursor-not-allowed rounded-xl text-xs font-extrabold text-white transition-all shadow-md shadow-blue-900/20"
+              className="flex items-center gap-1.5 px-5 py-2 bg-[#6965db] hover:bg-[#5753c9] disabled:bg-[#6965db]/50 disabled:cursor-not-allowed rounded-xl text-xs font-extrabold text-white transition-all shadow-md shadow-[#6965db]/25"
             >
               {isSaving ? (
                 <>

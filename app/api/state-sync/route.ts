@@ -13,27 +13,19 @@ import { handleOrgService } from './services/orgService';
 import { handleNotificationService } from './services/notificationService';
 import { handleSnykService } from './services/snykService';
 import { handleSonarcloudService } from './services/sonarcloudService';
+import { handleAiSettingsService } from './services/aiSettingsService';
+import { handleChatService } from './services/chatService';
 import { checkFileAccess } from '@/lib/file-access';
+import { getClientIp } from '@/lib/rate-limiter';
+import { checkTeamAccess as checkTeamAccessDb, type TeamAccessPrismaClient } from '@/lib/team-access';
 
 async function checkTeamAccess(teamId: string, email: string): Promise<boolean> {
-  if (!teamId) return false;
-  const team = await prisma.team.findUnique({
-    where: { id: teamId }
-  });
-  if (!team) return false;
-  if (team.createdBy === email) return true;
-  const teamMember = await prisma.teamMember.findFirst({
-    where: {
-      teamId,
-      userEmail: email
-    }
-  });
-  return !!teamMember;
+  return checkTeamAccessDb(prisma as unknown as TeamAccessPrismaClient, teamId, email);
 }
 
 async function POST_handler(request: Request) {
   const ipAddress = (request && request.headers && typeof request.headers.get === 'function')
-    ? (request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || '127.0.0.1')
+    ? getClientIp(request)
     : '127.0.0.1';
 
   let body: any;
@@ -159,7 +151,9 @@ async function POST_handler(request: Request) {
       'files:updateVersionNote',
       'files:upsertPresence',
       'files:clearPresence',
-      'files:getActiveCollaborators'
+      'files:getActiveCollaborators',
+      'chat:getMessages',
+      'chat:clearHistory'
     ];
 
     if (filePaths.includes(path)) {
@@ -198,6 +192,9 @@ async function POST_handler(request: Request) {
       'teams:leaveTeam',
       'files:getFiles',
       'files:createFile',
+      'ai:getSettings',
+      'ai:saveSettings',
+      'ai:deleteSettings',
     ];
 
     if (teamPaths.includes(path)) {
@@ -246,6 +243,10 @@ async function POST_handler(request: Request) {
       result = await handleOrgService(path, args, authUserEmail, ipAddress);
     } else if (path.startsWith('notifications:')) {
       result = await handleNotificationService(path, args, authUserEmail, ipAddress);
+    } else if (path.startsWith('ai:')) {
+      result = await handleAiSettingsService(path, args, authUserEmail, ipAddress);
+    } else if (path.startsWith('chat:')) {
+      result = await handleChatService(path, args, authUserEmail, ipAddress);
     } else if (path.startsWith('snyk:')) {
       result = await handleSnykService(path, args, authUserEmail, ipAddress);
     } else if (path.startsWith('sonarcloud:')) {

@@ -1,7 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { kafkaBroker } from '@/lib/kafka';
-import { GET as getTelemetryGET } from '@/app/api/admin/telemetry/route';
+import { GET as getTelemetryGET, POST as postTelemetryPOST } from '@/app/api/admin/telemetry/route';
 import { NextRequest } from 'next/server';
+import type { NotificationPayload } from '@/lib/notification-queue';
+
+const mockEnqueueNotification = vi.fn();
+vi.mock('@/lib/notification-queue', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/notification-queue')>();
+  return {
+    ...actual,
+    enqueueNotification: (payload: NotificationPayload) => mockEnqueueNotification(payload),
+  };
+});
 
 // Mock session auth so the route's admin gate can be exercised deterministically.
 const mockGetUser = vi.fn();
@@ -170,6 +180,84 @@ describe('Apache Kafka Messaging & Super Admin Telemetry API', () => {
       expect(json.dbPoolIdle).toBe(5);
       expect(json.dbPoolWaiting).toBe(1);
       expect(json.cpuUsagePercent).toBeUndefined();
+    });
+  });
+
+  // Issue #236: the super-admin "Simulate Event" button used to call
+  // /api/notifications/dispatch directly from the browser with a hardcoded
+  // `Bearer super-secret-ci-token` header - shipping the service-to-service
+  // dispatch secret inside the client JS bundle. This route replaces that
+  // call: same session + ADMIN_EMAILS gate as GET above, no bearer secret
+  // ever reaches the browser.
+  describe('Super Admin "Simulate Event" POST endpoint (issue #236)', () => {
+    const ORIGINAL_ADMIN_EMAILS = process.env.ADMIN_EMAILS;
+
+    beforeEach(() => {
+      mockGetUser.mockReset();
+      mockEnqueueNotification.mockReset();
+      delete process.env.ADMIN_EMAILS;
+    });
+
+    afterEach(() => {
+      if (ORIGINAL_ADMIN_EMAILS === undefined) {
+        delete process.env.ADMIN_EMAILS;
+      } else {
+        process.env.ADMIN_EMAILS = ORIGINAL_ADMIN_EMAILS;
+      }
+    });
+
+    const payload = {
+      repository: 'collabpro',
+      branch: 'main',
+      commit: 'abc1234',
+      author: 'SuperAdmin-Simulator',
+      build: { status: 'success' as const, durationMs: 120000 },
+      tests: { passed: 10, total: 10 },
+      snyk: { high: 0, medium: 0 },
+    };
+
+    it('should return 401 when there is no authenticated session', async () => {
+      mockGetUser.mockResolvedValueOnce(null);
+
+      const request = new NextRequest('http://localhost:3000/api/admin/telemetry', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      const response = await postTelemetryPOST(request);
+
+      expect(response.status).toBe(401);
+      expect(mockEnqueueNotification).not.toHaveBeenCalled();
+    });
+
+    it('should return 403 when authenticated but not on the ADMIN_EMAILS allowlist', async () => {
+      process.env.ADMIN_EMAILS = 'admin@collabpro.com';
+      mockGetUser.mockResolvedValueOnce({ id: 'user-1', email: 'nobody@collabpro.com' });
+
+      const request = new NextRequest('http://localhost:3000/api/admin/telemetry', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      const response = await postTelemetryPOST(request);
+
+      expect(response.status).toBe(403);
+      expect(mockEnqueueNotification).not.toHaveBeenCalled();
+    });
+
+    it('should enqueue the payload and return 202 for an admin-allowlisted user, with no bearer secret required', async () => {
+      process.env.ADMIN_EMAILS = 'admin@collabpro.com';
+      mockGetUser.mockResolvedValueOnce({ id: 'user-1', email: 'admin@collabpro.com' });
+
+      const request = new NextRequest('http://localhost:3000/api/admin/telemetry', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      const response = await postTelemetryPOST(request);
+
+      expect(response.status).toBe(202);
+      const json = await response.json();
+      expect(json.queued).toBe(true);
+      expect(json.eventId).toBeDefined();
+      expect(mockEnqueueNotification).toHaveBeenCalledWith(payload);
     });
   });
 });

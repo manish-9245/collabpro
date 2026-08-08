@@ -230,9 +230,18 @@ export class StateSyncWSClient {
         if (dbPromise) {
           dbPromise.then(async (db) => {
             try {
-              const tx = db.transaction('mutations', 'readwrite');
-              const store = tx.objectStore('mutations');
-              const allMutations = await store.getAll();
+              // Read via the `idb` wrapper's shorthand (its own short-lived
+              // transaction), not a transaction held open across the fetch
+              // below - an IDB transaction auto-commits as soon as the
+              // microtask queue drains with no pending request on it, which
+              // happens long before a real network round-trip resolves.
+              // Holding `tx`/`store` across `await fetch(...)` meant the
+              // `store.delete()` after it always ran against an already-
+              // finished transaction (TransactionInactiveError), so a
+              // successfully-flushed mutation was never actually removed
+              // from the queue and kept re-flushing (harmlessly re-sent,
+              // but noisy and never confirmed) on every reconnect.
+              const allMutations = await db.getAll('mutations');
               for (const item of allMutations) {
                 try {
                   // Use HTTP fallback to guarantee flush of queued offline operations
@@ -241,7 +250,9 @@ export class StateSyncWSClient {
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ path: item.path, args: item.args }),
                   });
-                  await store.delete(item.id);
+                  // Fresh transaction per delete, opened only after the
+                  // fetch resolves - never spans the network call itself.
+                  await db.delete('mutations', item.id);
                 } catch(e) {
                   console.error('[CollabPro WS CLIENT] Failed to flush offline mutation', e);
                 }
@@ -387,14 +398,32 @@ export class StateSyncWSClient {
 
       if (!res.ok) {
         const errText = await res.text();
-        console.error(`[CollabPro WS CLIENT] HTTP Mutation Failed for ${path}: ${res.status} ${errText}`);
-        throw new Error(`Mutation failed: ${errText}`);
+        // 4xx means the server has definitively rejected THIS request as
+        // given (bad auth, forbidden, bad input, not found) - retrying the
+        // identical request later can never succeed, unlike a real
+        // connectivity blip. Tagging the status lets the catch block below
+        // (and callers, e.g. a presence heartbeat) tell "will never work"
+        // apart from "try again later".
+        const isClientError = res.status >= 400 && res.status < 500;
+        console[isClientError ? 'warn' : 'error'](`[CollabPro WS CLIENT] HTTP Mutation ${isClientError ? 'rejected' : 'failed'} for ${path}: ${res.status} ${errText}`);
+        const err: any = new Error(`Mutation failed: ${errText}`);
+        err.status = res.status;
+        throw err;
       }
 
       const json = await res.json();
       console.log(`[CollabPro WS CLIENT] HTTP Mutation Success for ${path}`);
       return json.data;
-    } catch (httpErr) {
+    } catch (httpErr: any) {
+      // A definitive 4xx must propagate to the caller, not be silently
+      // swallowed-and-optimistically-resolved like a real connectivity
+      // failure below - doing so previously meant e.g. a 403'd document
+      // save appeared to succeed in the UI (mutation() resolved) while
+      // nothing was actually persisted server-side.
+      if (typeof httpErr?.status === 'number' && httpErr.status >= 400 && httpErr.status < 500) {
+        throw httpErr;
+      }
+
       console.error("[CollabPro WS CLIENT] HTTP Mutation Threw Exception:", httpErr);
       // Compensate for lag on poor connections by queuing operations locally in IndexedDB
       console.log('[CollabPro WS] Queuing mutation offline for latency compensation...');
@@ -734,7 +763,14 @@ export function useMutation(mutationReference: any) {
     if (wsClient && wsClient.getStatus() === 'connected') {
       try {
         return await wsClient.mutation(mutationPath, args, fileId);
-      } catch (err) {
+      } catch (err: any) {
+        // A definitive 4xx (see wsClient.mutation's HTTP fallback) already
+        // tried both WS and HTTP internally and will fail identically on
+        // the raw fetch below - rethrow immediately instead of paying for
+        // a second guaranteed-403 round trip.
+        if (typeof err?.status === 'number' && err.status >= 400 && err.status < 500) {
+          throw err;
+        }
         console.warn("[CollabPro WS] Mutation via WS failed, falling back to HTTP:", err);
       }
     } else if (wsClient) {

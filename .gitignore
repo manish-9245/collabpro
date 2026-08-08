@@ -33,6 +33,10 @@ yarn-error.log*
 # But allow logo and public images
 !/public/**/*.png
 
+# Local-only AI/MCP demo script (see conversation) - never intended to be committed
+/scripts/demo-mcp-ai.ts
+/scripts/demo-login-diagram.ts
+
 
 
 

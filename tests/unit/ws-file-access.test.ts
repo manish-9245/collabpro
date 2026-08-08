@@ -1,5 +1,29 @@
 import { describe, it, expect, vi } from 'vitest';
-import { hasFileAccess } from '../../ws-server/file-access';
+import { hasFileAccess, resolveTokenUser } from '../../ws-server/file-access';
+
+// Issue #234: an unverified `?token=` value was previously JSON.parse'd and
+// trusted as the authenticated user whenever signature verification failed
+// (bad signature, malformed, expired) - letting anyone connect as any user
+// by claiming `?token=<url-encoded JSON>`.
+describe('resolveTokenUser (issue #234 — unsigned-token auth bypass)', () => {
+  it('returns the verified user when verification succeeds', () => {
+    const verifyTokenFn = vi.fn().mockReturnValue({ id: 'u1', email: 'user@test.com' });
+    const result = resolveTokenUser('some-jwt', verifyTokenFn);
+    expect(result).toEqual({ id: 'u1', email: 'user@test.com' });
+  });
+
+  it('does NOT fall back to parsing the raw value as JSON when verification fails', () => {
+    const forgedIdentity = encodeURIComponent(JSON.stringify({ id: 'attacker', email: 'victim@test.com' }));
+    const verifyTokenFn = vi.fn().mockReturnValue(null);
+    const result = resolveTokenUser(forgedIdentity, verifyTokenFn);
+    expect(result).toBeNull();
+  });
+
+  it('returns null when the token value is malformed', () => {
+    const verifyTokenFn = vi.fn().mockReturnValue(null);
+    expect(resolveTokenUser('%', verifyTokenFn)).toBeNull();
+  });
+});
 
 // Issue #198: hasFileAccess() was called on every cursor message and did
 // prisma.file.findUnique({ where: { id: fileId } }) with no `select`,

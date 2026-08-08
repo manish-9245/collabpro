@@ -18,7 +18,57 @@ vi.mock('ioredis', () => {
   };
 });
 
-import { checkRateLimit, type RateLimitConfig } from '@/lib/rate-limiter';
+import { checkRateLimit, getClientIp, type RateLimitConfig } from '@/lib/rate-limiter';
+
+describe('getClientIp (issue #235 — spoofable leftmost X-Forwarded-For hop)', () => {
+  it('prefers x-real-ip over x-forwarded-for — Railway sets it itself and a client cannot forge it', () => {
+    const request = new Request('http://localhost', {
+      headers: {
+        'x-real-ip': '203.0.113.5',
+        'x-forwarded-for': 'attacker-controlled-anything',
+      },
+    });
+    expect(getClientIp(request)).toBe('203.0.113.5');
+  });
+
+  it('falls back to the rightmost X-Forwarded-For hop when x-real-ip is absent', () => {
+    const request = new Request('http://localhost', {
+      headers: { 'x-forwarded-for': '9.9.9.9, 203.0.113.5' },
+    });
+    // 203.0.113.5 is the trailing hop; 9.9.9.9 is whatever the client
+    // claimed and must not be trusted as the sole signal.
+    expect(getClientIp(request)).toBe('203.0.113.5');
+  });
+
+  it('is not defeated by a client sending an arbitrary spoofed leftmost value, in the x-forwarded-for fallback path', () => {
+    const legit = new Request('http://localhost', {
+      headers: { 'x-forwarded-for': '203.0.113.5' },
+    });
+    const spoofed = new Request('http://localhost', {
+      headers: { 'x-forwarded-for': 'attacker-controlled-anything, 203.0.113.5' },
+    });
+    expect(getClientIp(spoofed)).toBe(getClientIp(legit));
+  });
+
+  it('ignores blank X-Forwarded-For hops', () => {
+    const request = new Request('http://localhost', {
+      headers: { 'x-forwarded-for': ' 9.9.9.9, , 203.0.113.5, ' },
+    });
+    expect(getClientIp(request)).toBe('203.0.113.5');
+  });
+
+  it('falls back to "unknown" when x-forwarded-for has no non-empty hop and x-real-ip is absent', () => {
+    const request = new Request('http://localhost', {
+      headers: { 'x-forwarded-for': ' , ' },
+    });
+    expect(getClientIp(request)).toBe('unknown');
+  });
+
+  it('falls back to "unknown" when no IP header is present', () => {
+    const request = new Request('http://localhost');
+    expect(getClientIp(request)).toBe('unknown');
+  });
+});
 
 describe('Redis-Backed Rate Limiter (Issue 197)', () => {
   const config: RateLimitConfig = { windowMs: 60_000, maxAttempts: 3 };

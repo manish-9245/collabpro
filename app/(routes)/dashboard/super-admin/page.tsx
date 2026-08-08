@@ -81,11 +81,11 @@ export default function SuperAdminTelemetryPage() {
         snyk: { high: Math.floor(Math.random() * 2), medium: Math.floor(Math.random() * 5) }
       };
 
-      // Set authorization secret
-      const res = await fetch('/api/notifications/dispatch', {
+      // Session-authenticated (admin-only) route - never ship the
+      // service-to-service dispatch secret to the browser.
+      const res = await fetch('/api/admin/telemetry', {
         method: 'POST',
         headers: {
-          'Authorization': 'Bearer super-secret-ci-token',
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(mockPayload)

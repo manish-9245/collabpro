@@ -63,21 +63,38 @@ export const LIMITS = {
   //   handful of legitimate visitors occasionally mistyping never trips it.
   SHARE_VERIFY: { windowMs: 15 * 60 * 1000, maxAttempts: 10 },
   SHARE_VERIFY_PER_LINK: { windowMs: 15 * 60 * 1000, maxAttempts: 60 },
+  // MCP tool calls: keyed per API key (not per IP - agentic clients are
+  // expected to make bursts of calls in a tight loop). 120/min is generous
+  // for normal agent use while bounding a runaway/misbehaving client or a
+  // leaked key from hammering the DB.
+  MCP: { windowMs: 60 * 1000, maxAttempts: 120 },
+  // AI chat sidebar sends: keyed per user. 20/min is generous for interactive
+  // chat while bounding runaway cost against a team's own LLM provider key.
+  AI_CHAT: { windowMs: 60 * 1000, maxAttempts: 20 },
 }
 
 /**
  * Resolves the client IP from proxy headers. Railway terminates TLS upstream,
- * so the socket address is always the proxy; x-forwarded-for is the only
- * signal available. It is client-spoofable, which is why it is used as a
- * coarse ceiling rather than the sole control.
+ * so the socket address is always the proxy. Railway's own docs document
+ * x-real-ip as the header its edge proxy itself sets from the real client
+ * connection and overwrites on the way in — a client cannot forge it — so it
+ * is checked first. x-forwarded-for is kept only as a fallback for
+ * environments where x-real-ip isn't set (local dev, a future non-Railway
+ * host); Railway doesn't document a guaranteed hop count for it, but the
+ * rightmost entry is still preferred over the leftmost, client-supplied one
+ * a request can freely set.
  */
 export function getClientIp(request: Request): string {
+  const realIp = request.headers.get('x-real-ip')?.trim()
+  if (realIp) return realIp
+
   const forwarded = request.headers.get('x-forwarded-for')
   if (forwarded) {
-    const first = forwarded.split(',')[0]?.trim()
-    if (first) return first
+    const hops = forwarded.split(',').map((hop) => hop.trim()).filter(Boolean)
+    const last = hops[hops.length - 1]
+    if (last) return last
   }
-  return request.headers.get('x-real-ip')?.trim() || 'unknown'
+  return 'unknown'
 }
 
 /**
