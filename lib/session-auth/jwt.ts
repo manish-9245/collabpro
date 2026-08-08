@@ -39,6 +39,21 @@ function hexToBase64Url(hex: string): string {
   return base64url(bytes);
 }
 
+// Constant-time string compare. Not node:crypto's timingSafeEqual because
+// this module also runs in middleware.ts's Edge Runtime, which has no
+// node:crypto (the same reason signing above uses js-sha256 instead of
+// node:crypto's HMAC). Always walks the full length of the longer input
+// with no early exit, so comparison time doesn't leak how many leading
+// characters matched.
+function timingSafeEqual(a: string, b: string): boolean {
+  const maxLength = Math.max(a.length, b.length);
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < maxLength; i++) {
+    diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  }
+  return diff === 0;
+}
+
 export interface SessionTokenPayload {
   id: string
   email: string
@@ -76,7 +91,7 @@ export function verifyToken(token: string): SessionTokenPayload | null {
   const expectedSignatureHex = sha256.hmac(getSecret(), signatureInput);
   const expectedSignatureBase64Url = hexToBase64Url(expectedSignatureHex);
 
-  if (expectedSignatureBase64Url !== signature) {
+  if (!timingSafeEqual(expectedSignatureBase64Url, signature)) {
     return null;
   }
 

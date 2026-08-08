@@ -186,6 +186,30 @@ class SimulatedKafkaBroker {
   }
 
   /**
+   * Force-commits every partition's offset up to its latest published
+   * offset, clearing consumer lag for real (issue #238 - the super-admin
+   * "Flush Lag" button previously did nothing but claim success). Returns
+   * the real per-topic count of messages that were actually skipped past,
+   * so the caller can report what happened instead of a fabricated number.
+   */
+  public flushLag(group = 'default-group'): { totalFlushed: number; perTopic: Record<string, number> } {
+    const perTopic: Record<string, number> = {};
+    let totalFlushed = 0;
+    for (const topic of Object.keys(this.topics)) {
+      let flushedForTopic = 0;
+      for (let p = 0; p < this.partitionCount; p++) {
+        const latest = this.latestOffsets[topic]?.[p] || 0;
+        const committed = this.committedOffsets[group]?.[topic]?.[p] || 0;
+        flushedForTopic += Math.max(0, latest - committed);
+        this.commitOffset(group, topic, p, latest);
+      }
+      perTopic[topic] = flushedForTopic;
+      totalFlushed += flushedForTopic;
+    }
+    return { totalFlushed, perTopic };
+  }
+
+  /**
    * Compiles high-fidelity infrastructure telemetry metrics
    */
   public getMetrics(): TelemetryMetrics {

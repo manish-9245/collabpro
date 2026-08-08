@@ -105,3 +105,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid simulate-event payload: ' + message }, { status: 400 });
   }
 }
+
+// Backs the super-admin dashboard's "Flush Lag" button. Previously that
+// button did nothing but claim a fabricated success (issue #238) - this
+// actually force-commits every partition's offset up to latest and reports
+// the real count of messages that were skipped past.
+export async function PATCH(req: NextRequest) {
+  try {
+    const user = await getServerSession().getUser();
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    if (!isAdmin(user.email)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const result = kafkaBroker.flushLag();
+    return NextResponse.json(result);
+  } catch (error) {
+    console.error('[Telemetry API] Failed to flush lag:', error instanceof Error ? error.message : String(error));
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  }
+}

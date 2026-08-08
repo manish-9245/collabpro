@@ -103,19 +103,24 @@ export default function SuperAdminTelemetryPage() {
     }
   };
 
-  const handleFlushLag = () => {
+  const handleFlushLag = async () => {
     setProcessing(true);
-    setTimeout(async () => {
-      try {
-        // Trigger a poll/process run on serverless workers
-        toast.success('Successfully cleared backlogs! Consumer offset committed in 3 partitions.');
-        fetchTelemetry();
-      } catch (err) {
-        // Safe fail
-      } finally {
-        setProcessing(false);
-      }
-    }, 1000);
+    try {
+      const res = await fetch('/api/admin/telemetry', { method: 'PATCH' });
+      if (!res.ok) throw new Error('Flush request failed');
+      const { totalFlushed } = await res.json();
+
+      toast.success(
+        totalFlushed > 0
+          ? `Cleared ${totalFlushed} pending message${totalFlushed === 1 ? '' : 's'} of consumer lag.`
+          : 'No consumer lag to clear — all partitions are already caught up.'
+      );
+      fetchTelemetry();
+    } catch (err: any) {
+      toast.error('Flush failed: ' + (err?.message || 'Unknown error'));
+    } finally {
+      setProcessing(false);
+    }
   };
 
   if (loading && !metrics) {
