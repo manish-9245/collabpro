@@ -10,11 +10,9 @@ import {
   Copy, 
   Check, 
   Terminal, 
-  Compass, 
-  HelpCircle, 
-  Activity, 
-  CheckCircle, 
-  ExternalLink, 
+  Compass,
+  Activity,
+  ExternalLink,
   Key, 
   Sparkles,
   RefreshCw,
@@ -25,7 +23,7 @@ import { toast } from 'sonner';
 
 export default function McpSettingsHub() {
   const { user }: any = useSessionAuth();
-  const [activeTab, setActiveTab] = useState<'remote' | 'claude' | 'cursor' | 'windsurf' | 'custom'>('remote');
+  const [activeTab, setActiveTab] = useState<'remote' | 'vscode' | 'claude' | 'cursor' | 'windsurf' | 'custom'>('remote');
   const [apiKeys, setApiKeys] = useState<any[]>([]);
   const [selectedKey, setSelectedKey] = useState<string>('YOUR_API_KEY_HERE');
   const [loadingKeys, setLoadingKeys] = useState(false);
@@ -93,8 +91,39 @@ export default function McpSettingsHub() {
     }
   }, null, 2);
 
+  // VS Code's native MCP client (Copilot Chat agent mode) reads this file
+  // straight from the workspace root and speaks Streamable HTTP directly -
+  // same transport as the "Remote" tab, just as a file instead of manual entry.
+  const vscodeConfig = JSON.stringify({
+    "inputs": [
+      {
+        "id": "collabproApiKey",
+        "type": "promptString",
+        "description": "CollabPro API key",
+        "password": true
+      }
+    ],
+    "servers": {
+      "collabpro": {
+        "type": "http",
+        "url": remoteMcpUrl,
+        "headers": { "Authorization": "Bearer ${input:collabproApiKey}" }
+      }
+    }
+  }, null, 2);
+
   const cursorCommand = `npx tsx ${mcpServerScriptPath}`;
   const cursorEnv = `COLLABPRO_API_KEY=${selectedKey}\nCOLLABPRO_BASE_URL=${baseAppUrl}`;
+
+  const CLIENTS: { id: typeof activeTab; label: string; icon: typeof Server; subtitle: string }[] = [
+    { id: 'remote', label: 'Remote', icon: Server, subtitle: 'No install needed' },
+    { id: 'vscode', label: 'VS Code', icon: Code, subtitle: "Copilot Chat's agent mode" },
+    { id: 'claude', label: 'Claude Desktop', icon: Sparkles, subtitle: "Anthropic's desktop app" },
+    { id: 'cursor', label: 'Cursor IDE', icon: Cpu, subtitle: 'AI Composer & Chat Agent' },
+    { id: 'windsurf', label: 'Windsurf', icon: Compass, subtitle: 'Cascade agent' },
+    { id: 'custom', label: 'Custom Stdio', icon: Terminal, subtitle: 'Any JSON-RPC client' },
+  ];
+  const activeClient = CLIENTS.find((c) => c.id === activeTab)!;
 
   // Real diagnostic against the HTTP MCP endpoint (/api/mcp), using the
   // selected key exactly as a real client would present it. This can't
@@ -164,387 +193,314 @@ export default function McpSettingsHub() {
   return (
     <div className="min-h-screen bg-slate-50/50 dark:bg-slate-950 font-sans pb-16">
       <Header />
-      <div className="max-w-6xl mx-auto px-6 pt-8">
-        
+      <div className="max-w-4xl mx-auto px-6 pt-8">
+
         {/* Hub Header */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-8 border-b border-slate-200/50 dark:border-slate-800/60">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6">
           <div>
-            <div className="flex items-center gap-2 text-[#6965db]">
-              <Cpu className="h-5 w-5 animate-pulse" />
-              <span className="text-[10px] font-black uppercase tracking-wider">Model Context Protocol</span>
-            </div>
-            <h1 className="text-3xl font-black text-slate-800 dark:text-slate-100 tracking-tight mt-1">
-              MCP Client Integration Hub
+            <h1 className="text-2xl font-black text-slate-900 dark:text-slate-100 tracking-tight">
+              MCP
             </h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-2xl leading-relaxed">
-              Connect external agentic AI engines directly to your self-hosted whiteboard canvas elements. /api/mcp is a spec-compliant remote MCP server — clients that support remote servers need just a URL and API key, zero local install. Claude, Cursor, or Windsurf can view and write system diagrams on your behalf!
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-xl leading-relaxed">
+              Choose your client, then follow the steps to connect it to CollabPro. /api/mcp is a real, spec-compliant remote MCP server.
             </p>
           </div>
-          
-          <div className="flex items-center gap-2">
-            <a 
-              href="https://modelcontextprotocol.io" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="px-3.5 py-1.5 border border-slate-200/60 dark:border-slate-800/80 bg-white dark:bg-slate-900 rounded-lg text-[10px] font-bold text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 flex items-center gap-1.5 transition-all"
-            >
-              Protocol Spec <ExternalLink className="h-3 w-3" />
-            </a>
+          <a
+            href="https://modelcontextprotocol.io"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="shrink-0 px-3.5 py-1.5 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-lg text-[10px] font-bold text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 flex items-center gap-1.5 transition-all w-fit"
+          >
+            Protocol Spec <ExternalLink className="h-3 w-3" />
+          </a>
+        </div>
+
+        {/* Prerequisites strip - API key + workspace path, needed before any
+            client config below can actually work, kept compact so the client
+            picker stays the visual centerpiece of the page */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-6 border-b border-slate-200/70 dark:border-slate-800/60">
+          <div>
+            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
+              <Key className="h-3 w-3" /> API Key
+            </div>
+            {loadingKeys ? (
+              <div className="text-[10px] text-slate-400 py-2">Loading...</div>
+            ) : apiKeys.length === 0 ? (
+              <div className="px-3 py-2 bg-amber-50 dark:bg-amber-950/20 border border-amber-200/50 dark:border-amber-900/40 rounded-lg text-[10px] text-amber-700 dark:text-amber-400 font-semibold">
+                No API keys yet — generate one in Profile settings first.
+              </div>
+            ) : (
+              <select
+                value={selectedKey}
+                onChange={(e) => setSelectedKey(e.target.value)}
+                className="w-full text-[10px] font-mono bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2.5 py-2 outline-none focus:border-[#6965db] text-slate-700 dark:text-slate-300 cursor-pointer"
+              >
+                {apiKeys.map((key) => (
+                  <option key={key.id} value={key.key}>
+                    {key.name} (***{key.key.substring(key.key.length - 8)})
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          <div>
+            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
+              <Code className="h-3 w-3" /> Local Workspace Path
+            </div>
+            <input
+              type="text"
+              value={workspacePath}
+              onChange={(e) => setWorkspacePath(e.target.value)}
+              placeholder="/Users/username/collabpro"
+              className="w-full text-[10px] font-mono bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2.5 py-2 outline-none focus:border-[#6965db] text-slate-700 dark:text-slate-300"
+            />
           </div>
         </div>
 
-        {/* Configuration Setup Blocks */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
-          
-          {/* Settings Left Controls Column */}
-          <div className="lg:col-span-1 space-y-6">
-            
-            {/* Step 1: Credentials selector */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/80 p-5 rounded-2xl shadow-sm">
-              <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
-                <Key className="h-4 w-4 text-[#6965db]" />
-                <span className="text-[11px] font-bold uppercase tracking-wider">1. Select API Key</span>
-              </div>
-              <p className="text-[9.5px] text-slate-400 dark:text-slate-500 mt-1.5 leading-relaxed">
-                Configurations are dynamically updated on selection. Keys can be managed in settings.
-              </p>
-              
-              <div className="mt-4">
-                {loadingKeys ? (
-                  <div className="text-center py-2 text-[10px] text-slate-400">Loading secure keys...</div>
-                ) : apiKeys.length === 0 ? (
-                  <div className="p-3.5 bg-amber-50 dark:bg-amber-950/20 border border-amber-200/40 dark:border-amber-900/40 rounded-xl">
-                    <p className="text-[10px] text-amber-700 dark:text-amber-400 font-semibold leading-normal">
-                      No active API keys found!
-                    </p>
-                    <p className="text-[8.5px] text-amber-600 dark:text-amber-500 mt-0.5 leading-normal">
-                      Please go to your Profile settings tab and generate a new key first.
-                    </p>
+        {/* Client picker - a row of selectable cards, the primary interaction */}
+        <div className="pt-6">
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+            {CLIENTS.map((client) => {
+              const isActive = activeTab === client.id;
+              const Icon = client.icon;
+              return (
+                <button
+                  key={client.id}
+                  type="button"
+                  onClick={() => setActiveTab(client.id)}
+                  className={`relative flex flex-col items-center justify-center gap-2 aspect-square rounded-2xl border-2 p-3 transition-all ${
+                    isActive
+                      ? 'border-[#6965db] bg-[#6965db]/5'
+                      : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                  }`}
+                >
+                  {isActive && (
+                    <span className="absolute top-2 right-2 h-4 w-4 rounded-full bg-[#6965db] text-white flex items-center justify-center">
+                      <Check className="h-2.5 w-2.5" strokeWidth={3} />
+                    </span>
+                  )}
+                  <div className={`h-9 w-9 rounded-xl flex items-center justify-center ${isActive ? 'bg-[#6965db]/15 text-[#6965db]' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'}`}>
+                    <Icon className="h-4.5 w-4.5" />
                   </div>
-                ) : (
-                  <select
-                    value={selectedKey}
-                    onChange={(e) => setSelectedKey(e.target.value)}
-                    className="w-full text-[10px] font-mono bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 outline-none focus:border-[#6965db] text-slate-700 dark:text-slate-300 cursor-pointer"
-                  >
-                    {apiKeys.map((key) => (
-                      <option key={key.id} value={key.key}>
-                        {key.name} (***{key.key.substring(key.key.length - 8)})
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
+                  <span className="text-[10.5px] font-bold text-slate-700 dark:text-slate-300 text-center leading-tight">{client.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Set up {client} panel */}
+        <div className="mt-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
+          <div className="flex items-center gap-3 pb-5 border-b border-slate-100 dark:border-slate-800">
+            <div className="h-9 w-9 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 shrink-0">
+              <activeClient.icon className="h-4.5 w-4.5" />
             </div>
-
-            {/* Step 1b: Workspace absolute path */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/80 p-5 rounded-2xl shadow-sm">
-              <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
-                <Code className="h-4 w-4 text-[#6965db]" />
-                <span className="text-[11px] font-bold uppercase tracking-wider">1b. Local Workspace Path</span>
-              </div>
-              <p className="text-[9.5px] text-slate-400 dark:text-slate-500 mt-1.5 leading-relaxed">
-                Provide the absolute path to your local CollabPro repository. This dynamically updates client script paths below!
-              </p>
-              
-              <div className="mt-4">
-                <input
-                  type="text"
-                  value={workspacePath}
-                  onChange={(e) => setWorkspacePath(e.target.value)}
-                  placeholder="/Users/username/collabpro"
-                  className="w-full text-[10px] font-mono bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 outline-none focus:border-[#6965db] text-slate-700 dark:text-slate-300"
-                />
-              </div>
+            <div>
+              <h2 className="text-sm font-black text-slate-900 dark:text-slate-100">Set up {activeClient.label}</h2>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">{activeClient.subtitle}</p>
             </div>
-
-            {/* Step 2: Live Diagnostic Handshake Visualizer */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/80 p-5 rounded-2xl shadow-sm flex flex-col">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
-                  <Activity className="h-4 w-4 text-[#6965db]" />
-                  <span className="text-[11px] font-bold uppercase tracking-wider">2. Diagnostics</span>
-                </div>
-                {diagnosticState === 'success' && (
-                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
-                )}
-              </div>
-              <p className="text-[9.5px] text-slate-400 dark:text-slate-500 mt-1.5 leading-relaxed">
-                Test the client handshake stdio connection parameters instantly.
-              </p>
-
-              {/* Handshake Console logs screen */}
-              <div className="flex-1 min-h-[140px] max-h-[140px] bg-slate-950 rounded-xl p-3.5 font-mono text-[8px] mt-4 overflow-y-auto space-y-1 select-none border border-slate-800 text-slate-400">
-                {handshakeLogs.length === 0 ? (
-                  <div className="text-slate-600 italic text-center pt-8">Console idle. Hit "Run Diagnostics" below.</div>
-                ) : (
-                  handshakeLogs.map((log, i) => (
-                    <div key={i} className={log.startsWith('✅') ? 'text-emerald-400 font-bold' : log.startsWith('❌') ? 'text-rose-400 font-bold' : 'text-slate-300'}>
-                      {log}
-                    </div>
-                  ))
-                )}
-              </div>
-
-              <button
-                type="button"
-                onClick={runDiagnostics}
-                disabled={diagnosticState === 'testing'}
-                className="mt-4 w-full h-9 bg-[#6965db] hover:bg-[#5753c9] text-white text-[10px] font-bold uppercase tracking-wider rounded-xl cursor-pointer shadow-md shadow-[#6965db]/20 flex items-center justify-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
-              >
-                {diagnosticState === 'testing' ? (
-                  <>
-                    <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Handshaking...
-                  </>
-                ) : (
-                  <>
-                    <Zap className="h-3.5 w-3.5" /> Run Handshake Diagnostics
-                  </>
-                )}
-              </button>
-            </div>
-
           </div>
 
-          {/* Setup Tabs Central Panels Column */}
-          <div className="lg:col-span-2 space-y-6">
-            
-            {/* Guide category selector tabs */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/80 p-5 rounded-2xl shadow-sm">
-              <div className="flex border-b border-slate-100 dark:border-slate-800 pb-3 gap-2">
-                <button
-                  onClick={() => setActiveTab('remote')}
-                  className={`px-4 py-2 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all ${
-                    activeTab === 'remote'
-                      ? 'bg-[#6965db]/10 text-[#6965db] dark:text-[#8572e3] font-black'
-                      : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'
-                  }`}
-                >
-                  Remote (No Install)
-                </button>
-                <button
-                  onClick={() => setActiveTab('claude')}
-                  className={`px-4 py-2 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all ${
-                    activeTab === 'claude' 
-                      ? 'bg-[#6965db]/10 text-[#6965db] dark:text-[#8572e3] font-black' 
-                      : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'
-                  }`}
-                >
-                  Claude Desktop
-                </button>
-                <button
-                  onClick={() => setActiveTab('cursor')}
-                  className={`px-4 py-2 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all ${
-                    activeTab === 'cursor' 
-                      ? 'bg-[#6965db]/10 text-[#6965db] dark:text-[#8572e3] font-black' 
-                      : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'
-                  }`}
-                >
-                  Cursor IDE
-                </button>
-                <button
-                  onClick={() => setActiveTab('windsurf')}
-                  className={`px-4 py-2 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all ${
-                    activeTab === 'windsurf' 
-                      ? 'bg-[#6965db]/10 text-[#6965db] dark:text-[#8572e3] font-black' 
-                      : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'
-                  }`}
-                >
-                  Windsurf
-                </button>
-                <button
-                  onClick={() => setActiveTab('custom')}
-                  className={`px-4 py-2 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all ${
-                    activeTab === 'custom' 
-                      ? 'bg-[#6965db]/10 text-[#6965db] dark:text-[#8572e3] font-black' 
-                      : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'
-                  }`}
-                >
-                  Custom Stdio
-                </button>
-              </div>
+          {/* TAB 0: REMOTE (NO INSTALL) - direct Streamable HTTP, no local process */}
+          {activeTab === 'remote' && (
+            <div className="mt-5 space-y-4 animate-in fade-in duration-200">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                /api/mcp is a real, spec-compliant Streamable HTTP MCP server. Any client that supports remote servers connects with just a URL and a Bearer token — no local process, no runtime to install. In your client's remote MCP server settings, add a new <strong>Streamable HTTP</strong> server with the URL and header below.
+              </p>
 
-              {/* TAB 0: REMOTE (NO INSTALL) - direct Streamable HTTP, no local process */}
-              {activeTab === 'remote' && (
-                <div className="mt-5 space-y-4 animate-in fade-in duration-200">
-                  <div className="space-y-1">
-                    <h3 className="text-xs font-black text-slate-800 dark:text-slate-200">Remote MCP Server (Recommended)</h3>
-                    <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                      /api/mcp is a real, spec-compliant Streamable HTTP MCP server. Any client that supports remote servers connects with just a URL and a Bearer token — no local process, no runtime to install.
-                    </p>
-                  </div>
-
-                  <div className="text-[9.5px] text-slate-500 dark:text-slate-400 space-y-1 bg-slate-50 dark:bg-slate-950 p-4 rounded-xl border border-slate-100 dark:border-slate-800">
-                    <p className="font-bold text-slate-700 dark:text-slate-300">How to load:</p>
-                    <p>1. In your client's remote MCP server settings, add a new server of type <strong>Streamable HTTP</strong>.</p>
-                    <p>2. Paste the Server URL below.</p>
-                    <p>3. Set the Authorization header to <span className="font-mono text-[#6965db]">Bearer &lt;your API key&gt;</span> using the key selected on the left.</p>
-                  </div>
-
-                  <div className="space-y-3.5">
-                    <div>
-                      <div className="text-[8.5px] font-black uppercase text-slate-400 tracking-wider mb-1">Server URL:</div>
-                      <div className="relative">
-                        <pre className="bg-slate-950 border border-slate-800 rounded-xl p-3.5 font-mono text-[8.5px] text-slate-300 overflow-x-auto select-all">
-                          {remoteMcpUrl}
-                        </pre>
-                        <button
-                          type="button"
-                          onClick={() => copyToClipboard(remoteMcpUrl, setCopiedCmd)}
-                          className="absolute top-2.5 right-3 p-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer transition-colors"
-                        >
-                          {copiedCmd ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
-                        </button>
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="text-[8.5px] font-black uppercase text-slate-400 tracking-wider mb-1">Authorization Header:</div>
-                      <pre className="bg-slate-950 border border-slate-800 rounded-xl p-3.5 font-mono text-[8.5px] text-emerald-400 overflow-x-auto select-all">
-                        {`Bearer ${selectedKey}`}
-                      </pre>
-                    </div>
-                  </div>
-
-                  <div className="p-4 bg-slate-50 dark:bg-slate-950 border border-slate-200/50 dark:border-slate-800/80 rounded-xl flex items-start gap-3">
-                    <Info className="h-4 w-4 text-[#6965db] shrink-0 mt-0.5" />
-                    <p className="text-[9px] text-slate-400 dark:text-slate-500 leading-relaxed">
-                      Client doesn't support remote servers yet? Use the Claude Desktop, Cursor IDE, or Windsurf tabs — they all launch a local stdio bridge that forwards to this same URL.
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* TAB 1: CLAUDE DESKTOP APP CONFIG */}
-              {activeTab === 'claude' && (
-                <div className="mt-5 space-y-4 animate-in fade-in duration-200">
-                  <div className="space-y-1">
-                    <h3 className="text-xs font-black text-slate-800 dark:text-slate-200">Claude Desktop Config Integrator</h3>
-                    <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                      Inject our custom tools definition straight into Anthropic's Claude Desktop config registry.
-                    </p>
-                  </div>
-
-                  {/* Step instructions */}
-                  <div className="text-[9.5px] text-slate-500 dark:text-slate-400 space-y-1 bg-slate-50 dark:bg-slate-950 p-4 rounded-xl border border-slate-100 dark:border-slate-800">
-                    <p className="font-bold text-slate-700 dark:text-slate-300">How to load:</p>
-                    <p>1. Open your Claude Desktop settings configurations file:</p>
-                    <p className="font-mono text-[8px] pl-3 text-[#6965db]">~/Library/Application Support/Claude/claude_desktop_config.json</p>
-                    <p>2. Copy the precompiled JSON block below and merge it under the root object.</p>
-                    <p>3. Relaunch your Claude Desktop Client app to establish connection handshake.</p>
-                  </div>
-
-                  {/* Preloaded code block editor */}
-                  <div className="relative">
-                    <pre className="bg-slate-950 border border-slate-800 rounded-xl p-4 font-mono text-[8.5px] text-slate-300 overflow-x-auto select-all max-h-[180px]">
-                      {claudeConfig}
-                    </pre>
+              <div className="space-y-3">
+                <div>
+                  <div className="text-[9px] font-black uppercase text-slate-400 tracking-wider mb-1.5">Server URL</div>
+                  <div className="flex items-center justify-between gap-3 bg-slate-900 rounded-xl px-4 py-3">
+                    <code className="font-mono text-[11px] text-slate-100 truncate select-all">{remoteMcpUrl}</code>
                     <button
                       type="button"
-                      onClick={() => copyToClipboard(claudeConfig, setCopiedText)}
-                      className="absolute top-3 right-3 p-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer transition-colors"
-                      title="Copy Configuration Payload"
+                      onClick={() => copyToClipboard(remoteMcpUrl, setCopiedCmd)}
+                      className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[10px] font-bold cursor-pointer transition-colors"
                     >
-                      {copiedText ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                      {copiedCmd ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                      {copiedCmd ? 'Copied' : 'Copy'}
                     </button>
                   </div>
                 </div>
-              )}
 
-              {/* TAB 2: CURSOR CUSTOM COMMAND */}
-              {activeTab === 'cursor' && (
-                <div className="mt-5 space-y-4 animate-in fade-in duration-200">
-                  <div className="space-y-1">
-                    <h3 className="text-xs font-black text-slate-800 dark:text-slate-200">Cursor IDE Custom Command Builder</h3>
-                    <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                      Connect Cursor's AI Composer and Chat Agent to read and edit your diagrams in real-time.
-                    </p>
-                  </div>
-
-                  <div className="text-[9.5px] text-slate-500 dark:text-slate-400 space-y-1 bg-slate-50 dark:bg-slate-950 p-4 rounded-xl border border-slate-100 dark:border-slate-800">
-                    <p className="font-bold text-slate-700 dark:text-slate-300">How to load:</p>
-                    <p>1. Open **Cursor Settings &gt; Features &gt; MCP**.</p>
-                    <p>2. Add a new MCP Server choosing type **stdio**.</p>
-                    <p>3. Configure the command path and environment variable mappings shown below.</p>
-                  </div>
-
-                  <div className="space-y-3.5">
-                    {/* Command setting item */}
-                    <div>
-                      <div className="text-[8.5px] font-black uppercase text-slate-400 tracking-wider mb-1">Executable Command:</div>
-                      <div className="relative">
-                        <pre className="bg-slate-950 border border-slate-800 rounded-xl p-3.5 font-mono text-[8.5px] text-slate-300 overflow-x-auto select-all">
-                          {cursorCommand}
-                        </pre>
-                        <button
-                          type="button"
-                          onClick={() => copyToClipboard(cursorCommand, setCopiedCmd)}
-                          className="absolute top-2.5 right-3 p-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer transition-colors"
-                        >
-                          {copiedCmd ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Environment Settings items */}
-                    <div>
-                      <div className="text-[8.5px] font-black uppercase text-slate-400 tracking-wider mb-1">Required Environment Values:</div>
-                      <pre className="bg-slate-950 border border-slate-800 rounded-xl p-3.5 font-mono text-[8.5px] text-emerald-400 overflow-x-auto select-all">
-                        {cursorEnv}
-                      </pre>
-                    </div>
+                <div>
+                  <div className="text-[9px] font-black uppercase text-slate-400 tracking-wider mb-1.5">Authorization Header</div>
+                  <div className="flex items-center justify-between gap-3 bg-slate-900 rounded-xl px-4 py-3">
+                    <code className="font-mono text-[11px] text-emerald-400 truncate select-all">{`Bearer ${selectedKey}`}</code>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(`Bearer ${selectedKey}`, setCopiedText)}
+                      className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[10px] font-bold cursor-pointer transition-colors"
+                    >
+                      {copiedText ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                      {copiedText ? 'Copied' : 'Copy'}
+                    </button>
                   </div>
                 </div>
-              )}
+              </div>
 
-              {/* TAB 3: WINDSURF */}
-              {activeTab === 'windsurf' && (
-                <div className="mt-5 space-y-4 animate-in fade-in duration-200">
-                  <div className="space-y-1">
-                    <h3 className="text-xs font-black text-slate-800 dark:text-slate-200">Windsurf IDE Client Connector</h3>
-                    <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                      Seamlessly link Windsurf's premium coding agents directly with whiteboard coordinates.
-                    </p>
-                  </div>
-
-                  <div className="text-[9.5px] text-slate-500 dark:text-slate-400 space-y-1 bg-slate-50 dark:bg-slate-950 p-4 rounded-xl border border-slate-100 dark:border-slate-800">
-                    <p className="font-bold text-slate-700 dark:text-slate-300">How to load:</p>
-                    <p>1. Open **Windsurf settings panel &gt; Model Context Protocol**.</p>
-                    <p>2. Copy and paste the standard Stdio command template and key mappings similar to the Cursor configuration settings.</p>
-                    <p>3. Restart the workspace window thread to initialize client node handshakes.</p>
-                  </div>
-                  
-                  <div className="p-4 bg-slate-50 dark:bg-slate-950 border border-slate-200/50 dark:border-slate-800/80 rounded-xl flex items-start gap-3">
-                    <Info className="h-4 w-4 text-[#6965db] shrink-0 mt-0.5" />
-                    <p className="text-[9px] text-slate-400 dark:text-slate-500 leading-relaxed">
-                      Tip: Windsurf uses the standard model-context-protocol specifications. If typescript packages are cached, you can launch the exporter runtime using direct npx nodes dynamically!
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* TAB 4: CUSTOM STDIO CLIENTS */}
-              {activeTab === 'custom' && (
-                <div className="mt-5 space-y-4 animate-in fade-in duration-200">
-                  <div className="space-y-1">
-                    <h3 className="text-xs font-black text-slate-800 dark:text-slate-200">Generic Stdio Node.js Client Setup</h3>
-                    <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                      Implement handshakes in custom Python, Node, or Go tooling engines.
-                    </p>
-                  </div>
-
-                  <div className="text-[9.5px] text-slate-500 dark:text-slate-400 space-y-2 bg-slate-50 dark:bg-slate-950 p-4 rounded-xl border border-slate-100 dark:border-slate-800 leading-relaxed">
-                    <p className="font-bold text-slate-700 dark:text-slate-300">Specifications:</p>
-                    <p>• Transmits JSON-RPC payload events through standard system pipelines (`stdin` / `stdout`).</p>
-                    <p>• Communicates natively using the Model Context Protocol v1 specifications.</p>
-                    <p>• API Authentication uses an `Authorization: Bearer &lt;key&gt;` HTTP header on the remote MCP endpoint (`COLLABPRO_API_KEY` is only the local bridge script's env var name for that same key).</p>
-                  </div>
-                </div>
-              )}
-
+              <p className="text-[10.5px] text-slate-400 dark:text-slate-500 leading-relaxed flex items-start gap-2">
+                <Info className="h-3.5 w-3.5 text-[#6965db] shrink-0 mt-0.5" />
+                Client doesn't support remote servers yet? Use the Claude Desktop, Cursor IDE, or Windsurf cards above — they all launch a local stdio bridge that forwards to this same URL.
+              </p>
             </div>
+          )}
+
+          {/* TAB 0b: VS CODE - native Streamable HTTP client via .vscode/mcp.json */}
+          {activeTab === 'vscode' && (
+            <div className="mt-5 space-y-4 animate-in fade-in duration-200">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                VS Code has a native MCP client that speaks Streamable HTTP directly — no bridge process. This repo already ships a <code className="font-mono text-[10px]">.vscode/mcp.json</code> with this exact config. Open this repo as a workspace, then run <strong>MCP: List Servers</strong> and start the <code className="font-mono text-[10px]">collabpro</code> entry — VS Code will prompt once for the API key selected above.
+              </p>
+
+              <div className="relative">
+                <pre className="bg-slate-900 rounded-xl p-4 font-mono text-[10.5px] text-slate-100 overflow-x-auto select-all max-h-[220px]">
+                  {vscodeConfig}
+                </pre>
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard(vscodeConfig, setCopiedCmd)}
+                  className="absolute top-3 right-3 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[10px] font-bold cursor-pointer transition-colors"
+                  title="Copy .vscode/mcp.json"
+                >
+                  {copiedCmd ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                  {copiedCmd ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+
+              <p className="text-[10.5px] text-slate-400 dark:text-slate-500 leading-relaxed flex items-start gap-2">
+                <Info className="h-3.5 w-3.5 text-[#6965db] shrink-0 mt-0.5" />
+                Tool calls made from VS Code's agent run on VS Code's own model/tokens — this server has no model provider key of its own and can't spend one.
+              </p>
+            </div>
+          )}
+
+          {/* TAB 1: CLAUDE DESKTOP APP CONFIG */}
+          {activeTab === 'claude' && (
+            <div className="mt-5 space-y-4 animate-in fade-in duration-200">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                Open your Claude Desktop config file at <code className="font-mono text-[10px] text-[#6965db]">~/Library/Application Support/Claude/claude_desktop_config.json</code>, merge the JSON below under the root object, then relaunch Claude Desktop.
+              </p>
+
+              <div className="relative">
+                <pre className="bg-slate-900 rounded-xl p-4 font-mono text-[10.5px] text-slate-100 overflow-x-auto select-all max-h-[180px]">
+                  {claudeConfig}
+                </pre>
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard(claudeConfig, setCopiedText)}
+                  className="absolute top-3 right-3 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[10px] font-bold cursor-pointer transition-colors"
+                  title="Copy configuration"
+                >
+                  {copiedText ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                  {copiedText ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: CURSOR CUSTOM COMMAND */}
+          {activeTab === 'cursor' && (
+            <div className="mt-5 space-y-4 animate-in fade-in duration-200">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                Open <strong>Cursor Settings &gt; Features &gt; MCP</strong>, add a new server of type <strong>stdio</strong>, then set the command and environment variables below.
+              </p>
+
+              <div className="space-y-3">
+                <div>
+                  <div className="text-[9px] font-black uppercase text-slate-400 tracking-wider mb-1.5">Command</div>
+                  <div className="flex items-center justify-between gap-3 bg-slate-900 rounded-xl px-4 py-3">
+                    <code className="font-mono text-[11px] text-slate-100 truncate select-all">{cursorCommand}</code>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(cursorCommand, setCopiedCmd)}
+                      className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[10px] font-bold cursor-pointer transition-colors"
+                    >
+                      {copiedCmd ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                      {copiedCmd ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-[9px] font-black uppercase text-slate-400 tracking-wider mb-1.5">Environment Variables</div>
+                  <pre className="bg-slate-900 rounded-xl p-4 font-mono text-[10.5px] text-emerald-400 overflow-x-auto select-all">
+                    {cursorEnv}
+                  </pre>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: WINDSURF */}
+          {activeTab === 'windsurf' && (
+            <div className="mt-5 space-y-4 animate-in fade-in duration-200">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                Open <strong>Windsurf settings &gt; Model Context Protocol</strong> and add a new stdio server using the same command and environment variables as the Cursor card, then restart the workspace window.
+              </p>
+
+              <p className="text-[10.5px] text-slate-400 dark:text-slate-500 leading-relaxed flex items-start gap-2">
+                <Info className="h-3.5 w-3.5 text-[#6965db] shrink-0 mt-0.5" />
+                Windsurf follows the standard Model Context Protocol spec — the Cursor card's command and env values work here unchanged.
+              </p>
+            </div>
+          )}
+
+          {/* TAB 4: CUSTOM STDIO CLIENTS */}
+          {activeTab === 'custom' && (
+            <div className="mt-5 space-y-2 animate-in fade-in duration-200 text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+              <p>• Transmits JSON-RPC payloads over standard <code className="font-mono text-[10px]">stdin</code> / <code className="font-mono text-[10px]">stdout</code> pipes.</p>
+              <p>• Speaks the Model Context Protocol v1 spec natively.</p>
+              <p>• Authenticates with an <code className="font-mono text-[10px]">Authorization: Bearer &lt;key&gt;</code> header on the remote endpoint (<code className="font-mono text-[10px]">COLLABPRO_API_KEY</code> is only the local bridge script's env var name for that same key).</p>
+            </div>
+          )}
+        </div>
+
+        {/* Diagnostics - live handshake test against the real MCP endpoint */}
+        <div className="mt-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
+              <Activity className="h-4 w-4 text-[#6965db]" />
+              <span className="text-xs font-black">Diagnostics</span>
+            </div>
+            {diagnosticState === 'success' && (
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
+            )}
+          </div>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+            Test the selected API key against the live MCP endpoint.
+          </p>
+
+          <div className="mt-4 min-h-[110px] max-h-[140px] bg-slate-900 rounded-xl p-3.5 font-mono text-[10px] overflow-y-auto space-y-1 select-none">
+            {handshakeLogs.length === 0 ? (
+              <div className="text-slate-500 italic text-center pt-8">Console idle. Run diagnostics below.</div>
+            ) : (
+              handshakeLogs.map((log, i) => (
+                <div key={i} className={log.startsWith('✅') ? 'text-emerald-400 font-bold' : log.startsWith('❌') ? 'text-rose-400 font-bold' : 'text-slate-300'}>
+                  {log}
+                </div>
+              ))
+            )}
           </div>
 
+          <button
+            type="button"
+            onClick={runDiagnostics}
+            disabled={diagnosticState === 'testing'}
+            className="mt-4 w-full sm:w-auto px-5 h-9 bg-[#6965db] hover:bg-[#5753c9] text-white text-[11px] font-bold rounded-xl cursor-pointer shadow-md shadow-[#6965db]/20 flex items-center justify-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
+          >
+            {diagnosticState === 'testing' ? (
+              <>
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Handshaking...
+              </>
+            ) : (
+              <>
+                <Zap className="h-3.5 w-3.5" /> Run Diagnostics
+              </>
+            )}
+          </button>
         </div>
 
       </div>

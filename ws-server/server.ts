@@ -20,7 +20,39 @@ import {
   runMutation,
 } from './mutations';
 import { queueDbWrite as sharedQueueDbWrite } from './queue-db-write';
+import fs from 'fs';
+import path from 'path';
 
+/**
+ * Unlike `next dev`/`next start`, running this file directly via `tsx` does
+ * NOT load `.env`/`.env.local` automatically - so SESSION_SECRET,
+ * DATABASE_URL, etc. were silently undefined here even though the exact
+ * same repo's `npm run dev` had them. The concrete symptom: every WS
+ * handshake's `verifyToken()` call failed (SESSION_SECRET undefined ->
+ * every token looks invalid), so `npm run ws:start` rejected 100% of
+ * connections as Unauthorized in local dev, despite the README instructing
+ * exactly that command. Loaded here (after real imports, before anything
+ * reads these vars - lib/db.ts and lib/session-auth/jwt.ts both read
+ * process.env lazily inside functions, not at module load, so this runs in
+ * time) rather than via `--env-file` in the npm script, since that flag
+ * hard-errors when the file doesn't exist - which it deliberately doesn't
+ * in Docker/production, where real env vars are injected directly.
+ */
+function loadDotEnvIfPresent(file: string) {
+  if (!fs.existsSync(file)) return;
+  for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+    const match = line.match(/^\s*([\w.-]+)\s*=\s*(.*)?\s*$/);
+    if (!match) continue;
+    const key = match[1];
+    let value = (match[2] ?? '').trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    if (!(key in process.env)) process.env[key] = value;
+  }
+}
+loadDotEnvIfPresent(path.resolve(__dirname, '../.env'));
+loadDotEnvIfPresent(path.resolve(__dirname, '../.env.local'));
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : (process.env.WS_PORT ? parseInt(process.env.WS_PORT, 10) : 3001);
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
@@ -401,12 +433,32 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
               ws.send(JSON.stringify({ type: 'error', message: 'Forbidden: You do not have access to this subscription' }));
               break;
             }
+          } else if (path === 'ai:getSettings') {
+            // Team-membership read gate, matching app/api/state-sync/route.ts's
+            // teamPaths (any member can read baseUrl/model/maskedKey - harmless).
+            const teamId = args?.teamId;
+            const hasAccess = teamId && await checkTeamAccessDb(prisma as unknown as TeamAccessPrismaClient, teamId, user.email);
+            if (!hasAccess) {
+              console.warn(`[WS SUB SECURITY REJECT] User ${user.id} attempted unauthorized subscription to ai:getSettings for team: ${teamId}`);
+              ws.send(JSON.stringify({ type: 'error', message: 'Forbidden: You do not have access to this team' }));
+              break;
+            }
+          } else if (path === 'chat:getMessages') {
+            // File-access gate; self-scoping to the caller's own messages
+            // happens inside executeQuery via `user.email`, not `args`.
+            const fileId = args?.fileId;
+            const hasAccess = fileId && await hasFileAccess(connection, fileId, user.email);
+            if (!hasAccess) {
+              console.warn(`[WS SUB SECURITY REJECT] User ${user.id} attempted unauthorized subscription to chat:getMessages for file: ${fileId}`);
+              ws.send(JSON.stringify({ type: 'error', message: 'Forbidden: You do not have access to this file' }));
+              break;
+            }
           }
           const subKey = `${path}:${JSON.stringify(args || {})}`;
           connection.subscriptions.set(subKey, { path, args });
           console.log(`[WS SUB] User ${user.email} subscribed to: ${subKey}`);
 
-          const initialData = await executeQuery(path, args);
+          const initialData = await executeQuery(path, args, user.email);
           ws.send(JSON.stringify({ type: 'query-update', path, args, data: initialData }));
           break;
         }
@@ -457,7 +509,7 @@ wss.on('connection', (ws: WebSocket, request: any, user: any) => {
           // inside executeMutation reaches the client as
           // `{ success: false }` instead of being reported as success
           // regardless.
-          const resultMessage = await runMutation(executeMutation, path, args);
+          const resultMessage = await runMutation((p, a) => executeMutation(p, a, user.email), path, args);
           ws.send(JSON.stringify(resultMessage));
 
           if (!resultMessage.success) {
@@ -543,8 +595,8 @@ wss.on('close', () => {
 // extracted to ./mutations.ts (parameterized on the prisma client and
 // queueDbWrite so they're unit-testable without a live socket harness) and
 // bound to the real prisma client / queueDbWrite here.
-const executeQuery = (path: string, args: any) => wsExecuteQuery(prisma, path, args);
-const executeMutation = (path: string, args: any) => wsExecuteMutation(prisma, queueDbWrite, path, args);
+const executeQuery = (path: string, args: any, userEmail?: string) => wsExecuteQuery(prisma, path, args, userEmail);
+const executeMutation = (path: string, args: any, userEmail?: string) => wsExecuteMutation(prisma, queueDbWrite, path, args, userEmail);
 
 server.listen(PORT, () => {
   console.log(`[CollabPro WS SERVER] Standalone WebSocket Gateway running on http://localhost:${PORT}`);

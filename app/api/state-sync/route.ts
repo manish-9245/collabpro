@@ -13,6 +13,8 @@ import { handleOrgService } from './services/orgService';
 import { handleNotificationService } from './services/notificationService';
 import { handleSnykService } from './services/snykService';
 import { handleSonarcloudService } from './services/sonarcloudService';
+import { handleAiSettingsService } from './services/aiSettingsService';
+import { handleChatService } from './services/chatService';
 import { checkFileAccess } from '@/lib/file-access';
 import { getClientIp } from '@/lib/rate-limiter';
 import { checkTeamAccess as checkTeamAccessDb, type TeamAccessPrismaClient } from '@/lib/team-access';
@@ -149,7 +151,9 @@ async function POST_handler(request: Request) {
       'files:updateVersionNote',
       'files:upsertPresence',
       'files:clearPresence',
-      'files:getActiveCollaborators'
+      'files:getActiveCollaborators',
+      'chat:getMessages',
+      'chat:clearHistory'
     ];
 
     if (filePaths.includes(path)) {
@@ -188,6 +192,9 @@ async function POST_handler(request: Request) {
       'teams:leaveTeam',
       'files:getFiles',
       'files:createFile',
+      'ai:getSettings',
+      'ai:saveSettings',
+      'ai:deleteSettings',
     ];
 
     if (teamPaths.includes(path)) {
@@ -236,6 +243,10 @@ async function POST_handler(request: Request) {
       result = await handleOrgService(path, args, authUserEmail, ipAddress);
     } else if (path.startsWith('notifications:')) {
       result = await handleNotificationService(path, args, authUserEmail, ipAddress);
+    } else if (path.startsWith('ai:')) {
+      result = await handleAiSettingsService(path, args, authUserEmail, ipAddress);
+    } else if (path.startsWith('chat:')) {
+      result = await handleChatService(path, args, authUserEmail, ipAddress);
     } else if (path.startsWith('snyk:')) {
       result = await handleSnykService(path, args, authUserEmail, ipAddress);
     } else if (path.startsWith('sonarcloud:')) {

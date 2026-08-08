@@ -33,6 +33,8 @@ model User {
   invitationsAsInvitee Invitation[] @relation("InvitationInvitee")
   notificationsById Notification[] @relation("Notifications")
   apiKeysById ApiKey[]       @relation("ApiKeys")
+  chatMessages ChatMessage[]
+  chatMessagesById ChatMessage[] @relation("ChatMessages")
 }
 
 model Team {
@@ -51,6 +53,7 @@ model Team {
   invitations  Invitation[]
   libraryItems SharedLibraryItem[]
   orgSetting   OrgSetting?
+  aiSettings   TeamAiSettings?
   auditLogs    AuditLog[]
   owner        User?               @relation("TeamOwner", fields: [userId], references: [id], onDelete: SetNull)
 
@@ -72,6 +75,7 @@ model File {
   versions       FileVersion[]
   presences      FilePresence[]
   sharedLinks    SharedLink[]
+  chatMessages   ChatMessage[]
 
   @@index([teamId])
   @@index([createdBy])
@@ -131,6 +135,39 @@ model FilePresence {
   @@unique([fileId, userEmail])
   @@unique([fileId, userId])
   @@index([fileId, lastSeenAt])
+}
+
+model TeamAiSettings {
+  id           String   @id @default(uuid())
+  teamId       String   @unique
+  baseUrl      String
+  encryptedKey String
+  maskedKey    String   @default("")
+  model        String
+  updatedBy    String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  team         Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+}
+
+// Unbounded history, no pruning job - matches AuditLog/FileVersion/
+// Notification precedent (also unbounded); the (fileId, userEmail, createdAt)
+// index keeps per-conversation reads fast regardless of table size.
+// ponytail: revisit with a scheduled prune job only if row count becomes a
+// real problem.
+model ChatMessage {
+  id        String   @id @default(uuid())
+  fileId    String
+  userEmail String
+  userId    String?
+  role      String
+  content   String
+  createdAt DateTime @default(now())
+  file      File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userEmail], references: [email], onDelete: Cascade)
+  userById  User?    @relation("ChatMessages", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([fileId, userEmail, createdAt])
 }
 
 model Invitation {

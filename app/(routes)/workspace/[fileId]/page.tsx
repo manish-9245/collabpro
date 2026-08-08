@@ -107,8 +107,17 @@ function Workspace({params}:any) {
             userColor: getPresenceColor(user.email),
             workspaceStatus: getPresenceStatus(),
           });
-        } catch (error) {
+        } catch (error: any) {
           console.error('Failed to update presence heartbeat:', error);
+          // 4xx (see lib/state-sync/react.tsx's mutation()) means the
+          // server has definitively rejected this - e.g. access to this
+          // file was revoked mid-session. Retrying the identical request
+          // every 5-45s forever can never succeed; stop instead of
+          // hammering a permanently-forbidden endpoint.
+          if (typeof error?.status === 'number' && error.status >= 400 && error.status < 500) {
+            active = false;
+            return;
+          }
         }
 
         // Calculate dynamic delay: 5s when active, 45s when idle (>60s inactivity)
@@ -289,10 +298,27 @@ function Workspace({params}:any) {
               activePanel={activePanel}
             />
           </div>
+
+          {/* AI Co-Pilot Sidebar - must live INSIDE this flex-1 row (next to
+              the Document/Canvas panels), not after it. AiSidebar uses
+              h-full, which resolves against its immediate containing block:
+              placed as a sibling of this row (its previous position) that
+              block is the outer h-screen container, so h-full grabbed the
+              FULL page height instead of the height remaining below
+              WorkspaceHeader - overflowing the outer overflow-hidden
+              container by exactly the header's height and clipping the
+              input box off-screen. Inside this row, h-full correctly
+              resolves against the row's own (already header-aware) height. */}
+          <AiSidebar
+            isOpen={isAiOpen}
+            onClose={() => setIsAiOpen(false)}
+            fileId={fileId}
+            fileData={fileData}
+          />
         </div>
 
         {/* Floating AI Companion Trigger Button */}
-        <button 
+        <button
           type="button"
           onClick={() => setIsAiOpen(prev => !prev)}
           className="fixed bottom-20 right-6 z-50 h-10 w-10 bg-gradient-to-tr from-[#6965db] to-[#8572e3] text-white shadow-xl rounded-full flex items-center justify-center hover:scale-105 active:scale-95 cursor-pointer transition-all border border-[#6965db]/40 group"
@@ -300,13 +326,6 @@ function Workspace({params}:any) {
         >
           <Sparkles className="h-4.5 w-4.5 group-hover:rotate-12 transition-transform" />
         </button>
-
-        <AiSidebar 
-          isOpen={isAiOpen} 
-          onClose={() => setIsAiOpen(false)} 
-          fileId={fileId} 
-          fileData={fileData} 
-        />
      </div>
    )
 }

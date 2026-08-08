@@ -10,6 +10,8 @@
 import { mapConvexIds } from '../lib/state-sync-helpers';
 import { casUpdateDocument, casUpdateWhiteboard } from '../lib/cas-writes';
 import { extractTextFromWhiteboard } from '../lib/file-service';
+import { encryptSecret } from '../lib/crypto-secrets';
+import { logAuditEvent } from '../lib/audit';
 
 export interface MutationPrismaClient {
   file: {
@@ -17,6 +19,18 @@ export interface MutationPrismaClient {
     create: (args: any) => Promise<any>;
     update: (args: any) => Promise<any>;
     updateMany: (args: any) => Promise<{ count: number }>;
+  };
+  team: {
+    findUnique: (args: any) => Promise<any>;
+  };
+  teamAiSettings: {
+    findUnique: (args: any) => Promise<any>;
+    upsert: (args: any) => Promise<any>;
+    deleteMany: (args: any) => Promise<{ count: number }>;
+  };
+  chatMessage: {
+    findMany: (args: any) => Promise<any[]>;
+    deleteMany: (args: any) => Promise<{ count: number }>;
   };
 }
 
@@ -27,7 +41,15 @@ export type QueueDbWrite = (
   executeSave: () => Promise<any>
 ) => Promise<any>;
 
-export async function executeQuery(prismaClient: MutationPrismaClient, path: string, args: any): Promise<any> {
+/**
+ * `userEmail` is the authenticated WS connection's own email (never
+ * anything from `args`) - only `chat:getMessages` needs it, to self-scope
+ * to the caller's own messages exactly like
+ * app/api/state-sync/services/chatService.ts does over HTTP. Access to the
+ * team/file itself is checked by the caller (server.ts's `subscribe`
+ * handler) before this runs, same split as the mutation side below.
+ */
+export async function executeQuery(prismaClient: MutationPrismaClient, path: string, args: any, userEmail?: string): Promise<any> {
   try {
     switch (path) {
       case 'files:getFileById': {
@@ -36,6 +58,24 @@ export async function executeQuery(prismaClient: MutationPrismaClient, path: str
           where: { id: _id },
         });
         return mapConvexIds(file);
+      }
+      case 'ai:getSettings': {
+        // Mirrors app/api/state-sync/services/aiSettingsService.ts's
+        // ai:getSettings exactly - never returns encryptedKey.
+        const { teamId } = args || {};
+        const row = await prismaClient.teamAiSettings.findUnique({ where: { teamId } });
+        if (!row) return null;
+        return { teamId: row.teamId, baseUrl: row.baseUrl, model: row.model, maskedKey: row.maskedKey, updatedAt: row.updatedAt };
+      }
+      case 'chat:getMessages': {
+        // Mirrors app/api/state-sync/services/chatService.ts's
+        // chat:getMessages exactly - scoped to `userEmail` (the caller),
+        // never `args`, so this can't be used to read another user's rows.
+        const { fileId } = args || {};
+        return prismaClient.chatMessage.findMany({
+          where: { fileId, userEmail },
+          orderBy: { createdAt: 'asc' },
+        });
       }
       default:
         console.warn(`[WS QUERY] No specific optimization for query path: ${path}`);
@@ -97,7 +137,8 @@ export async function executeMutation(
   prismaClient: MutationPrismaClient,
   queueDbWrite: QueueDbWrite,
   path: string,
-  args: any
+  args: any,
+  userEmail?: string
 ): Promise<any> {
   switch (path) {
     case 'files:createFile': {
@@ -152,6 +193,65 @@ export async function executeMutation(
       });
 
       return { id: _id, fileName, _id };
+    }
+    case 'ai:saveSettings': {
+      // Mirrors app/api/state-sync/services/aiSettingsService.ts's
+      // ai:saveSettings exactly, including the owner-only check - the
+      // caller (server.ts) only verified team MEMBERSHIP before dispatch,
+      // same split as the HTTP path (route.ts's teamPaths vs this).
+      const { teamId, baseUrl, apiKey, model } = args || {};
+      if (!teamId || !baseUrl || !model) throw new Error('teamId, baseUrl, and model are required');
+
+      const team = await prismaClient.team.findUnique({ where: { id: teamId } });
+      if (!team || team.createdBy !== userEmail) {
+        throw new Error('Forbidden: only the team owner can configure AI settings');
+      }
+
+      const data: { baseUrl: string; model: string; updatedBy: string; encryptedKey?: string; maskedKey?: string } = {
+        baseUrl,
+        model,
+        updatedBy: userEmail as string,
+      };
+      if (apiKey) {
+        data.encryptedKey = encryptSecret(apiKey);
+        data.maskedKey = `${apiKey.slice(0, 3)}••••${apiKey.slice(-4)}`;
+      }
+
+      const existing = await prismaClient.teamAiSettings.findUnique({ where: { teamId } });
+      if (!existing && !apiKey) {
+        throw new Error('An API key is required when configuring AI settings for the first time');
+      }
+
+      const result = await prismaClient.teamAiSettings.upsert({
+        where: { teamId },
+        update: data,
+        create: { teamId, baseUrl, model, updatedBy: userEmail as string, encryptedKey: data.encryptedKey as string, maskedKey: data.maskedKey as string },
+      });
+
+      void logAuditEvent(teamId, userEmail as string, 'ai_settings:updated', { teamId });
+      return { teamId: result.teamId, baseUrl: result.baseUrl, model: result.model, maskedKey: result.maskedKey };
+    }
+    case 'ai:deleteSettings': {
+      const { teamId } = args || {};
+      if (!teamId) throw new Error('teamId is required');
+
+      const team = await prismaClient.team.findUnique({ where: { id: teamId } });
+      if (!team || team.createdBy !== userEmail) {
+        throw new Error('Forbidden: only the team owner can remove AI settings');
+      }
+
+      await prismaClient.teamAiSettings.deleteMany({ where: { teamId } });
+      void logAuditEvent(teamId, userEmail as string, 'ai_settings:deleted', { teamId });
+      return { success: true };
+    }
+    case 'chat:clearHistory': {
+      // Mirrors app/api/state-sync/services/chatService.ts's
+      // chat:clearHistory exactly - scoped to `userEmail`, never `args`.
+      const { fileId } = args || {};
+      if (!fileId) throw new Error('fileId is required');
+      await prismaClient.chatMessage.deleteMany({ where: { fileId, userEmail } });
+      void logAuditEvent(null, userEmail as string, 'ai_chat:history_cleared', { fileId });
+      return { success: true };
     }
     default:
       throw new Error(`Unsupported or unoptimized mutation over WebSocket: ${path}`);

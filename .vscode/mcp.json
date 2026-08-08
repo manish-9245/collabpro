@@ -1,0 +1,19 @@
+{
+  "inputs": [
+    {
+      "id": "collabproApiKey",
+      "type": "promptString",
+      "description": "CollabPro API key (Settings → API Keys)",
+      "password": true
+    }
+  ],
+  "servers": {
+    "collabpro": {
+      "type": "http",
+      "url": "http://localhost:3000/api/mcp",
+      "headers": {
+        "Authorization": "Bearer ${input:collabproApiKey}"
+      }
+    }
+  }
+}

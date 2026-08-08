@@ -650,15 +650,20 @@ function Editor({
         <div className="relative group">
             <div id='editorjs' className='ml-20'></div>
             
-            {/* Floating Creative Edit Button */}
-            {hoveredImageBlock && (
+            {/* Floating Creative Edit Button - hidden while this same image is
+                actively selected for resize, since hoveredImageBlock and
+                selectedImage are independent state and both stay true for the
+                same image once you click to resize then move the mouse back
+                over it, which previously stacked this button on top of the
+                resize handles/toolbar below (z-index 30/40). Resize mode wins. */}
+            {hoveredImageBlock && selectedImage?.id !== hoveredImageBlock.id && (
                 <button
                     onClick={() => setActiveEditingImageBlock({ id: hoveredImageBlock.id, url: hoveredImageBlock.url })}
                     style={{
                         position: 'absolute',
                         top: hoveredImageBlock.element.offsetTop + 12,
                         left: hoveredImageBlock.element.offsetLeft + hoveredImageBlock.element.offsetWidth - 160,
-                        zIndex: 40
+                        zIndex: 20
                     }}
                     className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-semibold text-xs px-3 py-2 rounded-lg shadow-lg hover:from-violet-500 hover:to-indigo-500 transition-all duration-200 transform hover:scale-105 active:scale-95"
                 >

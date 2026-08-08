@@ -1,235 +1,229 @@
 "use client"
 
-import React, { useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import Header from '../../_components/Header';
-import { 
-  Sparkles, 
-  BrainCircuit, 
-  ShieldCheck, 
-  Settings, 
-  Copy, 
-  Check, 
-  Database,
-  ArrowRight,
+import { ActiveTeamContext } from '@/app/_context/ActiveTeamContext';
+import { useSessionAuth } from '@/lib/session-auth/client';
+import { api, useSync, useMutation } from '@/lib/state-sync/react';
+import {
+  BrainCircuit,
+  ShieldCheck,
   Sliders,
-  Cpu,
   RefreshCw,
   Zap,
-  Info
+  Trash2,
+  Lock
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function AiSettingsHub() {
-  const [activeProvider, setActiveProvider] = useState<'openai' | 'anthropic' | 'gemini' | 'ollama'>('openai');
-  const [keys, setKeys] = useState({
-    openai: '',
-    anthropic: '',
-    gemini: '',
-    ollamaUrl: 'http://localhost:11434'
-  });
-  const [activeModel, setActiveModel] = useState('gpt-4o-mini');
-  const [loading, setLoading] = useState(false);
+  const { user }: any = useSessionAuth();
+  const { activeTeam } = useContext(ActiveTeamContext);
+  const sync = useSync();
 
-  // Sync state with local storage
+  const saveSettings = useMutation(api.ai.saveSettings);
+  const deleteSettings = useMutation(api.ai.deleteSettings);
+
+  const isOwner = activeTeam?.createdBy === user?.email;
+
+  const [loading, setLoading] = useState(true);
+  const [settings, setSettings] = useState<any>(null);
+  const [baseUrl, setBaseUrl] = useState('');
+  const [model, setModel] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [saving, setSaving] = useState(false);
+
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const storedKeys = localStorage.getItem('collabpro_ai_keys');
-      if (storedKeys) {
-        try {
-          setKeys(JSON.parse(storedKeys));
-        } catch (e) {
-          console.error(e);
-        }
-      }
-      const storedProvider = localStorage.getItem('collabpro_ai_provider');
-      if (storedProvider) {
-        setActiveProvider(storedProvider as any);
-      }
-      const storedModel = localStorage.getItem('collabpro_ai_model');
-      if (storedModel) {
-        setActiveModel(storedModel);
-      }
-    }
-  }, []);
-
-  const saveConfiguration = () => {
-    setLoading(true);
-    setTimeout(() => {
-      localStorage.setItem('collabpro_ai_keys', JSON.stringify(keys));
-      localStorage.setItem('collabpro_ai_provider', activeProvider);
-      localStorage.setItem('collabpro_ai_model', activeModel);
+    if (activeTeam?._id) {
+      loadSettings();
+    } else {
       setLoading(false);
-      toast.success("AI credentials and model mappings successfully encrypted & saved!");
-    }, 800);
+    }
+  }, [activeTeam]);
+
+  const loadSettings = async () => {
+    if (!activeTeam?._id) return;
+    setLoading(true);
+    try {
+      const data = await sync.query(api.ai.getSettings, { teamId: activeTeam._id });
+      setSettings(data);
+      setBaseUrl(data?.baseUrl || '');
+      setModel(data?.model || '');
+      setApiKey('');
+    } catch (err: any) {
+      console.error(err);
+      toast.error('Failed to load AI settings.');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleKeyChange = (provider: keyof typeof keys, val: string) => {
-    setKeys(prev => ({ ...prev, [provider]: val }));
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeTeam?._id || !isOwner) return;
+
+    setSaving(true);
+    try {
+      await saveSettings({
+        teamId: activeTeam._id,
+        baseUrl,
+        model,
+        apiKey: apiKey || undefined, // blank means "keep the existing key"
+      });
+      toast.success('AI configuration saved.');
+      setApiKey('');
+      loadSettings();
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || 'Failed to save AI configuration.');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const modelOptions = {
-    openai: ['gpt-4o-mini', 'gpt-4o', 'o1-mini'],
-    anthropic: ['claude-3-5-haiku', 'claude-3-5-sonnet'],
-    gemini: ['gemini-1.5-flash', 'gemini-1.5-pro'],
-    ollama: ['llama3', 'mistral', 'codegemma']
+  const handleDelete = async () => {
+    if (!activeTeam?._id || !isOwner) return;
+    try {
+      await deleteSettings({ teamId: activeTeam._id });
+      toast.success('AI provider removed.');
+      setSettings(null);
+      setBaseUrl('');
+      setModel('');
+      setApiKey('');
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || 'Failed to remove AI configuration.');
+    }
   };
 
   return (
     <div className="min-h-screen bg-slate-50/50 dark:bg-slate-950 font-sans pb-16">
       <Header />
       <div className="max-w-4xl mx-auto px-6 pt-8">
-        
+
         {/* Hub Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-8 border-b border-slate-200/50 dark:border-slate-800/60">
           <div>
             <div className="flex items-center gap-2 text-[#6965db]">
-              <BrainCircuit className="h-5 w-5 animate-bounce" />
+              <BrainCircuit className="h-5 w-5" />
               <span className="text-[10px] font-black uppercase tracking-wider">Workspace Intelligence</span>
             </div>
             <h1 className="text-3xl font-black text-slate-800 dark:text-slate-100 tracking-tight mt-1">
-              AI Co-Pilot & Models Setup
+              AI Co-Pilot Setup
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-xl leading-relaxed">
-              Configure and persist your secure LLM provider API credentials locally. All keys are encrypted and stored privately within your self-hosted browser context boundaries.
+              Configure your team's AI provider for {activeTeam?.teamName || 'this team'}. Any OpenAI-compatible endpoint works (OpenAI, Azure OpenAI, Groq, OpenRouter, local Ollama, etc). The key is encrypted at rest and used server-side, once per chat message - it is never sent to or stored in any browser.
             </p>
           </div>
         </div>
 
-        {/* Setup forms grid layout */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-8">
-          
-          {/* Provider Selection */}
-          <div className="md:col-span-1 space-y-2.5">
-            <div className="text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 px-1">
-              Select LLM Provider
-            </div>
-            
-            {(['openai', 'anthropic', 'gemini', 'ollama'] as const).map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => {
-                  setActiveProvider(p);
-                  setActiveModel(modelOptions[p][0]);
-                }}
-                className={`w-full text-left p-4 rounded-2xl border flex items-center justify-between gap-4 cursor-pointer transition-all ${
-                  activeProvider === p 
-                    ? 'bg-[#6965db]/10 border-[#6965db]/40 text-[#6965db] dark:text-[#8572e3] font-black scale-102 shadow-sm' 
-                    : 'bg-white dark:bg-slate-900 border-slate-200/50 dark:border-slate-800 hover:bg-slate-50 text-slate-600 dark:text-slate-400'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className={`h-8 w-8 rounded-xl flex items-center justify-center font-black text-xs ${
-                    activeProvider === p ? 'bg-[#6965db]/20' : 'bg-slate-50 dark:bg-slate-950'
-                  }`}>
-                    {p === 'openai' && 'O'}
-                    {p === 'anthropic' && 'A'}
-                    {p === 'gemini' && 'G'}
-                    {p === 'ollama' && 'L'}
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-bold uppercase tracking-wider leading-none">
-                      {p === 'openai' && 'OpenAI Service'}
-                      {p === 'anthropic' && 'Anthropic Engine'}
-                      {p === 'gemini' && 'Google Gemini'}
-                      {p === 'ollama' && 'Local Ollama'}
-                    </div>
-                    <div className="text-[8.5px] text-slate-400 mt-1 leading-none font-semibold">
-                      {p === 'ollama' ? 'Self-hosted LLM' : 'SaaS API Integrator'}
-                    </div>
-                  </div>
-                </div>
-                <ArrowRight className={`h-4 w-4 shrink-0 transition-transform ${
-                  activeProvider === p ? 'translate-x-1' : 'opacity-0'
-                }`} />
-              </button>
-            ))}
+        {!activeTeam?._id ? (
+          <div className="mt-8 p-6 bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/80 rounded-2xl text-center text-xs text-slate-400">
+            Select a team to configure its AI provider.
           </div>
-
-          {/* Form details */}
-          <div className="md:col-span-2 bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/80 p-6 rounded-3xl shadow-sm flex flex-col justify-between">
-            <div className="space-y-6">
-              <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
-                <Sliders className="h-4 w-4 text-[#6965db]" />
-                <span className="text-[11px] font-bold uppercase tracking-wider">Configure Parameters</span>
-              </div>
-
-              <div className="space-y-4">
-                {/* Form fields based on selection */}
-                {activeProvider !== 'ollama' ? (
-                  <div>
-                    <label className="block text-[9px] font-black uppercase text-slate-400 tracking-wider mb-1.5">
-                      Secure API Key Credentials:
-                    </label>
-                    <input
-                      type="password"
-                      placeholder={`Paste your private ${activeProvider.toUpperCase()} key`}
-                      value={keys[activeProvider as keyof typeof keys]}
-                      onChange={(e) => handleKeyChange(activeProvider as keyof typeof keys, e.target.value)}
-                      className="w-full text-xs font-mono bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 outline-none focus:border-[#6965db] text-slate-700 dark:text-slate-300"
-                    />
-                  </div>
-                ) : (
-                  <div>
-                    <label className="block text-[9px] font-black uppercase text-slate-400 tracking-wider mb-1.5">
-                      Ollama Endpoint URL Address:
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="http://localhost:11434"
-                      value={keys.ollamaUrl}
-                      onChange={(e) => handleKeyChange('ollamaUrl', e.target.value)}
-                      className="w-full text-xs font-mono bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 outline-none focus:border-[#6965db] text-slate-700 dark:text-slate-300"
-                    />
+        ) : loading ? (
+          <div className="mt-8 flex items-center justify-center py-16 text-slate-400">
+            <RefreshCw className="h-5 w-5 animate-spin" />
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-8">
+            <div className="md:col-span-3 bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/80 p-6 rounded-3xl shadow-sm">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
+                  <Sliders className="h-4 w-4 text-[#6965db]" />
+                  <span className="text-[11px] font-bold uppercase tracking-wider">Configure Provider</span>
+                </div>
+                {!isOwner && (
+                  <div className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                    <Lock className="h-3 w-3" /> Read-only (owner only)
                   </div>
                 )}
+              </div>
 
-                {/* Model selection */}
+              <form onSubmit={handleSave} className="space-y-4 mt-6">
                 <div>
                   <label className="block text-[9px] font-black uppercase text-slate-400 tracking-wider mb-1.5">
-                    Target AI Model Node:
+                    Base URL
                   </label>
-                  <select
-                    value={activeModel}
-                    onChange={(e) => setActiveModel(e.target.value)}
-                    className="w-full text-[10.5px] font-semibold bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 outline-none focus:border-[#6965db] text-slate-700 dark:text-slate-300 cursor-pointer"
-                  >
-                    {modelOptions[activeProvider].map((opt) => (
-                      <option key={opt} value={opt}>
-                        {opt}
-                      </option>
-                    ))}
-                  </select>
+                  <input
+                    type="text"
+                    placeholder="https://api.openai.com/v1"
+                    value={baseUrl}
+                    disabled={!isOwner}
+                    onChange={(e) => setBaseUrl(e.target.value)}
+                    className="w-full text-xs font-mono bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 outline-none focus:border-[#6965db] text-slate-700 dark:text-slate-300 disabled:opacity-60"
+                    required
+                  />
                 </div>
-              </div>
 
-              <div className="p-4 bg-slate-50 dark:bg-slate-950 border border-slate-200/50 dark:border-slate-800/80 rounded-2xl flex items-start gap-3">
-                <ShieldCheck className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                <p className="text-[9px] text-slate-400 dark:text-slate-500 leading-relaxed">
-                  Encryption Security Protocol: CollabPro does not intermediate, track, or save any AI payloads to cloud routers. All chats run as point-to-point secure requests directly using the keys saved inside your web client storage.
-                </p>
-              </div>
+                <div>
+                  <label className="block text-[9px] font-black uppercase text-slate-400 tracking-wider mb-1.5">
+                    API Key {settings?.maskedKey && <span className="normal-case font-mono text-slate-400">(current: {settings.maskedKey})</span>}
+                  </label>
+                  <input
+                    type="password"
+                    placeholder={settings?.maskedKey ? 'Leave blank to keep the current key' : 'Paste your provider API key'}
+                    value={apiKey}
+                    disabled={!isOwner}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    className="w-full text-xs font-mono bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 outline-none focus:border-[#6965db] text-slate-700 dark:text-slate-300 disabled:opacity-60"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[9px] font-black uppercase text-slate-400 tracking-wider mb-1.5">
+                    Model
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="gpt-4o-mini"
+                    value={model}
+                    disabled={!isOwner}
+                    onChange={(e) => setModel(e.target.value)}
+                    className="w-full text-[10.5px] font-semibold bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 outline-none focus:border-[#6965db] text-slate-700 dark:text-slate-300 disabled:opacity-60"
+                    required
+                  />
+                </div>
+
+                <div className="p-4 bg-slate-50 dark:bg-slate-950 border border-slate-200/50 dark:border-slate-800/80 rounded-2xl flex items-start gap-3">
+                  <ShieldCheck className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
+                  <p className="text-[9px] text-slate-400 dark:text-slate-500 leading-relaxed">
+                    The key is encrypted at rest (AES-256-GCM) and only ever decrypted server-side to call your provider. It is never re-displayed after saving - only a masked preview is shown.
+                  </p>
+                </div>
+
+                {isOwner && (
+                  <div className="flex gap-3">
+                    <button
+                      type="submit"
+                      disabled={saving}
+                      className="flex-1 h-11 bg-[#6965db] hover:bg-[#5753c9] text-white text-[11px] font-bold uppercase tracking-wider rounded-2xl cursor-pointer shadow-lg shadow-[#6965db]/20 flex items-center justify-center gap-1.5 transition-all active:scale-98 disabled:opacity-50"
+                    >
+                      {saving ? (
+                        <>
+                          <RefreshCw className="h-4 w-4 animate-spin" /> Saving...
+                        </>
+                      ) : (
+                        <>
+                          <Zap className="h-4 w-4" /> Save AI Configuration
+                        </>
+                      )}
+                    </button>
+                    {settings && (
+                      <button
+                        type="button"
+                        onClick={handleDelete}
+                        className="h-11 px-4 bg-rose-50 dark:bg-rose-950/30 hover:bg-rose-100 dark:hover:bg-rose-950/50 text-rose-600 text-[11px] font-bold uppercase tracking-wider rounded-2xl cursor-pointer flex items-center justify-center gap-1.5 transition-all active:scale-98"
+                      >
+                        <Trash2 className="h-4 w-4" /> Remove
+                      </button>
+                    )}
+                  </div>
+                )}
+              </form>
             </div>
-
-            <button
-              type="button"
-              onClick={saveConfiguration}
-              disabled={loading}
-              className="mt-8 w-full h-11 bg-[#6965db] hover:bg-[#5753c9] text-white text-[11px] font-bold uppercase tracking-wider rounded-2xl cursor-pointer shadow-lg shadow-[#6965db]/20 flex items-center justify-center gap-1.5 transition-all active:scale-98 disabled:opacity-50"
-            >
-              {loading ? (
-                <>
-                  <RefreshCw className="h-4 w-4 animate-spin" /> Saving credentials...
-                </>
-              ) : (
-                <>
-                  <Zap className="h-4 w-4" /> Save AI Configuration
-                </>
-              )}
-            </button>
           </div>
-
-        </div>
+        )}
 
       </div>
     </div>

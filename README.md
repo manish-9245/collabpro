@@ -44,10 +44,12 @@ CollabPro is **self-contained with zero required third-party SaaS dependencies**
 - **Redis Cache-Aside Reads**: File reads are cached in Redis with write-path invalidation; falls through to Postgres transparently if Redis is unavailable.
 
 ### 🤖 6. MCP Automation Tools
-- **Spec-compliant remote server**: `/api/mcp` is a real Streamable HTTP MCP server built on the official `@modelcontextprotocol/sdk` — any supporting client connects directly with just a URL and API key, no local install.
+- **Spec-compliant remote server**: `/api/mcp` is a real Streamable HTTP MCP server built on the official `@modelcontextprotocol/sdk` — any supporting client (including VS Code natively, via the bundled `.vscode/mcp.json`) connects directly with just a URL and API key, no local install.
 - **stdio bridge for legacy clients**: `scripts/mcp-server.ts` bridges local stdio clients (Claude Desktop, Cursor, Windsurf) to the same server.
-- **Tools**: `collabpro_list_files`, `collabpro_get_file`, `collabpro_update_document`, `collabpro_update_whiteboard` — all schema-validated and access-scoped to the caller's teams, writes going through the same compare-and-swap writers as every other write path in the app.
-- **Full setup guide, tool reference, and troubleshooting**: [`docs/mcp-integration.md`](docs/mcp-integration.md).
+- **Tools**: `collabpro_list_files`, `collabpro_get_file`, `collabpro_update_document`, `collabpro_update_whiteboard`, `collabpro_search_icon_libraries`, `collabpro_get_library_icon` — schema-validated and access-scoped to the caller's teams, writes going through the same compare-and-swap writers as every other write path in the app.
+- **Enforced whiteboard layout**: `collabpro_update_whiteboard` rejects overlapping shapes / non-finite coordinates server-side (not just a suggestion in the tool description) — same rule for every calling AI. A `collabpro_diagram_guidelines` MCP **prompt** gives the full color/spacing/typography rules plus real AWS/Azure/GCP/network icon lookup, sourced from the community `.excalidrawlib` libraries.
+- **Rate limited, audited, observable**: per-API-key rate limiting, an audit-log entry for every write/auth-failure, and structured request logging — see [`docs/mcp-integration.md`](docs/mcp-integration.md#reliability-limits-and-audit).
+- **Full setup guide, tool/prompt reference, and troubleshooting**: [`docs/mcp-integration.md`](docs/mcp-integration.md).
 
 ---
 

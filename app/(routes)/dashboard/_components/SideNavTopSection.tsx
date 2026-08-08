@@ -66,12 +66,18 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
     const localUserList = useQuery(api.user.getUser, user?.email ? { email: user?.email } : 'skip' as any);
     const localUser = localUserList && localUserList.length > 0 ? localUserList[0] : null;
     const updateUserImage = useMutation(api.user.updateUserImage);
+    const createTeam = useMutation(api.teams.createTeam);
 
     // Avatar state
     const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
     const [selectedAvatar, setSelectedAvatar] = useState('');
     const [customUrl, setCustomUrl] = useState('');
     const [isSaving, setIsSaving] = useState(false);
+
+    // Create Team modal state
+    const [isCreateTeamModalOpen, setIsCreateTeamModalOpen] = useState(false);
+    const [newTeamName, setNewTeamName] = useState('');
+    const [isCreatingTeam, setIsCreatingTeam] = useState(false);
 
     // Sidebar state & handlers for folder/file tree
     const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({});
@@ -271,7 +277,7 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
         {
             id: 1,
             name: 'Create Team',
-            path: '/teams/create',
+            path: '',
             icon: Users
         },
         {
@@ -299,7 +305,10 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
     }
 
     const onMenuClick = (item: any) => {
-        if (item.path) {
+        if (item.id === 1) {
+            setNewTeamName('');
+            setIsCreateTeamModalOpen(true);
+        } else if (item.path) {
             router.push(item.path);
         } else if (item.id === 2) {
             setIsAvatarModalOpen(true);
@@ -339,6 +348,38 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
             toast.error(error.message || 'Failed to update avatar.');
         } finally {
             setIsSaving(false);
+        }
+    };
+
+    const handleCreateTeam = async (e: React.FormEvent) => {
+        e.preventDefault();
+        const trimmedName = newTeamName.trim();
+        if (!trimmedName) {
+            toast.error('Team name cannot be empty');
+            return;
+        }
+
+        setIsCreatingTeam(true);
+        try {
+            const created = await createTeam({
+                teamName: trimmedName,
+                createdBy: user?.email
+            });
+            if (created) {
+                toast.success('Team created successfully!');
+                setIsCreateTeamModalOpen(false);
+                setNewTeamName('');
+                const result = await sync.query(api.teams.getTeam, { email: user?.email });
+                setTeamList(result);
+                setActiveTeam(created);
+            } else {
+                toast.error('Failed to create team. Please try again.');
+            }
+        } catch (error: any) {
+            console.error(error);
+            toast.error(error.message || 'An error occurred. Please try again.');
+        } finally {
+            setIsCreatingTeam(false);
         }
     };
 
@@ -528,6 +569,59 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
                             )}
                         </Button>
                     </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* Create Team Dialog */}
+            <Dialog open={isCreateTeamModalOpen} onOpenChange={setIsCreateTeamModalOpen}>
+                <DialogContent className='bg-white border border-slate-200 text-slate-900 max-w-sm rounded-2xl shadow-2xl p-6'>
+                    <DialogHeader className='space-y-1.5'>
+                        <DialogTitle className='text-xl font-bold flex items-center gap-2 text-slate-900'>
+                            <Users className='h-5 w-5 text-blue-600' />
+                            Create a New Team
+                        </DialogTitle>
+                        <DialogDescription className='text-slate-500 text-xs'>
+                            Give your team or organization a name. You can invite teammates afterward from Settings.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <form onSubmit={handleCreateTeam} className='mt-2 space-y-4'>
+                        <Input
+                            type='text'
+                            value={newTeamName}
+                            onChange={(e) => setNewTeamName(e.target.value)}
+                            placeholder='Team Name'
+                            autoFocus
+                            className='bg-white border-slate-200 text-slate-900 rounded-lg text-sm placeholder-slate-400 focus:ring-blue-500/20 focus:border-blue-500 h-10'
+                            disabled={isCreatingTeam}
+                        />
+
+                        <div className='flex justify-end gap-2.5 border-t border-slate-100 pt-4'>
+                            <Button
+                                type='button'
+                                variant='ghost'
+                                onClick={() => setIsCreateTeamModalOpen(false)}
+                                className='hover:bg-slate-100 text-slate-600 text-xs border-0 h-9'
+                                disabled={isCreatingTeam}
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                type='submit'
+                                className='bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-4 rounded-lg flex items-center gap-1.5 h-9 border-0'
+                                disabled={isCreatingTeam || !newTeamName.trim()}
+                            >
+                                {isCreatingTeam ? (
+                                    <>
+                                        <Loader2 className='h-3.5 w-3.5 animate-spin' />
+                                        Creating...
+                                    </>
+                                ) : (
+                                    'Create Team'
+                                )}
+                            </Button>
+                        </div>
+                    </form>
                 </DialogContent>
             </Dialog>
 

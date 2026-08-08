@@ -63,6 +63,14 @@ export const LIMITS = {
   //   handful of legitimate visitors occasionally mistyping never trips it.
   SHARE_VERIFY: { windowMs: 15 * 60 * 1000, maxAttempts: 10 },
   SHARE_VERIFY_PER_LINK: { windowMs: 15 * 60 * 1000, maxAttempts: 60 },
+  // MCP tool calls: keyed per API key (not per IP - agentic clients are
+  // expected to make bursts of calls in a tight loop). 120/min is generous
+  // for normal agent use while bounding a runaway/misbehaving client or a
+  // leaked key from hammering the DB.
+  MCP: { windowMs: 60 * 1000, maxAttempts: 120 },
+  // AI chat sidebar sends: keyed per user. 20/min is generous for interactive
+  // chat while bounding runaway cost against a team's own LLM provider key.
+  AI_CHAT: { windowMs: 60 * 1000, maxAttempts: 20 },
 }
 
 /**

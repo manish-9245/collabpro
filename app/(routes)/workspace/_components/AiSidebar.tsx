@@ -1,24 +1,17 @@
 "use client"
 
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Sparkles, 
-  X, 
-  Send, 
-  BrainCircuit, 
-  FileText, 
-  Layers, 
-  Code, 
-  HelpCircle,
-  Activity,
-  User,
+import {
+  Sparkles,
+  X,
+  Send,
+  Settings as SettingsIcon,
+  Trash2,
   Zap,
-  RefreshCw,
-  PlusCircle,
-  Check
+  AlertTriangle
 } from 'lucide-react';
-import { toast } from 'sonner';
-import { api, useMutation } from '@/lib/state-sync/react';
+import Link from 'next/link';
+import { api, useQuery, useMutation } from '@/lib/state-sync/react';
 
 interface AiSidebarProps {
   isOpen: boolean;
@@ -28,124 +21,177 @@ interface AiSidebarProps {
 }
 
 interface Message {
-  sender: 'user' | 'ai';
-  text: string;
-  timestamp: string;
-  actionType?: 'insert_text' | 'insert_shape';
-  actionPayload?: string;
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  createdAt: string;
 }
 
-export default function AiSidebar({ isOpen, onClose, fileId, fileData }: AiSidebarProps) {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      sender: 'ai',
-      text: "👋 Hello! I am your CollabPro AI Co-Pilot. I can read your whiteboard canvas, suggest architectural components, and write structural markdown files live for you! How can I assist you today?",
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    }
-  ]);
-  const [input, setInput] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
-  const [activeModel, setActiveModel] = useState('gpt-4o-mini');
-  const chatEndRef = useRef<HTMLDivElement>(null);
+const MAX_TEXTAREA_HEIGHT = 120;
 
-  // Mutations to update document and canvas live!
-  const updateDocument = useMutation(api.files.updateDocument);
-  const updateWhiteboard = useMutation(api.files.updateWhiteboard);
+function formatTimestamp(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return d.toDateString() === now.toDateString() ? time : `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} · ${time}`;
+}
+
+/**
+ * Tool-call action markers (⚡ succeeded / ⚠️ failed) are streamed inline as
+ * plain "\n\n"-separated blocks by app/api/ai/chat/route.ts's `emit()` -
+ * the raw emoji prefix is only ever a parsing signal (and what's actually
+ * persisted in already-existing history rows); the rendered pill below uses
+ * real lucide icons instead of displaying the emoji character itself.
+ * Rendered as a distinct pill instead of plain text so an action taken on
+ * the file is visually distinguishable from the model's prose at a glance -
+ * the actual point of "the AI can take actions, not just chat".
+ */
+function renderMessageContent(content: string) {
+  return content
+    .split(/\n\n+/)
+    .filter((block) => block.trim())
+    .map((block, i) => {
+      const trimmed = block.trim();
+      const isWarning = trimmed.startsWith('⚠️');
+      const isAction = isWarning || trimmed.startsWith('⚡');
+      if (isAction) {
+        const text = trimmed.replace(/^(⚡|⚠️)\s*/, '');
+        const Icon = isWarning ? AlertTriangle : Zap;
+        return (
+          <div
+            key={i}
+            className={`${i > 0 ? 'mt-2' : ''} inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[9px] font-semibold leading-relaxed ${
+              isWarning
+                ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400'
+                : 'bg-[#6965db]/10 text-[#6965db] dark:text-[#8572e3]'
+            }`}
+          >
+            <Icon className="h-3 w-3 shrink-0" strokeWidth={2.5} />
+            <span>{text}</span>
+          </div>
+        );
+      }
+      return (
+        <p key={i} className={`whitespace-pre-line ${i > 0 ? 'mt-2' : ''}`}>
+          {block}
+        </p>
+      );
+    });
+}
+
+/**
+ * Real AI chat sidebar, backed by app/api/ai/chat/route.ts (streaming) and
+ * the chat:getMessages/ai:getSettings state-sync RPCs (persisted history,
+ * per-file-per-user - each collaborator gets their own conversation about
+ * this file). No fallback to canned responses when no team AI key is
+ * configured - the disabled state below is explicit about why, not silent.
+ */
+export default function AiSidebar({ isOpen, onClose, fileId, fileData }: AiSidebarProps) {
+  const teamId = fileData?.teamId;
+  const history = useQuery(api.chat.getMessages, fileId ? { fileId } : 'skip' as any);
+  const aiSettings = useQuery(api.ai.getSettings, teamId ? { teamId } : 'skip' as any);
+  const clearHistoryMutation = useMutation(api.chat.clearHistory);
+
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [streamingText, setStreamingText] = useState<string | null>(null);
+  const [input, setInput] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const [errorText, setErrorText] = useState<string | null>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Locks out server->local syncing once the user has actually sent a
+  // message in THIS session, so a later poll/WS refresh of `history`
+  // doesn't clobber an in-flight optimistic send. Keyed by whether the user
+  // has sent, not by whether `history` has ever been an array - `history`
+  // legitimately IS an array (possibly empty) before the real server data
+  // arrives (e.g. mid-WS-subscribe), and locking on that first, still-
+  // catching-up value permanently ignored the real data that landed a
+  // moment later.
+  const hasSentLocally = useRef(false);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const storedModel = localStorage.getItem('collabpro_ai_model');
-      if (storedModel) {
-        setActiveModel(storedModel);
-      }
+    hasSentLocally.current = false;
+  }, [fileId]);
+
+  useEffect(() => {
+    if (!hasSentLocally.current && Array.isArray(history)) {
+      setMessages(history.map((m: any) => ({ id: m.id, role: m.role, content: m.content, createdAt: m.createdAt })));
     }
-  }, []);
+  }, [history]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isTyping]);
+  }, [messages, streamingText]);
 
-  const handleSend = (textToSend: string) => {
-    if (!textToSend.trim()) return;
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, MAX_TEXTAREA_HEIGHT)}px`;
+  }, [input]);
+
+  const noAiConfigured = aiSettings !== undefined && aiSettings === null;
+
+  const handleSend = async (textToSend: string) => {
+    if (!textToSend.trim() || isSending || noAiConfigured) return;
+
+    hasSentLocally.current = true;
 
     const userMsg: Message = {
-      sender: 'user',
-      text: textToSend,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      id: `local-${Date.now()}`,
+      role: 'user',
+      content: textToSend,
+      createdAt: new Date().toISOString(),
     };
-
-    setMessages(prev => [...prev, userMsg]);
+    setMessages((prev) => [...prev, userMsg]);
     setInput('');
-    setIsTyping(true);
+    setErrorText(null);
+    setIsSending(true);
+    setStreamingText('');
 
-    // Simulate AI response logic
-    setTimeout(() => {
-      let aiResponseText = "I've processed your request. Let me help you compile or expand your visual blueprints!";
-      let actionType: 'insert_text' | 'insert_shape' | undefined;
-      let actionPayload: string | undefined;
+    try {
+      const res = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileId, message: textToSend }),
+      });
 
-      const lowerText = textToSend.toLowerCase();
-
-      if (lowerText.includes('diagram') || lowerText.includes('analyze') || lowerText.includes('flowchart')) {
-        aiResponseText = "📊 **Workspace Whiteboard Analysis:**\n\nI scanned the active board elements. Your workspace currently maps a collaborative flow containing coordinate components. Here is a suggested system model:\n\n• **Inbound router nodes** split traffic flow.\n• **Redis caching layer** handles state replication SLA.\n• **SQLite DB adapters** serve transactional schemas.";
-        actionType = 'insert_shape';
-        actionPayload = JSON.stringify([
-          { type: 'rectangle', x: 250, y: 120, width: 140, height: 70, strokeColor: '#6965db', backgroundColor: 'transparent', strokeWidth: 2, roundness: true },
-          { type: 'text', x: 270, y: 145, text: 'AI Service Node', fontSize: 13, fontFamily: 1 }
-        ]);
-      } else if (lowerText.includes('text') || lowerText.includes('markdown') || lowerText.includes('document')) {
-        aiResponseText = "📝 **AI Text Blueprint Generator:**\n\nI've generated a premium engineering document draft summarizing system designs. You can append this blueprint block into the editor.";
-        actionType = 'insert_text';
-        actionPayload = "\n\n## 🛠️ System Design Blueprint\n*Generated by CollabPro AI Co-Pilot*\n\n### 🚀 High-Level Architecture\n1. **State-Sync Engine:** Delivers real-time collaborative updates.\n2. **pgBouncer Pooling:** Manages database concurrency SLA.\n3. **Redis Cache-Aside:** Resolves workspace lookups in < 5ms.\n";
-      } else {
-        aiResponseText = "I've structured a custom code snippet analysis block based on your request. Let me know if you would like me to append system details directly to your markdown file or inject a flowchart canvas node.";
+      if (!res.ok || !res.body) {
+        const body = await res.json().catch(() => ({}));
+        setErrorText(body?.message || `AI request failed (${res.status})`);
+        setStreamingText(null);
+        setIsSending(false);
+        return;
       }
 
-      const aiMsg: Message = {
-        sender: 'ai',
-        text: aiResponseText,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        actionType,
-        actionPayload
-      };
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let full = '';
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        full += decoder.decode(value, { stream: true });
+        setStreamingText(full);
+      }
 
-      setMessages(prev => [...prev, aiMsg]);
-      setIsTyping(false);
-    }, 1800);
+      setMessages((prev) => [...prev, { id: `local-${Date.now()}-ai`, role: 'assistant', content: full, createdAt: new Date().toISOString() }]);
+      setStreamingText(null);
+    } catch {
+      setErrorText('Lost connection to the AI service. Please try again.');
+      setStreamingText(null);
+    } finally {
+      setIsSending(false);
+    }
   };
 
-  const handleActionClick = (msg: Message) => {
-    if (!msg.actionType || !msg.actionPayload) return;
-
-    if (msg.actionType === 'insert_text') {
-      const currentDoc = fileData?.document || '';
-      const updatedDoc = currentDoc + msg.actionPayload;
-      updateDocument({ _id: fileId, document: updatedDoc })
-        .then(() => {
-          toast.success("AI blueprint successfully appended into the document editor!");
-        })
-        .catch(() => {
-          toast.error("Failed to append AI text block.");
-        });
-    } else if (msg.actionType === 'insert_shape') {
-      let currentWhiteboard: any[] = [];
-      if (fileData?.whiteboard) {
-        try {
-          currentWhiteboard = JSON.parse(fileData.whiteboard);
-        } catch (e) {
-          console.error(e);
-        }
-      }
-
-      const newShapes = JSON.parse(msg.actionPayload);
-      const updatedWhiteboard = [...currentWhiteboard, ...newShapes];
-      updateWhiteboard({ _id: fileId, whiteboard: JSON.stringify(updatedWhiteboard) })
-        .then(() => {
-          toast.success("AI structural diagram nodes appended into the canvas board!");
-        })
-        .catch(() => {
-          toast.error("Failed to inject canvas elements.");
-        });
+  const handleClearHistory = async () => {
+    if (!window.confirm('Clear this conversation? This can\'t be undone.')) return;
+    try {
+      await clearHistoryMutation({ fileId });
+      setMessages([]);
+      hasSentLocally.current = false;
+    } catch {
+      setErrorText('Failed to clear the conversation. Please try again.');
     }
   };
 
@@ -153,104 +199,139 @@ export default function AiSidebar({ isOpen, onClose, fileId, fileData }: AiSideb
 
   return (
     <div className="w-80 h-full bg-white dark:bg-slate-950 border-l border-slate-200/60 dark:border-slate-800/80 flex flex-col shrink-0 relative z-[100] font-sans">
-      
+
       {/* Sidebar Header */}
       <div className="px-4 py-3.5 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between shrink-0 bg-slate-50/50 dark:bg-slate-900/20">
         <div className="flex items-center gap-2">
           <Sparkles className="h-4 w-4 text-[#6965db] animate-pulse" />
           <div>
             <div className="text-[10px] font-bold text-slate-800 dark:text-slate-100">Co-Pilot Workspace</div>
-            <div className="text-[8px] text-[#6965db] font-black uppercase tracking-wider mt-0.5 flex items-center gap-1">
-              Active: {activeModel} <span className="h-1 w-1 bg-emerald-500 rounded-full animate-ping" />
-            </div>
+            {aiSettings?.model && (
+              <div className="text-[8px] text-[#6965db] font-black uppercase tracking-wider mt-0.5 flex items-center gap-1">
+                Active: {aiSettings.model} <span className="h-1 w-1 bg-emerald-500 rounded-full animate-ping" />
+              </div>
+            )}
           </div>
         </div>
-        <button 
-          onClick={onClose}
-          className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-400 dark:text-slate-500 hover:text-slate-600 cursor-pointer transition-colors"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-
-      {/* Preset Prompt Buttons Bar */}
-      <div className="p-2 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50/20 flex gap-1.5 overflow-x-auto shrink-0 select-none">
-        <button
-          onClick={() => handleSend("Analyze active Whiteboard Diagram elements")}
-          className="px-2.5 py-1 bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 rounded-lg text-[8.5px] font-black uppercase tracking-wider text-slate-500 hover:border-[#6965db]/50 dark:hover:border-[#6965db]/50 hover:text-[#6965db] dark:hover:text-[#8572e3] cursor-pointer transition-all flex items-center gap-1 shrink-0"
-        >
-          <Layers className="h-3 w-3" /> Analyze Canvas
-        </button>
-        <button
-          onClick={() => handleSend("Generate a system design markdown blueprint")}
-          className="px-2.5 py-1 bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 rounded-lg text-[8.5px] font-black uppercase tracking-wider text-slate-500 hover:border-[#6965db]/50 dark:hover:border-[#6965db]/50 hover:text-[#6965db] dark:hover:text-[#8572e3] cursor-pointer transition-all flex items-center gap-1 shrink-0"
-        >
-          <FileText className="h-3 w-3" /> Insert Blueprint
-        </button>
-      </div>
-
-      {/* Messages Scroll Panel */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0 bg-slate-50/20">
-        {messages.map((msg, i) => (
-          <div key={i} className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
-            <div className={`max-w-[85%] rounded-2xl p-3 text-[10px] leading-relaxed shadow-sm ${
-              msg.sender === 'user' 
-                ? 'bg-[#6965db] text-white rounded-br-none font-medium' 
-                : 'bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 text-slate-700 dark:text-slate-300 rounded-bl-none'
-            }`}>
-              {/* Escape markdown paragraphs */}
-              <div className="whitespace-pre-line font-sans prose dark:prose-invert">
-                {msg.text}
-              </div>
-
-              {/* Quick action triggers */}
-              {msg.actionType && msg.actionPayload && (
-                <button
-                  type="button"
-                  onClick={() => handleActionClick(msg)}
-                  className="mt-3 w-full h-7 bg-[#6965db]/10 dark:bg-[#6965db]/20 hover:bg-[#6965db] hover:text-white border border-[#6965db]/30 text-[#6965db] dark:text-[#8572e3] text-[8.5px] font-black uppercase tracking-wider rounded-lg flex items-center justify-center gap-1 transition-all cursor-pointer"
-                >
-                  <PlusCircle className="h-3 w-3" /> 
-                  {msg.actionType === 'insert_text' ? 'Append to Document' : 'Insert AI Node Shape'}
-                </button>
-              )}
-            </div>
-            <span className="text-[7.5px] text-slate-400 dark:text-slate-500 mt-1 px-1">{msg.timestamp}</span>
-          </div>
-        ))}
-
-        {isTyping && (
-          <div className="flex flex-col items-start">
-            <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl rounded-bl-none p-3 shadow-sm flex items-center gap-2">
-              <span className="h-1.5 w-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-              <span className="h-1.5 w-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-              <span className="h-1.5 w-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-            </div>
-          </div>
-        )}
-        <div ref={chatEndRef} />
-      </div>
-
-      {/* Input controls footer */}
-      <div className="p-3.5 border-t border-slate-100 dark:border-slate-800/80 shrink-0 bg-slate-50/30">
-        <div className="flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 rounded-xl px-3 py-1.5 shadow-xs focus-within:border-[#6965db]/80">
-          <input
-            type="text"
-            placeholder="Ask your AI companion..."
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSend(input)}
-            className="flex-1 bg-transparent border-0 focus:outline-none focus:ring-0 text-[10px] text-slate-700 dark:text-slate-200 placeholder-slate-400"
-          />
+        <div className="flex items-center gap-0.5">
+          {messages.length > 0 && (
+            <button
+              onClick={handleClearHistory}
+              title="Clear conversation"
+              className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-400 dark:text-slate-500 hover:text-rose-500 cursor-pointer transition-colors"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
           <button
-            type="button"
-            onClick={() => handleSend(input)}
-            className="p-1.5 rounded-lg bg-[#6965db] hover:bg-[#5753c9] text-white cursor-pointer transition-colors"
+            onClick={onClose}
+            title="Close"
+            className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-400 dark:text-slate-500 hover:text-slate-600 cursor-pointer transition-colors"
           >
-            <Send className="h-3.5 w-3.5" />
+            <X className="h-4 w-4" />
           </button>
         </div>
       </div>
+
+      {noAiConfigured ? (
+        <div className="flex-1 flex flex-col items-center justify-center p-6 text-center gap-3">
+          <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-[#6965db]/15 to-[#8572e3]/10 flex items-center justify-center">
+            <Sparkles className="h-5 w-5 text-[#6965db]" />
+          </div>
+          <div className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Co-Pilot isn't set up yet</div>
+          <p className="text-[9.5px] text-slate-400 dark:text-slate-500 leading-relaxed max-w-[220px]">
+            Ask a team owner to add an AI provider in Settings → AI to start using it here.
+          </p>
+          <Link
+            href="/dashboard/settings/ai"
+            className="mt-1 px-3 py-1.5 bg-[#6965db]/10 hover:bg-[#6965db] hover:text-white text-[#6965db] dark:text-[#8572e3] text-[9px] font-black uppercase tracking-wider rounded-lg flex items-center gap-1.5 transition-all"
+          >
+            <SettingsIcon className="h-3 w-3" /> Go to Settings → AI
+          </Link>
+        </div>
+      ) : (
+        <>
+          {/* Messages Scroll Panel */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0 bg-slate-50/20">
+            {messages.length === 0 && streamingText === null && (
+              <div className="text-[9.5px] text-slate-400 dark:text-slate-500 text-center pt-8 leading-relaxed">
+                Ask about this file's document or whiteboard content.
+              </div>
+            )}
+            {messages.map((msg) => (
+              <div
+                key={msg.id}
+                className={`flex flex-col animate-in fade-in slide-in-from-bottom-1 duration-200 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
+              >
+                <div className={`max-w-[85%] rounded-2xl p-3 text-[10px] leading-relaxed shadow-sm ${
+                  msg.role === 'user'
+                    ? 'bg-[#6965db] text-white rounded-br-none font-medium'
+                    : 'bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 text-slate-700 dark:text-slate-300 rounded-bl-none'
+                }`}>
+                  <div className="font-sans">
+                    {renderMessageContent(msg.content)}
+                  </div>
+                </div>
+                <span className="text-[8px] text-slate-400 dark:text-slate-500 mt-1 px-1">{formatTimestamp(msg.createdAt)}</span>
+              </div>
+            ))}
+
+            {streamingText !== null && (
+              <div className="flex flex-col items-start animate-in fade-in slide-in-from-bottom-1 duration-200">
+                <div className="max-w-[85%] rounded-2xl rounded-bl-none p-3 text-[10px] leading-relaxed shadow-sm bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 text-slate-700 dark:text-slate-300">
+                  <div className="font-sans">
+                    {streamingText && renderMessageContent(streamingText)}
+                    {isSending && (
+                      <span className={`inline-flex items-center gap-1 ${streamingText ? 'mt-1.5' : ''}`}>
+                        <span className="h-1.5 w-1.5 bg-slate-400 rounded-full animate-pulse" style={{ animationDelay: '0ms' }} />
+                        <span className="h-1.5 w-1.5 bg-slate-400 rounded-full animate-pulse" style={{ animationDelay: '200ms' }} />
+                        <span className="h-1.5 w-1.5 bg-slate-400 rounded-full animate-pulse" style={{ animationDelay: '400ms' }} />
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {errorText && (
+              <div className="text-[9px] text-rose-500 bg-rose-50 dark:bg-rose-950/30 border border-rose-200/50 dark:border-rose-900/40 rounded-lg p-2.5">
+                {errorText}
+              </div>
+            )}
+            <div ref={chatEndRef} />
+          </div>
+
+          {/* Input controls footer */}
+          <div className="p-3.5 border-t border-slate-100 dark:border-slate-800/80 shrink-0 bg-slate-50/30">
+            <div className="flex items-end gap-2 bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 rounded-xl px-3 py-2 shadow-xs focus-within:border-[#6965db]/80">
+              <textarea
+                ref={textareaRef}
+                rows={1}
+                placeholder="Ask your AI companion... (Shift+Enter for a new line)"
+                value={input}
+                disabled={isSending}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend(input);
+                  }
+                }}
+                className="flex-1 resize-none bg-transparent border-0 focus:outline-none focus:ring-0 text-[10px] leading-relaxed text-slate-700 dark:text-slate-200 placeholder-slate-400 disabled:opacity-50"
+                style={{ maxHeight: MAX_TEXTAREA_HEIGHT }}
+              />
+              <button
+                type="button"
+                onClick={() => handleSend(input)}
+                disabled={isSending || !input.trim()}
+                className="shrink-0 p-1.5 rounded-lg bg-[#6965db] hover:bg-[#5753c9] text-white cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Send className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
     </div>
   );

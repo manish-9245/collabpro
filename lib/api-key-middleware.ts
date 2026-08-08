@@ -5,6 +5,7 @@ export interface ApiKeyVerificationResult {
   isValid: boolean;
   userEmail: string | null;
   scope: string | null;
+  apiKeyId?: string | null;
   error?: string;
   statusCode?: number;
 }
@@ -109,6 +110,7 @@ export async function verifyApiKey(
   return {
     isValid: true,
     userEmail: apiKeyRecord.userEmail,
-    scope: apiKeyRecord.scope
+    scope: apiKeyRecord.scope,
+    apiKeyId: apiKeyRecord.id
   };
 }

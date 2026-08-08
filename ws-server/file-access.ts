@@ -27,7 +27,15 @@ export type MutationAuthStrategy =
  * under a completely different, never-checked `args.teamId` (issue #234).
  */
 export function resolveMutationAuthStrategy(path: string, args: any): MutationAuthStrategy {
-  if (path === 'files:createFile') {
+  if (path === 'files:createFile' || path === 'ai:saveSettings' || path === 'ai:deleteSettings') {
+    // Same reasoning as files:createFile above: these key on args.teamId,
+    // not args._id/fileId, so they must be checked before the generic
+    // targetId fallback below or a caller could attach an _id/fileId for a
+    // file they legitimately have access to and ride that check into
+    // touching a completely different, never-checked args.teamId. This is
+    // team-membership only (any member) - executeMutation's own case does
+    // the stricter owner-only check, same split as the HTTP path
+    // (app/api/state-sync/route.ts's teamPaths vs aiSettingsService.ts).
     return { type: 'team', teamId: args?.teamId };
   }
   const targetId = args?._id || args?.fileId;
