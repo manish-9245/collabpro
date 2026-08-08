@@ -121,18 +121,31 @@ jobs:
       - name: 🎭 Setup Playwright browsers
         run: npx playwright install --with-deps chromium
 
-      # 7. Execute E2E Showcase Tests
-      - name: 🎬 Run Comprehensive and Cinematic E2E Test Suite
+      # 7. Execute the functional E2E suite (everything except the cinematic
+      # showcase recording, which is gated separately below - it's a slow,
+      # scripted marketing walkthrough, not a correctness check).
+      - name: 🎬 Run Comprehensive E2E Test Suite
         id: playwright_tests
         env:
           DATABASE_URL: postgresql://postgres:postgres_password@localhost:5432/collabpro
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SNYK_ORG_ID: ${{ secrets.SNYK_ORG_ID }}
-        run: npx playwright test
+        run: npx playwright test $(ls tests/*.spec.ts | grep -v tests/showcase.spec.ts)
+
+      # 7b. Cinematic showcase recording + YouTube upload - off by default.
+      # Set the repo/org Actions variable ENABLE_SHOWCASE_VIDEO to "true"
+      # (Settings > Secrets and variables > Actions > Variables) to turn it
+      # back on; no workflow edit needed either way.
+      - name: 🎥 Run Cinematic Showcase Recording
+        id: showcase_recording
+        if: vars.ENABLE_SHOWCASE_VIDEO == 'true'
+        env:
+          DATABASE_URL: postgresql://postgres:postgres_password@localhost:5432/collabpro
+        run: npm run test:showcase
 
       # 8. Upload showcase.webm video as safe GitHub workflow artifact
       - name: 💾 Archive Showcase Video Artifact
-        if: always()
+        if: vars.ENABLE_SHOWCASE_VIDEO == 'true' && always()
         uses: actions/upload-artifact@v4
         with:
           name: collabpro-cinematic-video
@@ -142,7 +155,7 @@ jobs:
       # 9. Upload E2E Cinematic Tour Video to YouTube (Robust Google APIs Script)
       - name: 🎥 Upload Cinematic Tour Video to YouTube
         id: upload_youtube
-        if: success()
+        if: vars.ENABLE_SHOWCASE_VIDEO == 'true' && success()
         continue-on-error: true # Continues gracefully if credentials or refresh tokens are not set up yet
         env:
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
@@ -307,7 +320,7 @@ jobs:
                                         <div style="font-size:28px;color:#ef4444;margin-bottom:8px;">&#9654;</div>
                                         <h3 style="margin:0 0 6px 0;font-size:15px;font-weight:800;color:#ffffff;">Walkthrough Film Uploaded</h3>
                                         <p style="margin:0 0 20px 0;font-size:12px;color:#9ca3af;">A native recording has been pushed to your YouTube dashboard as unlisted</p>
-                                        ${{ steps.upload_youtube.outputs.video_id != '' && format('<!--[if mso]><table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" bgcolor="#dc2626" style="border-radius:6px;padding:10px 24px;"><a href="https://youtu.be/{0}" target="_blank" style="font-size:12px;font-weight:800;font-family:sans-serif;color:#ffffff;text-decoration:none;text-transform:uppercase;letter-spacing:0.06em;">Stream Walkthrough</a></td></tr></table><![endif]--><!--[if !mso]><!--><a href="https://youtu.be/{0}" target="_blank" style="display:inline-block;background-color:#dc2626;color:#ffffff;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;text-decoration:none;padding:10px 24px;border-radius:6px;">Stream Walkthrough</a><!--<![endif]-->', steps.upload_youtube.outputs.video_id) || '<div style="color:#9ca3af;font-size:11px;font-weight:700;padding:12px 16px;border:1px dashed #374151;border-radius:6px;">OAuth credentials pending setup. Showcase film safely archived as workflow build artifact.</div>' }}
+                                        ${{ steps.upload_youtube.outputs.video_id != '' && format('<!--[if mso]><table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" bgcolor="#dc2626" style="border-radius:6px;padding:10px 24px;"><a href="https://youtu.be/{0}" target="_blank" style="font-size:12px;font-weight:800;font-family:sans-serif;color:#ffffff;text-decoration:none;text-transform:uppercase;letter-spacing:0.06em;">Stream Walkthrough</a></td></tr></table><![endif]--><!--[if !mso]><!--><a href="https://youtu.be/{0}" target="_blank" style="display:inline-block;background-color:#dc2626;color:#ffffff;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;text-decoration:none;padding:10px 24px;border-radius:6px;">Stream Walkthrough</a><!--<![endif]-->', steps.upload_youtube.outputs.video_id) || '<div style="color:#9ca3af;font-size:11px;font-weight:700;padding:12px 16px;border:1px dashed #374151;border-radius:6px;">Showcase recording is currently disabled in CI (set the ENABLE_SHOWCASE_VIDEO Actions variable to \'true\' to turn it back on).</div>' }}
                                       </td>
                                     </tr>
                                   </table>
