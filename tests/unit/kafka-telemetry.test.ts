@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { kafkaBroker } from '@/lib/kafka';
-import { GET as getTelemetryGET, POST as postTelemetryPOST } from '@/app/api/admin/telemetry/route';
+import { GET as getTelemetryGET, POST as postTelemetryPOST, PATCH as patchTelemetryPATCH } from '@/app/api/admin/telemetry/route';
 import { NextRequest } from 'next/server';
 import type { NotificationPayload } from '@/lib/notification-queue';
 
@@ -258,6 +258,84 @@ describe('Apache Kafka Messaging & Super Admin Telemetry API', () => {
       expect(json.queued).toBe(true);
       expect(json.eventId).toBeDefined();
       expect(mockEnqueueNotification).toHaveBeenCalledWith(payload);
+    });
+  });
+
+  describe('flushLag - actually clears consumer lag instead of faking success (issue #238)', () => {
+    it('force-commits every partition to its latest offset and reports the real count flushed', async () => {
+      // A synthetic topic/group pair - collabpro-notifications has a real
+      // subscriber (lib/notification-queue.ts) that auto-commits 'default-group'
+      // on every publish, which would make lag always read 0 here regardless
+      // of whether flushLag works.
+      const topic = 'test-only-flush-lag-topic';
+      const group = 'test-only-flush-lag-group';
+
+      await kafkaBroker.publish(topic, { data: 'unflushed' });
+      const lagBefore = kafkaBroker.getLag(group)[topic];
+      expect(lagBefore).toBeGreaterThan(0);
+
+      const result = kafkaBroker.flushLag(group);
+
+      expect(result.totalFlushed).toBeGreaterThan(0);
+      expect(result.perTopic[topic]).toBe(lagBefore);
+      expect(kafkaBroker.getLag(group)[topic]).toBe(0);
+    });
+
+    it('reports zero on a second flush once a group is already caught up', () => {
+      // A brand-new group always starts with a full backlog (lag = every
+      // message ever published) - that's real consumer-group semantics, not
+      // "nothing to flush." Flush once to catch it up, then flush again.
+      const group = 'catch-up-then-idle-group';
+      kafkaBroker.flushLag(group);
+      const result = kafkaBroker.flushLag(group);
+      expect(result.totalFlushed).toBe(0);
+    });
+  });
+
+  describe('Super Admin "Flush Lag" PATCH endpoint (issue #238)', () => {
+    const ORIGINAL_ADMIN_EMAILS = process.env.ADMIN_EMAILS;
+
+    beforeEach(() => {
+      mockGetUser.mockReset();
+      delete process.env.ADMIN_EMAILS;
+    });
+
+    afterEach(() => {
+      if (ORIGINAL_ADMIN_EMAILS === undefined) {
+        delete process.env.ADMIN_EMAILS;
+      } else {
+        process.env.ADMIN_EMAILS = ORIGINAL_ADMIN_EMAILS;
+      }
+    });
+
+    it('should return 401 when there is no authenticated session', async () => {
+      mockGetUser.mockResolvedValueOnce(null);
+      const request = new NextRequest('http://localhost:3000/api/admin/telemetry', { method: 'PATCH' });
+      const response = await patchTelemetryPATCH(request);
+      expect(response.status).toBe(401);
+    });
+
+    it('should return 403 when authenticated but not on the ADMIN_EMAILS allowlist', async () => {
+      process.env.ADMIN_EMAILS = 'admin@collabpro.com';
+      mockGetUser.mockResolvedValueOnce({ id: 'user-1', email: 'nobody@collabpro.com' });
+      const request = new NextRequest('http://localhost:3000/api/admin/telemetry', { method: 'PATCH' });
+      const response = await patchTelemetryPATCH(request);
+      expect(response.status).toBe(403);
+    });
+
+    it('should flush real lag and return the actual count for an admin-allowlisted user', async () => {
+      process.env.ADMIN_EMAILS = 'admin@collabpro.com';
+      mockGetUser.mockResolvedValueOnce({ id: 'user-1', email: 'admin@collabpro.com' });
+
+      await kafkaBroker.publish('collabpro-datasync', { data: 'pending' });
+
+      const request = new NextRequest('http://localhost:3000/api/admin/telemetry', { method: 'PATCH' });
+      const response = await patchTelemetryPATCH(request);
+
+      expect(response.status).toBe(200);
+      const json = await response.json();
+      expect(typeof json.totalFlushed).toBe('number');
+      expect(json.perTopic).toBeDefined();
     });
   });
 });

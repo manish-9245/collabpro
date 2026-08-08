@@ -108,6 +108,25 @@ describe('Authentication & Session Management', () => {
     });
   });
 
+  describe('Signature verification (issue #237 - constant-time compare)', () => {
+    it('should reject a token whose signature has a single flipped character', () => {
+      const token = signToken({ id: 'u1', email: 'a@b.c', name: 'A' });
+      const [header, payload, signature] = token.split('.');
+      const flippedChar = signature[0] === 'A' ? 'B' : 'A';
+      const tampered = `${header}.${payload}.${flippedChar}${signature.slice(1)}`;
+
+      expect(verifyToken(tampered)).toBeNull();
+    });
+
+    it('should reject a token whose signature is truncated or extended', () => {
+      const token = signToken({ id: 'u1', email: 'a@b.c', name: 'A' });
+      const [header, payload, signature] = token.split('.');
+
+      expect(verifyToken(`${header}.${payload}.${signature.slice(0, -1)}`)).toBeNull();
+      expect(verifyToken(`${header}.${payload}.${signature}X`)).toBeNull();
+    });
+  });
+
   describe('Session token expiry', () => {
     it('should stamp iat and exp claims on issue', () => {
       const nowSeconds = Math.floor(Date.now() / 1000);
