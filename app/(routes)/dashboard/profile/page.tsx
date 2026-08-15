@@ -7,49 +7,7 @@ import { useSessionAuth } from '@/lib/session-auth/client'
 import { api, useSync, useQuery, useMutation } from '@/lib/state-sync/react'
 import { toast } from 'sonner'
 import { User, Shield, Globe, Github, Twitter, Linkedin, Briefcase, Sparkles, CheckCircle2, Lock, Loader2 } from 'lucide-react'
-
-const ANIME_AVATARS = [
-  {
-    name: "Gojo Satoru",
-    anime: "Jujutsu Kaisen",
-    url: "https://media.giphy.com/media/U783FB3Ch9YPC1G69t/giphy.gif"
-  },
-  {
-    name: "Naruto Uzumaki",
-    anime: "Naruto Shippuden",
-    url: "https://media.giphy.com/media/t8KeuVfD9pXMY/giphy.gif"
-  },
-  {
-    name: "Monkey D. Luffy",
-    anime: "One Piece",
-    url: "https://media.giphy.com/media/tuCFp8cWPG7ss/giphy.gif"
-  },
-  {
-    name: "Tanjiro Kamado",
-    anime: "Demon Slayer",
-    url: "https://media.giphy.com/media/DY6IfJ6f87680/giphy.gif"
-  },
-  {
-    name: "Nezuko Kamado",
-    anime: "Demon Slayer",
-    url: "https://media.giphy.com/media/Z68p4wC6kBO5q/giphy.gif"
-  },
-  {
-    name: "Zenitsu Agatsuma",
-    anime: "Demon Slayer",
-    url: "https://media.giphy.com/media/V89K3ov9rscb9mRGlW/giphy.gif"
-  },
-  {
-    name: "Sailor Moon",
-    anime: "Sailor Moon",
-    url: "https://media.giphy.com/media/b69Xgg660k46I/giphy.gif"
-  },
-  {
-    name: "Pikachu Spark",
-    anime: "Pokemon",
-    url: "https://media.giphy.com/media/13GKP7xGjTCv1C/giphy.gif"
-  }
-]
+import { AVATAR_PRESETS, buildAvatarDataUri } from '@/lib/avatars'
 
 function ProfilePage() {
   const { user }: any = useSessionAuth();
@@ -270,27 +228,31 @@ function ProfilePage() {
               </h3>
               
               <div className="grid grid-cols-4 gap-3">
-                {ANIME_AVATARS.map((avatar, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => handleAvatarSelect(avatar.url)}
-                    className={`relative rounded-xl overflow-hidden border-2 transition-all hover:scale-105 active:scale-95 group shadow-sm ${
-                      profileImage === avatar.url ? 'border-blue-500 scale-105 shadow-md shadow-blue-500/10' : 'border-slate-100 dark:border-zinc-900 hover:border-blue-400'
-                    }`}
-                    title={`${avatar.name} (${avatar.anime})`}
-                  >
-                    <img 
-                      src={avatar.url} 
-                      alt={avatar.name} 
-                      className="w-full h-12 object-cover"
-                    />
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                      <span className="text-[8px] font-bold text-white text-center px-1 truncate leading-none">
-                        {avatar.name}
-                      </span>
-                    </div>
-                  </button>
-                ))}
+                {AVATAR_PRESETS.map((preset) => {
+                  const url = buildAvatarDataUri(preset);
+                  const isSelected = profileImage === url;
+                  return (
+                    <button
+                      key={preset.id}
+                      onClick={() => handleAvatarSelect(url)}
+                      className={`relative rounded-xl overflow-hidden border-2 transition-all hover:scale-105 hover:shadow-lg hover:shadow-blue-500/10 active:scale-95 group shadow-sm ${
+                        isSelected ? 'border-blue-500 scale-105 shadow-md shadow-blue-500/10' : 'border-slate-100 dark:border-zinc-900 hover:border-blue-400'
+                      }`}
+                      title={preset.name}
+                    >
+                      <img
+                        src={url}
+                        alt={preset.name}
+                        className="w-full h-12 object-cover transition-transform duration-300 group-hover:scale-110"
+                      />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                        <span className="text-[8px] font-bold text-white text-center px-1 truncate leading-none">
+                          {preset.name}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>
