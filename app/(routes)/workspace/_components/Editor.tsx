@@ -17,7 +17,7 @@ import { api, useMutation } from '@/lib/state-sync/react';
 import { toast } from 'sonner';
 import { FILE } from '../../dashboard/_components/FileList';
 import { encodeState, decodeState } from '@/lib/state-encode';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
 import ImageEditorModal from './ImageEditorModal';
 
 const rawDocument={
@@ -77,6 +77,11 @@ function Editor({
     // EditorJS document (see onSaveDocument), keyed by block id.
     const imageWidthsRef = useRef<Record<string, string>>({});
 
+    // Per-block image alignment, same out-of-band tracking as width and for
+    // the same reason. Unset means 'center', matching the always-centered
+    // behavior every image had before alignment existed.
+    const imageAlignRef = useRef<Record<string, 'left' | 'center' | 'right'>>({});
+
     // Undo/Redo History Stack (client-side)
     const historyRef = useRef<string[]>([]);
     const historyIndexRef = useRef<number>(-1);
@@ -89,7 +94,7 @@ function Editor({
     const [activeEditingImageBlock, setActiveEditingImageBlock] = useState<{ id: string; url: string } | null>(null);
 
     // Resizable images state variables
-    const [selectedImage, setSelectedImage] = useState<{ id: string; element: HTMLElement; img: HTMLImageElement; width: string } | null>(null);
+    const [selectedImage, setSelectedImage] = useState<{ id: string; element: HTMLElement; img: HTMLImageElement; width: string; align: 'left' | 'center' | 'right' } | null>(null);
     const [overlayPos, setOverlayPos] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
     const [isDraggingResize, setIsDraggingResize] = useState(false);
 
@@ -97,20 +102,28 @@ function Editor({
     const dragStartXRef = useRef<number>(0);
     const dragDirectionRef = useRef<'left' | 'right'>('right');
 
+    const alignToMargin = (align: 'left' | 'center' | 'right'): string => {
+        if (align === 'left') return '0 auto 0 0';
+        if (align === 'right') return '0 0 0 auto';
+        return '0 auto';
+    };
+
     const applyImageWidths = () => {
         if (!ref.current) return;
         ref.current.save().then((outputData) => {
             outputData.blocks.forEach((block: any) => {
                 if (block.type !== 'image') return;
                 const width = imageWidthsRef.current[block.id];
-                if (!width) return;
+                const align = imageAlignRef.current[block.id] || 'center';
                 const blockEl = document.querySelector(`[data-id="${block.id}"]`);
                 if (blockEl) {
                     const imageToolImage = blockEl.querySelector('.image-tool__image') as HTMLElement;
                     if (imageToolImage) {
-                        imageToolImage.style.width = width;
-                        imageToolImage.style.maxWidth = "100%";
-                        imageToolImage.style.margin = "0 auto";
+                        if (width) {
+                            imageToolImage.style.width = width;
+                            imageToolImage.style.maxWidth = "100%";
+                        }
+                        imageToolImage.style.margin = alignToMargin(align);
                     }
                 }
             });
@@ -132,7 +145,6 @@ function Editor({
             if (imageToolImage) {
                 imageToolImage.style.width = newWidth;
                 imageToolImage.style.maxWidth = "100%";
-                imageToolImage.style.margin = "0 auto";
             }
         }
 
@@ -142,6 +154,27 @@ function Editor({
             }
             return prev;
         });
+
+        setSavingStatus('saving');
+        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = setTimeout(() => {
+            onSaveDocument(false);
+            saveTimeoutRef.current = null;
+        }, 1500);
+    };
+
+    const handleUpdateImageAlign = (blockId: string, align: 'left' | 'center' | 'right') => {
+        imageAlignRef.current = { ...imageAlignRef.current, [blockId]: align };
+
+        const blockEl = document.querySelector(`[data-id="${blockId}"]`);
+        if (blockEl) {
+            const imageToolImage = blockEl.querySelector('.image-tool__image') as HTMLElement;
+            if (imageToolImage) {
+                imageToolImage.style.margin = alignToMargin(align);
+            }
+        }
+
+        setSelectedImage(prev => (prev && prev.id === blockId ? { ...prev, align } : prev));
 
         setSavingStatus('saving');
         if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
@@ -285,12 +318,24 @@ function Editor({
             const blockId = ceBlock.getAttribute('data-id');
             
             if (img && imageToolImage && blockId) {
-                const currentWidth = imageToolImage.style.width || "100%";
+                // No inline width means the image is still at its natural
+                // (pasted-in) size, not some hidden "100%" - reporting the
+                // real rendered percentage instead of always claiming 100%
+                // keeps the slider/label honest for an unresized image.
+                let currentWidth = imageToolImage.style.width;
+                if (!currentWidth) {
+                    const parentBlock = ceBlock as HTMLElement;
+                    const percent = parentBlock.offsetWidth > 0
+                        ? Math.round((imageToolImage.offsetWidth / parentBlock.offsetWidth) * 100)
+                        : 100;
+                    currentWidth = `${Math.min(100, Math.max(1, percent))}%`;
+                }
                 setSelectedImage({
                     id: blockId,
                     element: imageToolImage,
                     img: img,
-                    width: currentWidth
+                    width: currentWidth,
+                    align: imageAlignRef.current[blockId] || 'center'
                 });
             } else {
                 setSelectedImage(null);
@@ -392,6 +437,7 @@ function Editor({
             if (saveTimeoutRef.current === null && !saveTimeoutRef.current) {
                 isProgrammaticUpdateRef.current = true;
                 imageWidthsRef.current = serverDoc.imageWidths || {};
+                imageAlignRef.current = serverDoc.imageAlign || {};
                 ref.current.render({ time: serverDoc.time, blocks: serverDoc.blocks, version: serverDoc.version }).then(() => {
                     applyImageWidths();
                     setTimeout(() => {
@@ -464,6 +510,7 @@ function Editor({
             if (ref.current) {
                 isProgrammaticUpdateRef.current = true;
                 imageWidthsRef.current = prevState.imageWidths || {};
+                imageAlignRef.current = prevState.imageAlign || {};
                 ref.current.render({ time: prevState.time, blocks: prevState.blocks, version: prevState.version }).then(() => {
                     applyImageWidths();
                     setTimeout(() => {
@@ -492,6 +539,7 @@ function Editor({
             if (ref.current) {
                 isProgrammaticUpdateRef.current = true;
                 imageWidthsRef.current = nextState.imageWidths || {};
+                imageAlignRef.current = nextState.imageAlign || {};
                 ref.current.render({ time: nextState.time, blocks: nextState.blocks, version: nextState.version }).then(() => {
                     applyImageWidths();
                     setTimeout(() => {
@@ -529,6 +577,7 @@ function Editor({
     const initEditor=()=>{
         const decodedDoc = fileData?.document ? decodeState(fileData.document, rawDocument) : rawDocument;
         imageWidthsRef.current = decodedDoc.imageWidths || {};
+        imageAlignRef.current = decodedDoc.imageAlign || {};
         const initialDocStr = JSON.stringify(decodedDoc);
 
         lastSavedDataRef.current = fileData?.document || encodeState(decodedDoc);
@@ -596,10 +645,10 @@ function Editor({
       {
         setSavingStatus('saving');
         ref.current.save().then((outputData) => {
-          // imageWidths lives outside EditorJS's own data model (see
-          // imageWidthsRef declaration above) so it has to be merged in by
-          // hand here - editor.save() has no idea it exists.
-          const fullDoc = { ...outputData, imageWidths: imageWidthsRef.current };
+          // imageWidths/imageAlign live outside EditorJS's own data model
+          // (see imageWidthsRef declaration above) so they have to be merged
+          // in by hand here - editor.save() has no idea either exists.
+          const fullDoc = { ...outputData, imageWidths: imageWidthsRef.current, imageAlign: imageAlignRef.current };
           const rawDocStr = JSON.stringify(fullDoc);
           const crdtStr = encodeState(fullDoc);
           lastSavedDataRef.current = crdtStr;
@@ -663,10 +712,10 @@ function Editor({
                 ...outputData,
                 blocks: updatedBlocks
             };
-            // imageWidths lives outside EditorJS's data model - carry it
-            // forward explicitly, or a creative-edit save here would silently
-            // wipe every image's saved width from the document.
-            const fullDoc = { ...newOutputData, imageWidths: imageWidthsRef.current };
+            // imageWidths/imageAlign live outside EditorJS's data model -
+            // carry them forward explicitly, or a creative-edit save here
+            // would silently wipe every image's saved width/alignment.
+            const fullDoc = { ...newOutputData, imageWidths: imageWidthsRef.current, imageAlign: imageAlignRef.current };
 
             isProgrammaticUpdateRef.current = true;
             ref.current?.render(newOutputData).then(() => {
@@ -765,46 +814,76 @@ function Editor({
                     <div
                         style={{
                             position: 'absolute',
-                            bottom: -54,
+                            bottom: -96,
                             left: '50%',
                             transform: 'translateX(-50%)',
                             pointerEvents: 'all',
                         }}
-                        className="image-resize-controls flex items-center gap-3 bg-slate-900/90 backdrop-blur-md border border-slate-700/50 rounded-xl px-4 py-2 shadow-2xl z-40 min-w-[280px]"
+                        className="image-resize-controls flex flex-col gap-2 bg-slate-900/90 backdrop-blur-md border border-slate-700/50 rounded-xl px-4 py-2.5 shadow-2xl z-40 min-w-[280px]"
                     >
-                        <div className="flex gap-1.5 border-r border-slate-800 pr-3">
-                            {['25%', '50%', '75%', '100%'].map((w) => {
-                                const isActive = selectedImage.width === w;
-                                return (
-                                    <button
-                                        key={w}
-                                        onClick={() => handleUpdateImageWidth(selectedImage.id, w)}
-                                        className={`px-2 py-1 rounded text-xs font-semibold transition-all ${
-                                            isActive
-                                                ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-md'
-                                                : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-                                        }`}
-                                    >
-                                        {w}
-                                    </button>
-                                );
-                            })}
+                        <div className="flex items-center gap-3">
+                            <div className="flex gap-1.5 border-r border-slate-800 pr-3">
+                                {['25%', '50%', '75%', '100%'].map((w) => {
+                                    const isActive = selectedImage.width === w;
+                                    return (
+                                        <button
+                                            key={w}
+                                            onClick={() => handleUpdateImageWidth(selectedImage.id, w)}
+                                            className={`px-2 py-1 rounded text-xs font-semibold transition-all ${
+                                                isActive
+                                                    ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-md'
+                                                    : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                                            }`}
+                                        >
+                                            {w}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+
+                            {/* Slider Control */}
+                            <div className="flex items-center gap-2 flex-grow pl-1">
+                                <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap">Size:</span>
+                                <input
+                                    type="range"
+                                    min="10"
+                                    max="100"
+                                    value={parseInt(selectedImage.width) || 100}
+                                    onChange={(e) => handleUpdateImageWidth(selectedImage.id, `${e.target.value}%`)}
+                                    className="w-24 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-violet-500"
+                                />
+                                <span className="text-[10px] text-violet-400 font-bold whitespace-nowrap min-w-[24px]">
+                                    {parseInt(selectedImage.width) || 100}%
+                                </span>
+                            </div>
                         </div>
 
-                        {/* Slider Control */}
-                        <div className="flex items-center gap-2 flex-grow pl-1">
-                            <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap">Size:</span>
-                            <input
-                                type="range"
-                                min="10"
-                                max="100"
-                                value={parseInt(selectedImage.width) || 100}
-                                onChange={(e) => handleUpdateImageWidth(selectedImage.id, `${e.target.value}%`)}
-                                className="w-24 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-violet-500"
-                            />
-                            <span className="text-[10px] text-violet-400 font-bold whitespace-nowrap min-w-[24px]">
-                                {parseInt(selectedImage.width) || 100}%
-                            </span>
+                        {/* Alignment Control */}
+                        <div className="flex items-center gap-2 pt-2 border-t border-slate-800">
+                            <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap">Align:</span>
+                            <div className="flex gap-1">
+                                {([
+                                    { value: 'left' as const, Icon: AlignLeft, label: 'Align left' },
+                                    { value: 'center' as const, Icon: AlignCenter, label: 'Align center' },
+                                    { value: 'right' as const, Icon: AlignRight, label: 'Align right' },
+                                ]).map(({ value, Icon, label }) => {
+                                    const isActive = selectedImage.align === value;
+                                    return (
+                                        <button
+                                            key={value}
+                                            onClick={() => handleUpdateImageAlign(selectedImage.id, value)}
+                                            title={label}
+                                            className={`p-1.5 rounded transition-all ${
+                                                isActive
+                                                    ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-md'
+                                                    : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                                            }`}
+                                        >
+                                            <Icon className="h-3.5 w-3.5" />
+                                        </button>
+                                    );
+                                })}
+                            </div>
                         </div>
                     </div>
                 </div>

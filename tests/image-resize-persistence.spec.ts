@@ -56,7 +56,7 @@ async function registerAndCreateFile(page: import('@playwright/test').Page, file
   await page.waitForURL(/.*workspace/, { timeout: 15000 });
 }
 
-async function insertImageAndResizeTo50Percent(page: import('@playwright/test').Page) {
+async function insertImage(page: import('@playwright/test').Page) {
   await page.locator('[data-placeholder="Enter a Header"]').last().click();
   await page.locator('.ce-toolbar__plus').click();
   await page.locator('.ce-popover-item:has-text("Image")').click();
@@ -64,6 +64,10 @@ async function insertImageAndResizeTo50Percent(page: import('@playwright/test').
 
   await page.locator('input[type="file"]').setInputFiles(path.join(__dirname, 'fixtures', 'resize-test-image.png'));
   await page.waitForTimeout(2000);
+}
+
+async function insertImageAndResizeTo50Percent(page: import('@playwright/test').Page) {
+  await insertImage(page);
 
   const img = page.locator('.image-tool__image img, .image-tool img').first();
   await img.click();
@@ -90,4 +94,50 @@ test('resizing an image and immediately navigating home and back keeps the resiz
 
   const width = await page.locator('.image-tool__image').first().evaluate((el) => (el as HTMLElement).style.width);
   expect(width).toBe('50%');
+});
+
+// Regression coverage for: a pasted/inserted image was force-stretched to
+// the full editor column width (app/globals.css .image-tool__image had a
+// hard `width: 100%`), instead of showing at its own natural size like the
+// resize toolbar's presets imply it should start at. Fixture image is
+// 200x150px; the editor column is much wider than that.
+test('inserting an image shows it at its natural size, not stretched to the column width', async ({ page }) => {
+  test.setTimeout(60000);
+
+  await registerAndCreateFile(page, 'Image Natural Size Repro File');
+  await insertImage(page);
+
+  const box = await page.locator('.image-tool__image').first().boundingBox();
+  expect(box).not.toBeNull();
+  // Natural width (~200px, plus a hairline border) - not anywhere near the
+  // editor column's ~650px+ content width it used to be force-stretched to.
+  expect(box!.width).toBeLessThan(250);
+  expect(box!.width).toBeGreaterThan(150);
+
+  const inlineWidth = await page.locator('.image-tool__image').first().evaluate((el) => (el as HTMLElement).style.width);
+  expect(inlineWidth).toBe(''); // no width forced until the user explicitly picks one
+});
+
+test('aligning an image right survives navigating home and back', async ({ page }) => {
+  test.setTimeout(60000);
+
+  await registerAndCreateFile(page, 'Image Align Persistence Repro File');
+  await insertImage(page);
+
+  const img = page.locator('.image-tool__image img, .image-tool img').first();
+  await img.click();
+  await page.waitForTimeout(300);
+  await page.locator('button[title="Align right"]').click();
+
+  await page.locator('button[title="Back to Home"]').first().click();
+  await page.waitForURL(/.*dashboard/, { timeout: 10000 });
+
+  const fileRow = page.locator('tr:has-text("Image Align Persistence Repro File")').first();
+  await fileRow.waitFor({ state: 'visible', timeout: 15000 });
+  await fileRow.click();
+  await page.waitForURL(/.*workspace/, { timeout: 15000 });
+  await page.waitForTimeout(1500);
+
+  const margin = await page.locator('.image-tool__image').first().evaluate((el) => (el as HTMLElement).style.margin);
+  expect(margin).toBe('0px 0px 0px auto');
 });
