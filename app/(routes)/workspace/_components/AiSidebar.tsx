@@ -97,6 +97,7 @@ export default function AiSidebar({ isOpen, onClose, fileId, fileData }: AiSideb
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
+  const [lastFailedMessage, setLastFailedMessage] = useState<string | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // Locks out server->local syncing once the user has actually sent a
@@ -159,6 +160,7 @@ export default function AiSidebar({ isOpen, onClose, fileId, fileData }: AiSideb
       if (!res.ok || !res.body) {
         const body = await res.json().catch(() => ({}));
         setErrorText(body?.message || `AI request failed (${res.status})`);
+        setLastFailedMessage(textToSend);
         setStreamingText(null);
         setIsSending(false);
         return;
@@ -176,12 +178,20 @@ export default function AiSidebar({ isOpen, onClose, fileId, fileData }: AiSideb
 
       setMessages((prev) => [...prev, { id: `local-${Date.now()}-ai`, role: 'assistant', content: full, createdAt: new Date().toISOString() }]);
       setStreamingText(null);
+      setLastFailedMessage(null);
     } catch {
       setErrorText('Lost connection to the AI service. Please try again.');
+      setLastFailedMessage(textToSend);
       setStreamingText(null);
     } finally {
       setIsSending(false);
     }
+  };
+
+  const handleRetry = () => {
+    if (!lastFailedMessage) return;
+    setErrorText(null);
+    handleSend(lastFailedMessage);
   };
 
   const handleClearHistory = async () => {
@@ -294,8 +304,31 @@ export default function AiSidebar({ isOpen, onClose, fileId, fileData }: AiSideb
             )}
 
             {errorText && (
-              <div className="text-[9px] text-rose-500 bg-rose-50 dark:bg-rose-950/30 border border-rose-200/50 dark:border-rose-900/40 rounded-lg p-2.5">
-                {errorText}
+              <div className="bg-rose-50 dark:bg-rose-950/30 border border-rose-200/50 dark:border-rose-900/40 rounded-xl p-3 space-y-2">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 text-rose-500 shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-[10px] font-bold text-rose-600 dark:text-rose-400">Co-Pilot couldn't respond</div>
+                    <p className="text-[9px] text-rose-500/80 dark:text-rose-400/70 leading-relaxed mt-0.5">{errorText}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 pl-5.5">
+                  {lastFailedMessage && (
+                    <button
+                      onClick={handleRetry}
+                      disabled={isSending}
+                      className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-[9px] font-bold rounded-lg transition-colors cursor-pointer"
+                    >
+                      Try again
+                    </button>
+                  )}
+                  <Link
+                    href="/dashboard/settings/ai"
+                    className="px-2.5 py-1 bg-white dark:bg-slate-900 hover:bg-rose-100 dark:hover:bg-rose-950/50 border border-rose-200/60 dark:border-rose-900/50 text-rose-600 dark:text-rose-400 text-[9px] font-bold rounded-lg transition-colors flex items-center gap-1"
+                  >
+                    <SettingsIcon className="h-2.5 w-2.5" /> Check AI Settings
+                  </Link>
+                </div>
               </div>
             )}
             <div ref={chatEndRef} />
