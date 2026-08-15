@@ -38,6 +38,20 @@ export const MCP_TOOL_CATALOG: McpToolDoc[] = [
     exampleArgs: { fileId: 'YOUR_FILE_UUID' },
   },
   {
+    name: 'collabpro_create_file',
+    title: 'Create File',
+    description: 'Create a new document/whiteboard file inside a team you belong to. Leave document/whiteboard unset to start blank.',
+    access: 'write',
+    params: [
+      { name: 'fileName', type: 'string', required: true, description: 'Display name for the new file.' },
+      { name: 'teamId', type: 'string', required: true, description: 'Team ID to create this file under - must be one of your authenticated teams.' },
+      { name: 'document', type: 'object | string', required: false, description: 'Optional initial Editor.js payload. Omit for a blank document.' },
+      { name: 'whiteboard', type: 'array | string', required: false, description: 'Optional initial Excalidraw elements. Omit for a blank whiteboard.' },
+      { name: 'folder', type: 'string', required: false, description: 'Optional folder path, e.g. "Design/Mockups".' },
+    ],
+    exampleArgs: { fileName: 'New MCP File', teamId: 'YOUR_TEAM_ID' },
+  },
+  {
     name: 'collabpro_update_document',
     title: 'Update Document',
     description: "Overwrite a file's document with new Editor.js blocks. Compare-and-swap protected against concurrent edits.",

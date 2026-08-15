@@ -7,8 +7,7 @@ import { useSessionAuth } from '@/lib/session-auth/client'
 import { api, useSync, useQuery, useMutation } from '@/lib/state-sync/react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Settings, Users, LogOut, Trash2, Shield, ShieldCheck, Mail, ChevronDown, ChevronUp, Loader2, Key, Copy, Check, Plus, AlertTriangle, Calendar } from 'lucide-react'
-import CodeBlock from '@/components/ui/code-block'
+import { Settings, Users, LogOut, Trash2, Shield, ShieldCheck, Mail, ChevronDown, ChevronUp, Loader2, Key, Copy, Check, Plus, AlertTriangle, Calendar, ArrowRight } from 'lucide-react'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 
 
@@ -389,33 +388,26 @@ function SettingsPage() {
               </button>
             </div>
 
-            {/* Premium Dynamic Claude/Cursor Integration Snippet */}
-            <div className="mt-4 p-4 bg-slate-900 text-zinc-100 rounded-xl border border-slate-800 space-y-3 font-medium">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-blue-400">Claude Desktop Integration Setup</span>
-                <span className="text-[10px] text-zinc-500">Append this config block to your local claude_desktop_config.json</span>
+            {/* Client setup snippets (Claude Desktop, Cursor, VS Code, remote
+                HTTP) live on the dedicated MCP Settings page, generated from
+                that page's own selectedKey state - duplicating a copy here
+                risked exactly the drift that happened (this card used to
+                point `npx` at a "collabpro-mcp" package that was never
+                published, while the MCP Settings page already used a
+                working `npx tsx <local-script>` command). One source of
+                truth instead of keeping both in sync by hand. */}
+            <button
+              type="button"
+              onClick={() => router.push('/dashboard/settings/mcp')}
+              className="mt-4 w-full flex items-center justify-between gap-3 p-4 bg-blue-50/60 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/30 rounded-xl hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-all text-left"
+            >
+              <div>
+                <span className="text-xs font-bold text-blue-700 dark:text-blue-400 block">Connect Claude Desktop, Cursor, VS Code, or Windsurf</span>
+                <span className="text-[10px] text-blue-600/80 dark:text-blue-400/70">Select this key on the MCP Settings page to grab a working config snippet for your client.</span>
               </div>
-              <CodeBlock
-                language="json"
-                className="text-[10px] p-3 bg-black/40 rounded-lg select-all border border-slate-800/60 leading-relaxed"
-                code={JSON.stringify({
-                  mcpServers: {
-                    collabpro: {
-                      command: "npx",
-                      args: ["-y", "collabpro-mcp"],
-                      env: {
-                        COLLABPRO_API_KEY: newlyCreatedKey.key,
-                        COLLABPRO_BASE_URL: typeof window !== 'undefined' ? window.location.origin : "https://collabpro.buildwithmanish.com"
-                      }
-                    }
-                  }
-                }, null, 2)}
-              />
-              <p className="text-[9px] text-zinc-400 leading-normal">
-                💡 **Pro Tip**: Use this configuration to empower Claude Desktop with the native ability to read, sync, edit, and orchestrate CollabPro team-shared documents and Excalidraw whiteboards programmatically!
-              </p>
-            </div>
-            
+              <ArrowRight className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
+            </button>
+
             <button
               type="button"
               onClick={() => setNewlyCreatedKey(null)}

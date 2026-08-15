@@ -9,9 +9,14 @@ const mockFindMany = vi.fn();
 const mockFindUnique = vi.fn();
 const mockUpdate = vi.fn();
 const mockUpdateMany = vi.fn();
+const mockCreate = vi.fn();
+const mockTeamFindMany = vi.fn();
 
 vi.mock('@/lib/db', () => ({
   prisma: {
+    team: {
+      findMany: (...args: any[]) => mockTeamFindMany(...args),
+    },
     teamMember: {
       findMany: (...args: any[]) => mockFindMany(...args),
     },
@@ -20,6 +25,7 @@ vi.mock('@/lib/db', () => ({
       findUnique: (...args: any[]) => mockFindUnique(...args),
       update: (...args: any[]) => mockUpdate(...args),
       updateMany: (...args: any[]) => mockUpdateMany(...args),
+      create: (...args: any[]) => mockCreate(...args),
     },
   },
 }));
@@ -61,6 +67,10 @@ describe('Model Context Protocol (MCP) HTTP Endpoint', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(checkRateLimit).mockResolvedValue({ allowed: true, remaining: 119, resetAt: Date.now() + 60_000, firstBlock: false });
+    // getAllowedTeamIds unions Team.createdBy with TeamMember rows - default
+    // to no created teams so existing tests (which only queue a TeamMember
+    // row via mockFindMany) don't need to change.
+    mockTeamFindMany.mockResolvedValue([]);
   });
 
   it('should return 401 when API Key is missing or invalid', async () => {
@@ -144,12 +154,13 @@ describe('Model Context Protocol (MCP) HTTP Endpoint', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.id).toBe(10);
-    expect(body.result.tools).toHaveLength(6);
+    expect(body.result.tools).toHaveLength(7);
 
     const names = body.result.tools.map((t: { name: string }) => t.name);
     expect(names).toEqual([
       'collabpro_list_files',
       'collabpro_get_file',
+      'collabpro_create_file',
       'collabpro_update_document',
       'collabpro_update_whiteboard',
       'collabpro_search_icon_libraries',
@@ -183,6 +194,82 @@ describe('Model Context Protocol (MCP) HTTP Endpoint', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.result.content[0].text).toContain('System Specs');
+  });
+
+  it('lets a team creator (no TeamMember row - see teams:createTeam) list their own team\'s files via MCP', async () => {
+    vi.mocked(verifyApiKey).mockResolvedValueOnce({
+      isValid: true,
+      userEmail: 'owner@collabpro.com',
+      scope: 'read-write'
+    });
+
+    // teams:createTeam never inserts a TeamMember row for the creator - the
+    // owner's only membership signal is Team.createdBy.
+    mockTeamFindMany.mockResolvedValueOnce([{ id: 'team-owned' }]);
+    mockFindMany.mockResolvedValueOnce([]); // teamMember findMany - no membership row
+    mockFindMany.mockResolvedValueOnce([{ id: 'file-1', fileName: 'Owner File', teamId: 'team-owned' }]); // file findMany
+
+    const res = await mcpPOST(mcpRequest({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: { name: 'collabpro_list_files', arguments: { scope: 'team', teamId: 'team-owned' } },
+      id: 21,
+    }));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.result.isError).toBeFalsy();
+    expect(body.result.content[0].text).toContain('Owner File');
+  });
+
+  it('creates a file via collabpro_create_file when the team is one of the caller\'s own', async () => {
+    vi.mocked(verifyApiKey).mockResolvedValueOnce({
+      isValid: true,
+      userEmail: 'dev@collabpro.com',
+      scope: 'read-write'
+    });
+
+    mockFindMany.mockResolvedValueOnce([{ teamId: 'team-123' }]); // teamMember findMany (getAllowedTeamIds)
+    mockCreate.mockResolvedValueOnce({ id: 'file-new', fileName: 'New MCP File', teamId: 'team-123', document: '', whiteboard: '' });
+
+    const res = await mcpPOST(mcpRequest({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: { name: 'collabpro_create_file', arguments: { fileName: 'New MCP File', teamId: 'team-123' } },
+      id: 22,
+    }));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.result.isError).toBeFalsy();
+    expect(body.result.content[0].text).toContain('file-new');
+    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ fileName: 'New MCP File', teamId: 'team-123', createdBy: 'dev@collabpro.com', document: '', whiteboard: '' }),
+    }));
+    expect(logAuditEvent).toHaveBeenCalledWith('team-123', 'dev@collabpro.com', 'mcp:create_file', { fileId: 'file-new' }, '203.0.113.1');
+  });
+
+  it('rejects collabpro_create_file for a team the caller does not belong to', async () => {
+    vi.mocked(verifyApiKey).mockResolvedValueOnce({
+      isValid: true,
+      userEmail: 'dev@collabpro.com',
+      scope: 'read-write'
+    });
+
+    mockFindMany.mockResolvedValueOnce([{ teamId: 'team-123' }]); // teamMember findMany - caller only belongs to team-123
+
+    const res = await mcpPOST(mcpRequest({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: { name: 'collabpro_create_file', arguments: { fileName: 'Nope', teamId: 'someone-elses-team' } },
+      id: 23,
+    }));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.result.isError).toBe(true);
+    expect(body.result.content[0].text).toContain('access denied');
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 
   it('rejects tools/call with missing required arguments via SDK/Zod validation, before the handler runs', async () => {

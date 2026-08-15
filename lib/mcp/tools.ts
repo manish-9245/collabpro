@@ -4,7 +4,8 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { casUpdateDocument, casUpdateWhiteboard } from '@/lib/cas-writes';
 import { invalidateCachedFile } from '@/lib/redis-cache';
 import { logAuditEvent } from '@/lib/audit';
-import { parseJsonIfString } from '@/lib/state-sync-helpers';
+import { parseJsonIfString, asEditorDocument, asWhiteboardPayload, asJsonString } from '@/lib/state-sync-helpers';
+import { extractTextFromWhiteboard } from '@/lib/file-service';
 import { searchIconLibraries, getLibraryIcon } from '@/lib/mcp/icon-libraries';
 
 /**
@@ -31,11 +32,21 @@ export interface McpToolContext {
   ip?: string;
 }
 
+// Same "creator OR member" union every other access check in this app uses
+// (app/api/state-sync/services/fileService.ts's org-scope listing,
+// teamService.ts's getTeam) - a team's creator is never given their own
+// TeamMember row (see teams:createTeam), so a TeamMember-only query here
+// silently locked every team owner out of every MCP tool for their own
+// team's files, including a brand new team with nothing but its owner in it.
 async function getAllowedTeamIds(ctx: McpToolContext): Promise<string[]> {
-  const memberships = await ctx.prisma.teamMember.findMany({
-    where: { userEmail: ctx.userEmail },
-  });
-  return memberships.map((m) => m.teamId).filter(Boolean);
+  const [createdTeams, memberships] = await Promise.all([
+    ctx.prisma.team.findMany({ where: { createdBy: ctx.userEmail }, select: { id: true } }),
+    ctx.prisma.teamMember.findMany({ where: { userEmail: ctx.userEmail } }),
+  ]);
+  const ids = new Set<string>();
+  for (const t of createdTeams) if (t.id) ids.add(t.id);
+  for (const m of memberships) if (m.teamId) ids.add(m.teamId);
+  return Array.from(ids);
 }
 
 // Shared by every tool that operates on a single file: confirms the file
@@ -180,6 +191,55 @@ export function registerCollabProTools(server: McpServer, ctx: McpToolContext) {
         return errorResult('File not found or access denied');
       }
       return textResult(file);
+    }
+  );
+
+  server.registerTool(
+    'collabpro_create_file',
+    {
+      description: 'Create a new CollabPro document/whiteboard file inside a team you belong to. Leave document/whiteboard unset to start blank - seed them the same way collabpro_update_document/collabpro_update_whiteboard accept.',
+      inputSchema: {
+        fileName: z.string().min(1).describe('Display name for the new file.'),
+        teamId: z.string().describe('Team ID to create this file under - must be one of your authenticated teams (see collabpro_list_files).'),
+        document: z.union([z.string(), z.record(z.string(), z.unknown())]).optional()
+          .describe('Optional initial Editor.js payload (object or JSON string). Omit for a blank document.'),
+        whiteboard: z.union([z.string(), z.array(z.record(z.string(), z.unknown()))]).optional()
+          .describe('Optional initial Excalidraw elements (array or JSON string). Omit for a blank whiteboard.'),
+        folder: z.string().optional().describe('Optional folder path to file this under, e.g. "Design/Mockups".'),
+      },
+      annotations: { title: 'Create File', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ fileName, teamId, document, whiteboard, folder }) => {
+      if (ctx.scope === 'read-only') {
+        return errorResult('Forbidden: API key has read-only access scope');
+      }
+      const allowedTeamIds = await getAllowedTeamIds(ctx);
+      if (!allowedTeamIds.includes(teamId)) {
+        return errorResult('Team not found or access denied');
+      }
+
+      // Same normalization casUpdateDocument/casUpdateWhiteboard apply on
+      // every write, so a file created here behaves identically to one
+      // seeded by the dashboard's "New File" flow then edited through the
+      // editor - no format drift between create and update paths.
+      const documentString = document === undefined ? '' : asJsonString(asEditorDocument(document));
+      const whiteboardString = whiteboard === undefined ? '' : asJsonString(asWhiteboardPayload(whiteboard));
+
+      const file = await ctx.prisma.file.create({
+        data: {
+          fileName,
+          teamId,
+          createdBy: ctx.userEmail,
+          document: documentString,
+          whiteboard: whiteboardString,
+          whiteboardText: whiteboardString ? extractTextFromWhiteboard(whiteboardString) : '',
+          folder: folder ?? null,
+        },
+      });
+
+      void logAuditEvent(teamId, ctx.userEmail, 'mcp:create_file', { fileId: file.id }, ctx.ip);
+
+      return textResult({ created: true, file });
     }
   );
 

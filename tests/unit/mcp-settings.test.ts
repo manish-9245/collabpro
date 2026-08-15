@@ -60,7 +60,13 @@ describe('MCP Client Integration Settings Hub Suite (Issue 41)', () => {
     await waitFor(() => expect(mockFetch).toHaveBeenCalledWith('/api/api-keys'));
     screen.getByText('Claude Desktop').click();
 
-    const configBlock = await screen.findByText(/mcpServers/);
+    // Rendered through CodeBlock (Prism), which wraps each JSON token in its
+    // own <span> - a plain text-node regex match would land on the
+    // innermost matching span ("mcpServers" alone) instead of the full
+    // snippet, so match the containing <code> element specifically.
+    const configBlock = await screen.findByText(
+      (_, element) => element?.tagName.toLowerCase() === 'code' && !!element.textContent?.includes('mcpServers')
+    );
     expect(configBlock.textContent).toContain('"COLLABPRO_BASE_URL"');
     expect(configBlock.textContent).toContain('"COLLABPRO_API_KEY"');
     expect(configBlock.textContent).not.toContain('"COLLABPRO_URL"');
@@ -76,7 +82,11 @@ describe('MCP Client Integration Settings Hub Suite (Issue 41)', () => {
 
     screen.getByText('Cursor IDE').click();
 
-    const envBlock = await screen.findByText(/COLLABPRO_API_KEY=/);
+    // Same CodeBlock/Prism token-splitting as above - match the <code>
+    // element itself rather than an inner token span.
+    const envBlock = await screen.findByText(
+      (_, element) => element?.tagName.toLowerCase() === 'code' && !!element.textContent?.includes('COLLABPRO_API_KEY=')
+    );
     expect(envBlock.textContent).toContain('COLLABPRO_BASE_URL=');
     expect(envBlock.textContent).not.toMatch(/COLLABPRO_URL=/);
 

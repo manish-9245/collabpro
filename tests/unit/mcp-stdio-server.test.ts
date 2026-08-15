@@ -14,9 +14,15 @@ import path from 'path';
 // messages faithfully in both directions, not that it re-implements tools.
 
 const mockFindMany = vi.fn();
+// getAllowedTeamIds (lib/mcp/tools.ts) unions Team.createdBy with
+// TeamMember rows - default to no created teams so existing
+// mockFindMany.mockResolvedValueOnce(...) queues (written for the old
+// TeamMember-only query) don't need to change.
+const mockTeamFindMany = vi.fn().mockResolvedValue([]);
 
 vi.mock('@/lib/db', () => ({
   prisma: {
+    team: { findMany: (...args: any[]) => mockTeamFindMany(...args) },
     teamMember: { findMany: (...args: any[]) => mockFindMany(...args) },
     file: { findMany: (...args: any[]) => mockFindMany(...args) },
   },
@@ -123,6 +129,7 @@ describe('scripts/mcp-server.ts stdio<->HTTP bridge', () => {
     expect(toolNames).toEqual([
       'collabpro_list_files',
       'collabpro_get_file',
+      'collabpro_create_file',
       'collabpro_update_document',
       'collabpro_update_whiteboard',
       'collabpro_search_icon_libraries',

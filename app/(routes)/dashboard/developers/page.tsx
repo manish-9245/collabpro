@@ -689,7 +689,7 @@ func main() {
 
         </div>
 
-        {/* API Reference - the real 6-tool registry (lib/mcp/tools.ts),
+        {/* API Reference - the real tool registry (lib/mcp/tools.ts),
             shared with MCP Settings' reference card so the two pages can't
             drift apart. Full-width and its own two-column grid rather than
             stacked in the left column above, which used to leave the right
