@@ -1,0 +1,12 @@
+<svg viewBox="0 0 108 108" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<linearGradient id="g56310166" x1="0%" y1="0%" x2="100%" y2="100%">
+<stop offset="0%" stop-color="#10b981"/>
+<stop offset="100%" stop-color="#0ea5e9"/>
+</linearGradient>
+</defs>
+<circle cx="54" cy="54" r="52" fill="none" stroke="url(#g56310166)" stroke-width="3" stroke-linecap="round" stroke-dasharray="230 100" opacity="0.9">
+<animateTransform attributeName="transform" type="rotate" from="0 54 54" to="360 54 54" dur="19s" repeatCount="indefinite"/>
+</circle>
+<g transform="translate(6,6) scale(0.96)"><mask id="viewboxMask"><rect width="100" height="100" rx="50" ry="50" x="0" y="0" fill="#fff" /></mask><g mask="url(#viewboxMask)"><rect fill="url(#backgroundLinear)" width="100" height="100" x="0" y="0" /><defs><linearGradient id="backgroundLinear" gradientTransform="rotate(72 0.5 0.5)"><stop stop-color="#0ea5e9"/><stop offset="1" stop-color="#f43f5e"/></linearGradient></defs><g transform="matrix(1.2 0 0 1.2 -10 -10)"><g transform="translate(56, -2) rotate(123 50 50)"><path d="M100 50A50 50 0 1 1 0 50a50 50 0 0 1 100 0Z" fill="#1c799f"/></g></g><g transform="matrix(.8 0 0 .8 10 10)"><g transform="translate(5, 39) rotate(8 50 50)"><path d="M100 50A50 50 0 1 1 0 50a50 50 0 0 1 100 0Z" fill="#69d2e7"/></g></g><g transform="matrix(.4 0 0 .4 30 30)"><g transform="translate(-22, 18) rotate(179 50 50)"><path fill-rule="evenodd" clip-rule="evenodd" d="M50 90a40 40 0 1 0 0-80 40 40 0 0 0 0 80Zm0 10A50 50 0 1 0 50 0a50 50 0 0 0 0 100Z" fill="#f88c49"/></g></g></g></g>
+</svg>
