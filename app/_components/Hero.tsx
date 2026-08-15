@@ -1,7 +1,7 @@
 "use client"
 
 import React from 'react'
-import { Layers, FolderGit, Zap, History, Users2, ShieldCheck, Sparkles, ArrowRight, FolderOpen, Folder, FileText } from 'lucide-react'
+import { Layers, Zap, History, Users2, BrainCircuit, Server, Sparkles, ArrowRight, FolderOpen, Folder, FileText } from 'lucide-react'
 import { CHANGELOG } from '@/lib/changelog'
 import { BackgroundBeams } from '@/components/ui/background-beams-custom'
 import { HoverEffect } from '@/components/ui/card-hover-effect'
@@ -24,10 +24,16 @@ function Hero() {
       color: 'text-blue-600'
     },
     {
-      icon: FolderGit,
-      title: 'Collapsible File Trees',
-      description: 'Organize project files dynamically into virtual folders. Rename, delete, move, or archive files instantly from the sidebar.',
-      color: 'text-indigo-600'
+      icon: BrainCircuit,
+      title: 'AI Co-Pilot That Actually Edits',
+      description: 'A per-file chat sidebar backed by OpenAI, Anthropic, Gemini, or NVIDIA NIM that writes to your document or draws on your whiteboard directly - not just describes what it would do.',
+      color: 'text-violet-600'
+    },
+    {
+      icon: Server,
+      title: 'MCP for Any AI Agent',
+      description: 'A real, spec-compliant Model Context Protocol server so Claude Desktop, Cursor, VS Code, and Windsurf can read and edit your files directly.',
+      color: 'text-rose-600'
     },
     {
       icon: Zap,
@@ -46,12 +52,6 @@ function Hero() {
       title: 'Team & Org Scoping',
       description: 'Organize files at team levels or view global organization dashboards with full author avatars and team trackers.',
       color: 'text-purple-600'
-    },
-    {
-      icon: ShieldCheck,
-      title: 'Enterprise Security Tiers',
-      description: 'Complete data sovereignty with unlimited workspace usage. Fully optimized self-hosting with bulletproof reliability.',
-      color: 'text-teal-600'
     }
   ];
 
@@ -76,6 +76,13 @@ function Hero() {
         }
         .animate-cursor-mock {
           animation: cursor-path 12s infinite ease-in-out;
+        }
+        @keyframes ai-card-breathe {
+          0%, 100% { opacity: 0.92; transform: translateY(0); }
+          50% { opacity: 1; transform: translateY(-4px); }
+        }
+        .animate-ai-card {
+          animation: ai-card-breathe 5s infinite ease-in-out;
         }
       `}} />
 
@@ -130,14 +137,22 @@ function Hero() {
               <span className="w-3 h-3 rounded-full bg-emerald-500/80" />
               <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase ml-3 hidden sm:inline-block">CollabPro - Simulated Workspace Sandbox</span>
             </div>
-            {/* Active Collaborators */}
-            <div className="flex items-center gap-1.5">
-              <div className="flex -space-x-2">
-                <img src="https://api.dicebear.com/7.x/shapes/svg?seed=CyberNeon" alt="user" className="w-5 h-5 rounded-full border border-slate-200 bg-white" />
-                <img src="https://api.dicebear.com/7.x/shapes/svg?seed=AuroraGlow" alt="user" className="w-5 h-5 rounded-full border border-slate-200 bg-white" />
-                <div className="w-5 h-5 rounded-full bg-blue-600 border border-slate-200 flex items-center justify-center text-[8px] font-bold text-white">+2</div>
+            <div className="flex items-center gap-2">
+              {/* MCP indicator */}
+              <span className="hidden sm:inline-flex items-center gap-1 text-[9px] font-semibold text-violet-600 bg-violet-50/50 px-2 py-0.5 rounded-full border border-violet-500/20">
+                <Server className="h-2.5 w-2.5" /> MCP Connected
+              </span>
+              {/* Active Collaborators - plain initials, no external avatar API
+                  (a hotlinked dicebear.com call in the marketing hero is the
+                  same class of fragility the real avatar picker had). */}
+              <div className="flex items-center gap-1.5">
+                <div className="flex -space-x-2">
+                  <div className="w-5 h-5 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 border border-slate-200 flex items-center justify-center text-[8px] font-bold text-white">A</div>
+                  <div className="w-5 h-5 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 border border-slate-200 flex items-center justify-center text-[8px] font-bold text-white">M</div>
+                  <div className="w-5 h-5 rounded-full bg-slate-600 border border-slate-200 flex items-center justify-center text-[8px] font-bold text-white">+2</div>
+                </div>
+                <span className="text-[9px] font-semibold text-emerald-600 bg-emerald-50/10 px-2 py-0.5 rounded-full border border-emerald-500/20 animate-pulse">Live Collaboration</span>
               </div>
-              <span className="text-[9px] font-semibold text-emerald-600 bg-emerald-50/10 px-2 py-0.5 rounded-full border border-emerald-500/20 animate-pulse">Live Collaboration</span>
             </div>
           </div>
 
@@ -226,6 +241,26 @@ function Hero() {
                 <div className="bg-indigo-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow">
                   Alex (Architect)
                 </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Floating AI Co-Pilot preview - mirrors the real workspace's
+              floating trigger/sidebar, showing the "actually edits your
+              file" behavior rather than just a chat transcript. Anchored
+              bottom-left (under the document panel) rather than bottom-right,
+              which is the canvas panel's own animated cursor's territory. */}
+          <div className="hidden sm:block absolute bottom-4 left-4 w-48 rounded-xl border border-violet-200/60 bg-white shadow-2xl shadow-violet-500/10 overflow-hidden z-20 animate-ai-card">
+            <div className="px-3 py-1.5 bg-gradient-to-r from-violet-600 to-indigo-600 flex items-center gap-1.5">
+              <Sparkles className="h-3 w-3 text-white" />
+              <span className="text-[9px] font-bold text-white uppercase tracking-wider">AI Co-Pilot</span>
+            </div>
+            <div className="p-2 space-y-1.5">
+              <div className="text-[9px] text-slate-500 bg-slate-50 rounded-lg px-2 py-1.5">
+                "Draft the auth section"
+              </div>
+              <div className="flex items-center gap-1 text-[9px] font-semibold text-violet-600 bg-violet-50 rounded-lg px-2 py-1.5">
+                <Zap className="h-2.5 w-2.5 shrink-0" /> Updated document
               </div>
             </div>
           </div>
