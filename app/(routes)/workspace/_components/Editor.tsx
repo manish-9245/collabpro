@@ -90,7 +90,7 @@ function Editor({
     const lastUndoTriggerRef = useRef(0);
     const lastRedoTriggerRef = useRef(0);
 
-    const [hoveredImageBlock, setHoveredImageBlock] = useState<{ id: string; url: string; element: HTMLElement } | null>(null);
+    const [hoveredImageBlock, setHoveredImageBlock] = useState<{ id: string; url: string; top: number; left: number; width: number } | null>(null);
     const [activeEditingImageBlock, setActiveEditingImageBlock] = useState<{ id: string; url: string } | null>(null);
 
     // Resizable images state variables
@@ -271,15 +271,35 @@ function Editor({
                 setHoveredImageBlock(null);
                 return;
             }
-            
+
             const img = ceBlock.querySelector('img');
+            const imageToolImage = ceBlock.querySelector('.image-tool__image') as HTMLElement;
             const blockId = ceBlock.getAttribute('data-id');
-            
-            if (img && img.src && blockId) {
+
+            // Positioned via getBoundingClientRect deltas against the same
+            // reference updateOverlayPosition (below) already uses - the
+            // image element's own offsetTop/offsetLeft are relative to
+            // *its* nearest positioned ancestor inside EditorJS's internal
+            // DOM, which isn't reliably the same element this button is
+            // absolutely positioned against, so raw offsetLeft/offsetTop
+            // silently drift. Also anchored to the actual image element,
+            // not the surrounding block - the block spans the full editor
+            // column width regardless of the image's own (now natural,
+            // often much smaller) size and alignment.
+            if (img && img.src && imageToolImage && blockId) {
+                const parent = document.getElementById('editorjs')?.parentElement;
+                if (!parent) {
+                    setHoveredImageBlock(null);
+                    return;
+                }
+                const parentRect = parent.getBoundingClientRect();
+                const imgRect = imageToolImage.getBoundingClientRect();
                 setHoveredImageBlock({
                     id: blockId,
                     url: img.src,
-                    element: ceBlock as HTMLElement
+                    top: imgRect.top - parentRect.top,
+                    left: imgRect.left - parentRect.left,
+                    width: imgRect.width
                 });
             } else {
                 setHoveredImageBlock(null);
@@ -757,8 +777,11 @@ function Editor({
                     onClick={() => setActiveEditingImageBlock({ id: hoveredImageBlock.id, url: hoveredImageBlock.url })}
                     style={{
                         position: 'absolute',
-                        top: hoveredImageBlock.element.offsetTop + 12,
-                        left: hoveredImageBlock.element.offsetLeft + hoveredImageBlock.element.offsetWidth - 160,
+                        top: hoveredImageBlock.top + 12,
+                        // Clamped so a narrower-than-160px natural-size image
+                        // anchors the button to its top-left instead of the
+                        // math going negative and pushing it off to the left.
+                        left: hoveredImageBlock.left + Math.max(0, hoveredImageBlock.width - 160),
                         zIndex: 20
                     }}
                     className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-semibold text-xs px-3 py-2 rounded-lg shadow-lg hover:from-violet-500 hover:to-indigo-500 transition-all duration-200 transform hover:scale-105 active:scale-95"
@@ -819,10 +842,10 @@ function Editor({
                             transform: 'translateX(-50%)',
                             pointerEvents: 'all',
                         }}
-                        className="image-resize-controls flex flex-col gap-2 bg-slate-900/90 backdrop-blur-md border border-slate-700/50 rounded-xl px-4 py-2.5 shadow-2xl z-40 min-w-[280px]"
+                        className="image-resize-controls flex flex-col gap-2 bg-white/95 backdrop-blur-md border border-slate-200 rounded-xl px-4 py-2.5 shadow-2xl z-40 min-w-[280px]"
                     >
                         <div className="flex items-center gap-3">
-                            <div className="flex gap-1.5 border-r border-slate-800 pr-3">
+                            <div className="flex gap-1.5 border-r border-slate-200 pr-3">
                                 {['25%', '50%', '75%', '100%'].map((w) => {
                                     const isActive = selectedImage.width === w;
                                     return (
@@ -832,7 +855,7 @@ function Editor({
                                             className={`px-2 py-1 rounded text-xs font-semibold transition-all ${
                                                 isActive
                                                     ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-md'
-                                                    : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                                                    : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
                                             }`}
                                         >
                                             {w}
@@ -843,24 +866,24 @@ function Editor({
 
                             {/* Slider Control */}
                             <div className="flex items-center gap-2 flex-grow pl-1">
-                                <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap">Size:</span>
+                                <span className="text-[10px] text-slate-500 font-medium whitespace-nowrap">Size:</span>
                                 <input
                                     type="range"
                                     min="10"
                                     max="100"
                                     value={parseInt(selectedImage.width) || 100}
                                     onChange={(e) => handleUpdateImageWidth(selectedImage.id, `${e.target.value}%`)}
-                                    className="w-24 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-violet-500"
+                                    className="w-24 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-violet-500"
                                 />
-                                <span className="text-[10px] text-violet-400 font-bold whitespace-nowrap min-w-[24px]">
+                                <span className="text-[10px] text-violet-600 font-bold whitespace-nowrap min-w-[24px]">
                                     {parseInt(selectedImage.width) || 100}%
                                 </span>
                             </div>
                         </div>
 
                         {/* Alignment Control */}
-                        <div className="flex items-center gap-2 pt-2 border-t border-slate-800">
-                            <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap">Align:</span>
+                        <div className="flex items-center gap-2 pt-2 border-t border-slate-200">
+                            <span className="text-[10px] text-slate-500 font-medium whitespace-nowrap">Align:</span>
                             <div className="flex gap-1">
                                 {([
                                     { value: 'left' as const, Icon: AlignLeft, label: 'Align left' },
@@ -876,7 +899,7 @@ function Editor({
                                             className={`p-1.5 rounded transition-all ${
                                                 isActive
                                                     ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-md'
-                                                    : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                                                    : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
                                             }`}
                                         >
                                             <Icon className="h-3.5 w-3.5" />
