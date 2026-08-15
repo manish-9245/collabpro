@@ -67,6 +67,16 @@ function Editor({
     const lastSavedDataRef=useRef<string>("");
     const isProgrammaticUpdateRef=useRef<boolean>(false);
 
+    // Per-block image widths, tracked entirely outside EditorJS's own data
+    // model. @editorjs/image's ImageTool hard-codes its _data shape to
+    // {caption, withBorder, withBackground, stretched, file} - any extra key
+    // (like `width`) passed into blocks.update() is silently dropped the
+    // moment the tool re-normalizes its data, so a resize could never
+    // actually round-trip through save()/blocks.update() regardless of
+    // timing. Persisted as a sibling `imageWidths` field alongside the
+    // EditorJS document (see onSaveDocument), keyed by block id.
+    const imageWidthsRef = useRef<Record<string, string>>({});
+
     // Undo/Redo History Stack (client-side)
     const historyRef = useRef<string[]>([]);
     const historyIndexRef = useRef<number>(-1);
@@ -91,15 +101,16 @@ function Editor({
         if (!ref.current) return;
         ref.current.save().then((outputData) => {
             outputData.blocks.forEach((block: any) => {
-                if (block.type === 'image' && block.data?.width) {
-                    const blockEl = document.querySelector(`[data-id="${block.id}"]`);
-                    if (blockEl) {
-                        const imageToolImage = blockEl.querySelector('.image-tool__image') as HTMLElement;
-                        if (imageToolImage) {
-                            imageToolImage.style.width = block.data.width;
-                            imageToolImage.style.maxWidth = "100%";
-                            imageToolImage.style.margin = "0 auto";
-                        }
+                if (block.type !== 'image') return;
+                const width = imageWidthsRef.current[block.id];
+                if (!width) return;
+                const blockEl = document.querySelector(`[data-id="${block.id}"]`);
+                if (blockEl) {
+                    const imageToolImage = blockEl.querySelector('.image-tool__image') as HTMLElement;
+                    if (imageToolImage) {
+                        imageToolImage.style.width = width;
+                        imageToolImage.style.maxWidth = "100%";
+                        imageToolImage.style.margin = "0 auto";
                     }
                 }
             });
@@ -108,47 +119,36 @@ function Editor({
         });
     };
 
-    const handleUpdateImageWidth = async (blockId: string, newWidth: string) => {
-        if (!ref.current) return;
-        try {
-            const block = await ref.current.blocks.getById(blockId);
-            if (block) {
-                const currentData = await block.save() as any;
-                if (!currentData || !currentData.data) return;
-                const updatedData = {
-                    ...currentData.data,
-                    width: newWidth
-                };
-                
-                await ref.current.blocks.update(blockId, updatedData);
-                
-                const blockEl = document.querySelector(`[data-id="${blockId}"]`);
-                if (blockEl) {
-                    const imageToolImage = blockEl.querySelector('.image-tool__image') as HTMLElement;
-                    if (imageToolImage) {
-                        imageToolImage.style.width = newWidth;
-                        imageToolImage.style.maxWidth = "100%";
-                        imageToolImage.style.margin = "0 auto";
-                    }
-                }
+    // Synchronous (no EditorJS round-trip needed - width lives in
+    // imageWidthsRef, not in the block's own data) so there's no async
+    // window where a fast navigation-away could land before anything is
+    // tracked as pending.
+    const handleUpdateImageWidth = (blockId: string, newWidth: string) => {
+        imageWidthsRef.current = { ...imageWidthsRef.current, [blockId]: newWidth };
 
-                setSelectedImage(prev => {
-                    if (prev && prev.id === blockId) {
-                        return { ...prev, width: newWidth };
-                    }
-                    return prev;
-                });
-
-                setSavingStatus('saving');
-                if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-                saveTimeoutRef.current = setTimeout(() => {
-                    onSaveDocument(false);
-                    saveTimeoutRef.current = null;
-                }, 1500);
+        const blockEl = document.querySelector(`[data-id="${blockId}"]`);
+        if (blockEl) {
+            const imageToolImage = blockEl.querySelector('.image-tool__image') as HTMLElement;
+            if (imageToolImage) {
+                imageToolImage.style.width = newWidth;
+                imageToolImage.style.maxWidth = "100%";
+                imageToolImage.style.margin = "0 auto";
             }
-        } catch (e) {
-            console.error("Failed to update image width in EditorJS:", e);
         }
+
+        setSelectedImage(prev => {
+            if (prev && prev.id === blockId) {
+                return { ...prev, width: newWidth };
+            }
+            return prev;
+        });
+
+        setSavingStatus('saving');
+        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = setTimeout(() => {
+            onSaveDocument(false);
+            saveTimeoutRef.current = null;
+        }, 1500);
     };
 
     const handleResizeStart = (e: React.MouseEvent, direction: 'left' | 'right') => {
@@ -387,11 +387,12 @@ function Editor({
             }
             
             const serverDoc = decodeState(fileData.document, rawDocument);
-            
+
             // Only overwrite if we are not currently typing or waiting on a debounced save
             if (saveTimeoutRef.current === null && !saveTimeoutRef.current) {
                 isProgrammaticUpdateRef.current = true;
-                ref.current.render(serverDoc).then(() => {
+                imageWidthsRef.current = serverDoc.imageWidths || {};
+                ref.current.render({ time: serverDoc.time, blocks: serverDoc.blocks, version: serverDoc.version }).then(() => {
                     applyImageWidths();
                     setTimeout(() => {
                         isProgrammaticUpdateRef.current = false;
@@ -462,7 +463,8 @@ function Editor({
             
             if (ref.current) {
                 isProgrammaticUpdateRef.current = true;
-                ref.current.render(prevState).then(() => {
+                imageWidthsRef.current = prevState.imageWidths || {};
+                ref.current.render({ time: prevState.time, blocks: prevState.blocks, version: prevState.version }).then(() => {
                     applyImageWidths();
                     setTimeout(() => {
                         isProgrammaticUpdateRef.current = false;
@@ -489,7 +491,8 @@ function Editor({
             
             if (ref.current) {
                 isProgrammaticUpdateRef.current = true;
-                ref.current.render(nextState).then(() => {
+                imageWidthsRef.current = nextState.imageWidths || {};
+                ref.current.render({ time: nextState.time, blocks: nextState.blocks, version: nextState.version }).then(() => {
                     applyImageWidths();
                     setTimeout(() => {
                         isProgrammaticUpdateRef.current = false;
@@ -525,8 +528,9 @@ function Editor({
 
     const initEditor=()=>{
         const decodedDoc = fileData?.document ? decodeState(fileData.document, rawDocument) : rawDocument;
+        imageWidthsRef.current = decodedDoc.imageWidths || {};
         const initialDocStr = JSON.stringify(decodedDoc);
-        
+
         lastSavedDataRef.current = fileData?.document || encodeState(decodedDoc);
         
         // Setup initial history
@@ -570,7 +574,7 @@ function Editor({
             },
            
             holder: 'editorjs',
-            data: decodedDoc,
+            data: { time: decodedDoc.time, blocks: decodedDoc.blocks, version: decodedDoc.version },
             onReady: () => {
                 applyImageWidths();
             },
@@ -592,8 +596,12 @@ function Editor({
       {
         setSavingStatus('saving');
         ref.current.save().then((outputData) => {
-          const rawDocStr = JSON.stringify(outputData);
-          const crdtStr = encodeState(outputData);
+          // imageWidths lives outside EditorJS's own data model (see
+          // imageWidthsRef declaration above) so it has to be merged in by
+          // hand here - editor.save() has no idea it exists.
+          const fullDoc = { ...outputData, imageWidths: imageWidthsRef.current };
+          const rawDocStr = JSON.stringify(fullDoc);
+          const crdtStr = encodeState(fullDoc);
           lastSavedDataRef.current = crdtStr;
 
           // Maintain the undo/redo history stack (stores raw standard JSON string)
@@ -655,12 +663,17 @@ function Editor({
                 ...outputData,
                 blocks: updatedBlocks
             };
-            
+            // imageWidths lives outside EditorJS's data model - carry it
+            // forward explicitly, or a creative-edit save here would silently
+            // wipe every image's saved width from the document.
+            const fullDoc = { ...newOutputData, imageWidths: imageWidthsRef.current };
+
             isProgrammaticUpdateRef.current = true;
             ref.current?.render(newOutputData).then(() => {
-                const crdtStr = encodeState(newOutputData);
+                applyImageWidths();
+                const crdtStr = encodeState(fullDoc);
                 lastSavedDataRef.current = crdtStr;
-                
+
                 updateDocument({
                     _id: fileId,
                     document: crdtStr
