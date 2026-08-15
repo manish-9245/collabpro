@@ -299,9 +299,19 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
 
     const getTeamList = async () => {
         const result = await sync.query(api.teams.getTeam, { email: user?.email })
-        console.log("TeamList", result);
         setTeamList(result);
-        setActiveTeam(result[0]);
+        // Restore whichever team the user last had active - without this,
+        // every navigation that unmounts the sidebar (e.g. opening a doc in
+        // /workspace, which lives outside dashboard/layout.tsx) silently
+        // resets the active team back to result[0], along with its file list.
+        const savedTeamId = typeof window !== 'undefined' ? localStorage.getItem('collabpro_active_team_id') : null;
+        const restored = savedTeamId ? result?.find((t: TEAM) => t._id === savedTeamId) : null;
+        setActiveTeam(restored || result[0]);
+    }
+
+    const selectTeam = (team: TEAM) => {
+        setActiveTeam(team);
+        if (team?._id) localStorage.setItem('collabpro_active_team_id', team._id as string);
     }
 
     const onMenuClick = (item: any) => {
@@ -371,7 +381,7 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
                 setNewTeamName('');
                 const result = await sync.query(api.teams.getTeam, { email: user?.email });
                 setTeamList(result);
-                setActiveTeam(created);
+                selectTeam(created);
             } else {
                 toast.error('Failed to create team. Please try again.');
             }
@@ -408,7 +418,7 @@ function SideNavTopSection({ user, setActiveTeamInfo }: any) {
                                         ? 'bg-blue-600 text-white shadow-md shadow-blue-500/10' 
                                         : 'hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-300'
                                 }`}
-                                onClick={() => setActiveTeam(team)}
+                                onClick={() => selectTeam(team)}
                             >
                                 <span className='truncate'>{team.teamName}</span>
                                 {activeTeam?._id == team._id && <Check className='h-4 w-4 shrink-0 ml-1' />}
