@@ -193,10 +193,16 @@ export default function McpSettingsHub() {
 
   return (
     <div className="max-w-4xl">
-      {/* Hub Header */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6">
+      {/* Hub Header - matches the eyebrow + large-H1 pattern used by the
+          sibling AI Co-Pilot / Admin settings pages, now that all four live
+          side by side in the same nav shell. */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-8 border-b border-slate-200/50 dark:border-slate-800/60 mb-6">
           <div>
-            <h1 className="text-2xl font-black text-slate-900 dark:text-slate-100 tracking-tight">
+            <div className="flex items-center gap-2 text-[#6965db]">
+              <Server className="h-5 w-5" />
+              <span className="text-[10px] font-black uppercase tracking-wider">Agent Connectivity</span>
+            </div>
+            <h1 className="text-3xl font-black text-slate-800 dark:text-slate-100 tracking-tight mt-1">
               MCP
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-xl leading-relaxed">

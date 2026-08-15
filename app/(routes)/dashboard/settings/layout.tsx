@@ -28,12 +28,12 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
   const isOwner = activeTeam?.createdBy === user?.email
 
   return (
-    <div className="min-h-screen bg-slate-50/30 dark:bg-zinc-950/20">
+    <div className="min-h-screen bg-slate-50/30 dark:bg-zinc-950">
       <div className="p-4 sm:p-8 pb-4">
         <Header />
       </div>
       <div className="px-4 sm:px-8 pb-16 max-w-6xl mx-auto flex flex-col lg:flex-row gap-8 items-start">
-        <nav className="w-full lg:w-56 shrink-0 lg:sticky lg:top-8 flex flex-row lg:flex-col gap-1.5 overflow-x-auto lg:overflow-visible">
+        <nav className="w-full lg:w-56 shrink-0 lg:sticky lg:top-8 flex flex-row lg:flex-col gap-1.5 overflow-x-auto lg:overflow-visible pr-6 lg:pr-0 [mask-image:linear-gradient(to_right,black_92%,transparent_100%)] lg:[mask-image:none]">
           <h2 className="hidden lg:block px-3 text-[11px] font-black uppercase tracking-widest text-slate-400 dark:text-zinc-500 mb-1">
             Settings
           </h2>

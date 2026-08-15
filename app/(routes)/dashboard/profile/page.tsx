@@ -223,7 +223,7 @@ function ProfilePage() {
             {/* Premium Animated Avatar Selector */}
             <div className="bg-white dark:bg-zinc-950 border border-slate-100 dark:border-zinc-900 p-6 rounded-2xl shadow-sm">
               <h3 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-1.5 mb-4">
-                <Sparkles className="h-4 w-4 text-purple-500 animate-bounce" />
+                <Sparkles className="h-4 w-4 text-purple-500" />
                 Select Premium Animated Avatar
               </h3>
               

@@ -101,7 +101,7 @@ function HelpPage() {
   const [openFaq, setOpenFaq] = useState<number | null>(0)
 
   return (
-    <div className='p-8 min-h-screen bg-slate-50/30 dark:bg-zinc-950/20'>
+    <div className='p-8 min-h-screen bg-slate-50/30 dark:bg-zinc-950'>
       <Header />
 
       {/* Title Header */}

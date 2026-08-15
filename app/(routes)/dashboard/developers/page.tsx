@@ -561,54 +561,6 @@ func main() {
               </div>
             </div>
 
-            {/* API Reference - the real 6-tool registry (lib/mcp/tools.ts),
-                shared with MCP Settings' reference card so the two pages
-                can't drift apart. */}
-            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-md space-y-5">
-              <div className="flex items-center gap-2.5 border-b border-slate-100 pb-4">
-                <Layers className="h-5 w-5 text-purple-600" />
-                <h2 className="text-lg font-bold text-slate-900">API Reference</h2>
-                <span className="text-xs text-slate-400 ml-auto">{MCP_TOOL_CATALOG.length} tools</span>
-              </div>
-
-              <div className="space-y-3">
-                {MCP_TOOL_CATALOG.map((tool) => (
-                  <div key={tool.name} className="p-4 rounded-xl border border-slate-100 bg-slate-50/50 space-y-2">
-                    <div className="flex items-center justify-between gap-2 flex-wrap">
-                      <code className="text-xs font-mono font-bold text-slate-800">{tool.name}</code>
-                      <span
-                        className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
-                          tool.access === 'write'
-                            ? 'text-amber-700 bg-amber-50 border-amber-200'
-                            : 'text-emerald-700 bg-emerald-50 border-emerald-200'
-                        }`}
-                      >
-                        {tool.access === 'write' ? 'Read/Write' : 'Read-only'}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-500 leading-relaxed">{tool.description}</p>
-                    {tool.params.length > 0 && (
-                      <div className="pt-1 space-y-1">
-                        {tool.params.map((p) => (
-                          <div key={p.name} className="flex gap-2 text-[10.5px] leading-relaxed">
-                            <code className="font-mono font-bold text-slate-600 shrink-0">
-                              {p.name}
-                              {p.required && <span className="text-rose-500">*</span>}
-                            </code>
-                            <span className="text-slate-400 shrink-0">{p.type}</span>
-                            <span className="text-slate-500">{p.description}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <p className="text-[10px] text-slate-400">
-                * required. Read-only API keys (scope <code className="font-mono">read-only</code>) can call read tools but get a 403 from write tools.
-              </p>
-            </div>
-
           </div>
 
           {/* RIGHT: JSON-RPC Live Playground */}
@@ -724,6 +676,57 @@ func main() {
             </div>
           </div>
 
+        </div>
+
+        {/* API Reference - the real 6-tool registry (lib/mcp/tools.ts),
+            shared with MCP Settings' reference card so the two pages can't
+            drift apart. Full-width and its own two-column grid rather than
+            stacked in the left column above, which used to leave the right
+            column (JSON-RPC console) towering over empty space once this
+            section made the left column much taller. */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-md space-y-5">
+          <div className="flex items-center gap-2.5 border-b border-slate-100 pb-4">
+            <Layers className="h-5 w-5 text-purple-600" />
+            <h2 className="text-lg font-bold text-slate-900">API Reference</h2>
+            <span className="text-xs text-slate-400 ml-auto">{MCP_TOOL_CATALOG.length} tools</span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {MCP_TOOL_CATALOG.map((tool) => (
+              <div key={tool.name} className="p-4 rounded-xl border border-slate-100 bg-slate-50/50 space-y-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <code className="text-xs font-mono font-bold text-slate-800">{tool.name}</code>
+                  <span
+                    className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                      tool.access === 'write'
+                        ? 'text-amber-700 bg-amber-50 border-amber-200'
+                        : 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                    }`}
+                  >
+                    {tool.access === 'write' ? 'Read/Write' : 'Read-only'}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 leading-relaxed">{tool.description}</p>
+                {tool.params.length > 0 && (
+                  <div className="pt-1 space-y-1">
+                    {tool.params.map((p) => (
+                      <div key={p.name} className="flex gap-2 text-[10.5px] leading-relaxed">
+                        <code className="font-mono font-bold text-slate-600 shrink-0">
+                          {p.name}
+                          {p.required && <span className="text-rose-500">*</span>}
+                        </code>
+                        <span className="text-slate-400 shrink-0">{p.type}</span>
+                        <span className="text-slate-500">{p.description}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          <p className="text-[10px] text-slate-400">
+            * required. Read-only API keys (scope <code className="font-mono">read-only</code>) can call read tools but get a 403 from write tools.
+          </p>
         </div>
 
       </div>
