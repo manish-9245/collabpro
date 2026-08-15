@@ -46,10 +46,24 @@ CollabPro is **self-contained with zero required third-party SaaS dependencies**
 ### 🤖 6. MCP Automation Tools
 - **Spec-compliant remote server**: `/api/mcp` is a real Streamable HTTP MCP server built on the official `@modelcontextprotocol/sdk` — any supporting client (including VS Code natively, via the bundled `.vscode/mcp.json`) connects directly with just a URL and API key, no local install.
 - **stdio bridge for legacy clients**: `scripts/mcp-server.ts` bridges local stdio clients (Claude Desktop, Cursor, Windsurf) to the same server.
-- **Tools**: `collabpro_list_files`, `collabpro_get_file`, `collabpro_update_document`, `collabpro_update_whiteboard`, `collabpro_search_icon_libraries`, `collabpro_get_library_icon` — schema-validated and access-scoped to the caller's teams, writes going through the same compare-and-swap writers as every other write path in the app.
-- **Enforced whiteboard layout**: `collabpro_update_whiteboard` rejects overlapping shapes / non-finite coordinates server-side (not just a suggestion in the tool description) — same rule for every calling AI. A `collabpro_diagram_guidelines` MCP **prompt** gives the full color/spacing/typography rules plus real AWS/Azure/GCP/network icon lookup, sourced from the community `.excalidrawlib` libraries.
+- **8 tools**: list/get/create files, update a document or whiteboard, and search/list/place icons from 200+ community Excalidraw libraries (`collabpro_list_files`, `collabpro_get_file`, `collabpro_create_file`, `collabpro_update_document`, `collabpro_update_whiteboard`, `collabpro_search_icon_libraries`, `collabpro_list_library_items`, `collabpro_get_library_icon`) — schema-validated and access-scoped to the caller's teams, writes going through the same compare-and-swap writers as every other write path in the app.
+- **Built for building a diagram across many calls, not just one**: `collabpro_update_whiteboard` merges onto the existing board by id by default (a later call never discards an earlier one's work) — full-replace is an explicit opt-in, not the default. Icons are placed by a short-lived `ref` from `collabpro_get_library_icon`, not by re-passing their full element geometry on every call.
+- **Enforced diagram quality**: overlapping shapes, non-finite coordinates, text with no visible color, and zero-length arrows are all rejected server-side (not just a suggestion in a tool description) — same rules for every calling AI. A `collabpro_diagram_guidelines` MCP **prompt** covers the rest (color/spacing/typography/section-header placement/real arrow bindings), sourced from the community `.excalidrawlib` libraries.
 - **Rate limited, audited, observable**: per-API-key rate limiting, an audit-log entry for every write/auth-failure, and structured request logging — see [`docs/mcp-integration.md`](docs/mcp-integration.md#reliability-limits-and-audit).
 - **Full setup guide, tool/prompt reference, and troubleshooting**: [`docs/mcp-integration.md`](docs/mcp-integration.md).
+
+### 🧠 7. Multi-Provider AI Co-Pilot
+- **Bring your own key, any provider**: OpenAI, Anthropic (native Messages API), Gemini, and NVIDIA NIM, configured per-team in Settings → AI with a real provider picker and dynamic model-list fetch — not a single hardcoded provider.
+- **Workspace-aware chat**: the in-editor Co-Pilot sidebar answers questions about — and can take actions on — the open file's document and whiteboard content.
+- **Owner-gated, encrypted at rest**: only a team's creator can configure or change the provider key; keys are AES-256-GCM encrypted, never returned to the client in full.
+
+### 🛡️ 8. Organization Admin & Compliance
+- **Access policy controls**: allowed-signup-domain restrictions and active-seat limits, configurable per team.
+- **Compliance audit log**: every security-relevant action (auth, API keys, team/org changes, MCP writes) lands in a queryable, exportable audit trail.
+
+### 🔗 9. Sharing & Live Embeds
+- **Password-optional, expiring share links**: viewer/commenter/editor share links with an optional password and expiry, revocable at any time.
+- **Public live SVG embeds**: turn a share link into an always-fresh `<img>`-able URL — drop a whiteboard straight into a GitHub README or any other doc; it reflects the canvas's current state on every fetch, no re-export needed. Gated by the same share-link rules (password-protected links can't be embedded, since a static image can't prompt for one) — see [`docs/architecture.md`](docs/architecture.md#7-public-whiteboard-embeds-libwhiteboard-svgts).
 
 ---
 
@@ -65,6 +79,7 @@ graph TD
     classDef ws fill:#fff1f2,stroke:#f43f5e,stroke-width:2px,color:#9f1239;
     classDef db fill:#ecfdf5,stroke:#059669,stroke-width:2px,color:#064e3b;
     classDef storage fill:#fffbeb,stroke:#d97706,stroke-width:2px,color:#78350f;
+    classDef public fill:#f0fdf4,stroke:#16a34a,stroke-width:2px,color:#14532d;
 
     subgraph ClientLayer ["CollabPro Client (Next.js 15 + React 19)"]
         UI["Responsive UI"]:::client
@@ -77,6 +92,7 @@ graph TD
         SyncAPI["HTTP Sync Gateway<br/>(/api/state-sync)"]:::server
         McpAPI["MCP Server<br/>(/api/mcp)"]:::server
         WSGateway["Standalone WS Gateway<br/>(ws-server/, port 4000)"]:::ws
+        EmbedAPI["Public Embed<br/>(/api/embed/[token] — no auth)"]:::public
     end
 
     subgraph DataLayer ["Stateful Stores"]
@@ -99,6 +115,7 @@ graph TD
     AuthAPI <--> RedisStore
     McpAPI <--> PrismaORM
     AuthAPI <--> PrismaORM
+    EmbedAPI -->|Share-link token, read-only| PrismaORM
     PrismaORM <--> PostgresDB
 
     style ClientLayer fill:#f8fafc,stroke:#cbd5e1,stroke-dasharray: 5 5;
@@ -106,7 +123,7 @@ graph TD
     style DataLayer fill:#f8fafc,stroke:#cbd5e1,stroke-dasharray: 5 5;
 ```
 
-**📖 Full architecture deep-dive** — WebSocket gateway internals, adaptive-polling backoff logic, Redis cache-aside/rate-limiting design, S3 object storage, operational endpoints: **[`docs/architecture.md`](docs/architecture.md)**.
+**📖 Full architecture deep-dive** — WebSocket gateway internals, adaptive-polling backoff logic, RabbitMQ durability record, Redis cache-aside/rate-limiting design, S3 object storage, public embed endpoint, operational endpoints: **[`docs/architecture.md`](docs/architecture.md)**.
 
 ---
 
@@ -120,7 +137,7 @@ graph TD
 - **Authorization**: Custom signed-session-cookie authentication engine with multi-tenant workspace partitioning
 - **Document Engine**: Editor.js (block-based)
 - **Canvas Engine**: `@excalidraw/excalidraw`
-- **AI Integration**: Official `@modelcontextprotocol/sdk` — see [MCP Automation Tools](#-6-mcp-automation-tools)
+- **AI Integration**: Official `@modelcontextprotocol/sdk` for MCP (see [MCP Automation Tools](#-6-mcp-automation-tools)); OpenAI, Anthropic, Gemini, and NVIDIA NIM for the in-app Co-Pilot (see [Multi-Provider AI Co-Pilot](#-7-multi-provider-ai-co-pilot))
 
 ---
 

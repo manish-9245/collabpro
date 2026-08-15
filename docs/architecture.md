@@ -16,6 +16,8 @@ graph TD
     classDef ws fill:#fff1f2,stroke:#f43f5e,stroke-width:2px,color:#9f1239;
     classDef db fill:#ecfdf5,stroke:#059669,stroke-width:2px,color:#064e3b;
     classDef storage fill:#fffbeb,stroke:#d97706,stroke-width:2px,color:#78350f;
+    classDef queue fill:#fff7ed,stroke:#c2410c,stroke-width:2px,color:#7c2d12;
+    classDef public fill:#f0fdf4,stroke:#16a34a,stroke-width:2px,color:#14532d;
 
     subgraph ClientLayer ["CollabPro Client (Next.js 15 + React 19)"]
         UI["Responsive UI<br/>(Tailwind CSS + Lucide Icons)"]:::client
@@ -33,6 +35,7 @@ graph TD
         SyncAPI["Next.js HTTP Sync Gateway<br/>(/api/state-sync)"]:::server
         McpAPI["MCP Server<br/>(/api/mcp — Streamable HTTP)"]:::server
         WSGateway["Standalone WS Gateway<br/>(ws-server/, port 4000)"]:::ws
+        EmbedAPI["Public Embed Endpoint<br/>(/api/embed/[shareToken] — no auth)"]:::public
     end
 
     subgraph DataLayer ["Stateful Stores"]
@@ -40,6 +43,7 @@ graph TD
         PostgresDB["PostgreSQL<br/>(Users, Teams, Files, Notifications)"]:::db
         RedisStore["Redis<br/>(file cache-aside, rate limiting)"]:::db
         S3Store["S3-Compatible Object Storage<br/>(canvas image uploads)"]:::storage
+        DurabilityQueue["RabbitMQ<br/>(best-effort durability/audit record)"]:::queue
     end
 
     UI -->|Check auth / authenticate| SessionAuthClient
@@ -56,13 +60,15 @@ graph TD
     StateSyncClient <-->|"2. Fallback to HTTP Polling"| SyncAPI
 
     WSGateway -->|Cookie / Token Handshake Auth| AuthAPI
-    WSGateway <-->|Direct SQL Mutations| PrismaORM
+    WSGateway <-->|Direct SQL Mutations, awaited| PrismaORM
+    WSGateway -.->|Best-effort replay/audit record, published AFTER the direct write succeeds| DurabilityQueue
     SyncAPI <-->|Read / Write State| PrismaORM
     SyncAPI <-->|Cache-Aside Reads + Invalidation| RedisStore
     AuthAPI -->|Rate Limit Check| RedisStore
     McpAPI <-->|Same tool registry as SyncAPI| PrismaORM
     AuthAPI <-->|Query & Write Profiles| PrismaORM
     PrismaORM <-->|Connection Pool| PostgresDB
+    EmbedAPI -->|SharedLink token lookup, read-only| PrismaORM
 
     style ClientLayer fill:#f8fafc,stroke:#cbd5e1,stroke-dasharray: 5 5;
     style SyncLayer fill:#f8fafc,stroke:#cbd5e1,stroke-dasharray: 5 5;
@@ -81,7 +87,8 @@ The standalone WebSocket system (`ws-server/server.ts`) runs independently of th
 - **Port**: reads `PORT`, then falls back to `WS_PORT`, then to `3001` if neither is set (`ws-server/server.ts`). This repo's own `.env.example` and `docker-compose.yml` both configure it to run on **4000** alongside the Next.js app on 3000.
 - **Secure Upgrade & Token Handshake**: on the HTTP `upgrade` event, the gateway reads the session identifier from either the `Cookie` header (`session_token`) or a `?token=...` query parameter. A missing or invalid session aborts the socket upgrade with `401` before a WebSocket connection is ever established.
 - **Multi-Room Multiplexing**: each connection is tracked as a `ClientConnection` with its authenticated user, active subscriptions, and joined workspace (`fileId`) rooms, so updates are only broadcast to sockets actually viewing that file.
-- **Direct Database Write Flow**: mutations (`files:updateDocument`, `files:updateWhiteboard`) received over the socket are written directly via the shared Prisma client, then `broadcastQueryUpdateToRoom` re-reads and broadcasts the fresh state to every subscriber in that room.
+- **Direct Database Write Flow**: mutations (`files:updateDocument`, `files:updateWhiteboard`) received over the socket are written directly via the shared Prisma client and **awaited** — the client is told success/failure based on that awaited result, never optimistically — then `broadcastQueryUpdateToRoom` re-reads and broadcasts the fresh state to every subscriber in that room.
+- **RabbitMQ Durability Record** (`ws-server/queue-db-write.ts`, optional): once the direct, awaited write above has already succeeded, a best-effort replay/audit message is published to RabbitMQ (`amqplib`) if configured. This is deliberately secondary and non-blocking — an earlier version resolved as soon as the message was *handed to* the queue, before the DB write was even attempted, which could report success to the client and then have the actual write fail (a "phantom save"). The queue publish failing never affects the already-determined write result.
 - **Liveness Heartbeats**: a 30-second heartbeat pings every connection; sockets that don't respond before the next interval are terminated, preventing memory bloat from dead TCP connections.
 
 ---
@@ -131,7 +138,22 @@ Canvas image uploads (pasted/dropped images on the Excalidraw canvas) go through
 
 ---
 
-## 7. Operational Endpoints
+## 7. Public Whiteboard Embeds (`lib/whiteboard-svg.ts`)
+
+`GET /api/embed/[shareToken]` renders a whiteboard's **current** state as a standalone SVG — no session, no API key, no cookie. It's the one URL shape that actually works dropped into a GitHub README or any other server-side image fetch (`![diagram](.../api/embed/<token>)`), since a service like GitHub fetches images from its own infrastructure with none of the caller's auth context.
+
+Because this is the only genuinely public, unauthenticated route in the app, it deliberately does **not** trust a bare `fileId` (a UUID an owner never treated as secret) — it's gated by the same `SharedLink` model the "Share" viewer-link feature already uses:
+
+- Resolves the token against `SharedLink.id`, and honors that link's own `isActive` / `expiresAt` state exactly as the interactive share viewer does.
+- Refuses a password-protected link outright (`403`) — a static `<img>` tag has no way to prompt for a password, so silently ignoring one would defeat it.
+- Cache-Control is short (`max-age=30`, not `no-store`) so it looks "live" as the canvas changes, without hitting Postgres on every single fetch. Upstream image proxies (e.g. GitHub's camo) cache on top of this regardless, out of this app's control — the origin always serves the freshest state within its own window.
+
+The SVG renderer itself (`lib/whiteboard-svg.ts`) is shared with the session-authed `GET /api/export?fileId=...` route, so the two never drift into separately-maintained copies of the same element-to-SVG logic.
+
+---
+
+## 8. Operational Endpoints
 
 - **`GET /api/health`** — liveness probe (`{ status: "ok", uptime }`), suitable for a platform health check.
 - **`GET /api/admin/telemetry`** — infrastructure metrics (DB pool, cache status). Gated by an explicit `ADMIN_EMAILS` allowlist, not team/file ownership — it exposes global instance metrics, not per-tenant data, so team membership isn't a meaningful boundary for it. Fails closed (denies everyone) if `ADMIN_EMAILS` is unset.
+- **`GET /api/embed/[shareToken]`** — public whiteboard SVG embed, see §7 above.

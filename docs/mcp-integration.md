@@ -59,30 +59,39 @@ Launch `scripts/mcp-server.ts` with `npx tsx` (already a project devDependency �
 
 | Tool | Description | Requires write scope |
 |---|---|---|
-| `collabpro_list_files` | List files/folders in scope (`org`, `team`, or `personal`), optionally filtered by `teamId`. Paginated (`limit` 1-200, default 50; pass back `nextCursor` for the next page). | No |
+| `collabpro_list_files` | List files/folders in scope (`org`, `team`, or `personal`), optionally filtered by `teamId`. Paginated (`limit` 1-200, default 50; pass back `nextCursor` for the next page). Returns lightweight metadata only (not the full document/whiteboard) — includes `whiteboardText`, a cheap derived label index, so a caller can tell an empty canvas from a real one without opening each file. | No |
 | `collabpro_get_file` | Fetch a single file's document blocks and whiteboard elements by `fileId`. | No |
-| `collabpro_update_document` | Overwrite a file's document (Editor.js payload, object or JSON string). | Yes |
-| `collabpro_update_whiteboard` | Overwrite a file's whiteboard (array of Excalidraw-compatible elements, or JSON string). Server-side layout validation — see below. | Yes |
+| `collabpro_create_file` | Create a new document/whiteboard file inside a team the caller belongs to. Leave `document`/`whiteboard` unset to start blank. | Yes |
+| `collabpro_update_document` | Overwrite a file's document (Editor.js payload, object or JSON string) — full replace, no merge mode. | Yes |
+| `collabpro_update_whiteboard` | Add/update elements on a file's whiteboard. **Merges onto the existing board by id by default** — safe to call once per node/arrow across a multi-step diagram build, since a later call never discards an earlier one's work. `deleted` (element ids) removes specific elements; `replaceAll: true` opts into the old full-replace behavior for a deliberate regenerate. Server-side layout validation — see below. | Yes |
 | `collabpro_search_icon_libraries` | Keyword search over the 200+ community Excalidraw icon libraries ([libraries.excalidraw.com](https://libraries.excalidraw.com): AWS/Azure/GCP/network/UML/BPMN/etc). Returns each match's `source` string. | No |
-| `collabpro_get_library_icon` | Fetch one icon's elements from a library (`librarySource` + `item`), translated to `(x, y)` and ID-namespaced — pass the result straight into `collabpro_update_whiteboard`'s `whiteboard` array. | No |
+| `collabpro_list_library_items` | List every icon in one library by name (derived from the item's own content when the library has no metadata name), so a caller can pick items deliberately instead of guessing numeric indices. | No |
+| `collabpro_get_library_icon` | Fetch and place one icon from a library (`librarySource` + `item`) at `(x, y)`. Returns a short-lived `ref` — plus its footprint `width`/`height` for laying out the next icon without overlap — **not** the element geometry itself. Pass `ref` to `collabpro_update_whiteboard`'s `iconRefs` array to place it; refs are single-use and expire after 30 minutes. | No |
 
-All inputs are validated by the SDK against each tool's Zod schema before the handler runs — a missing or wrong-typed required field is rejected as a tool error automatically. Access is scoped to teams the authenticated API key's user belongs to; a `read-only`-scoped key gets a `Forbidden` tool error on either write tool. Writes go through the same compare-and-swap writers (`lib/cas-writes.ts`) as every other write path in the app (HTTP state-sync, the WebSocket gateway), so a concurrent human edit can't be silently clobbered. Every tool also declares [MCP annotations](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#tool-annotations) (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) so a well-behaved client can reason about risk (and about which tools touch the network) before calling one.
+All inputs are validated by the SDK against each tool's Zod schema before the handler runs — a missing or wrong-typed required field is rejected as a tool error automatically. Access is scoped to teams the authenticated API key's user belongs to (union of teams they created and teams they're a member of); a `read-only`-scoped key gets a `Forbidden` tool error on any write tool. Writes go through the same compare-and-swap writers (`lib/cas-writes.ts`) as every other write path in the app (HTTP state-sync, the WebSocket gateway), so a concurrent human edit can't be silently clobbered. Every tool also declares [MCP annotations](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#tool-annotations) (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) so a well-behaved client can reason about risk (and about which tools touch the network) before calling one.
 
 Run **tools/list** against your server to see the exact current schema — it's generated directly from the Zod definitions in `lib/mcp/tools.ts`, so it can never drift from what the tools actually accept.
 
 ### Whiteboard layout enforcement
 
-`collabpro_update_whiteboard` rejects a write outright (no partial persist) if any shape (`rectangle`/`ellipse`/`diamond`) has a non-finite `x`/`y`/`width`/`height`, or if two shapes overlap without sharing a `groupIds` entry — the error names the exact offending element(s) so a caller can fix and retry. Same-`groupIds` shapes are exempt because a composite icon's parts are *meant* to overlap (that's how a vector icon is drawn from primitives); this exemption was added after round-tripping a real AWS library icon through the check and watching it get (incorrectly) rejected. This is enforcement, not a suggestion — it applies identically no matter which AI or client is calling. The full layout/color/typography guidance lives in the `collabpro_diagram_guidelines` **prompt** below, not just the tool description, since a prompt is what a client is meant to pull into its own context before it starts generating.
+`collabpro_update_whiteboard` rejects a write outright (no partial persist) if:
+
+- any shape (`rectangle`/`ellipse`/`diamond`) has a non-finite `x`/`y`/`width`/`height`;
+- two shapes overlap without sharing a `groupIds` entry (same-`groupIds` shapes are exempt, since a composite icon's parts are *meant* to overlap — that's how a vector icon is drawn from primitives);
+- a `text` element has no non-empty `strokeColor` (the single most common way a generated diagram ships with invisible text);
+- an `arrow`/`line` element has fewer than 2 `points`, or its declared `width`/`height` are both `0` while those points span a real distance (renders as nothing).
+
+Every error names the exact offending element(s) so a caller can fix and retry. This is enforcement, not a suggestion — it applies identically no matter which AI or client is calling. The full layout/color/typography/section-header/icon-binding guidance lives in the `collabpro_diagram_guidelines` **prompt** below, not just the tool description, since a prompt is what a client is meant to pull into its own context before it starts generating.
 
 ### Icon libraries
 
-`collabpro_search_icon_libraries` → `collabpro_get_library_icon` chain together: search by keyword, take a result's `source`, fetch a specific item (by 0-based index or name substring) at a target position. The fetch only ever hits the fixed `excalidraw/excalidraw-libraries` GitHub repo (`librarySource` is validated against `author/name.excalidrawlib`, never a full URL — no SSRF surface), is cached in-memory for an hour, and rejects any item containing an `image` element (won't render through this whiteboard's export path — see `lib/mcp/icon-libraries.ts`).
+`collabpro_search_icon_libraries` → `collabpro_list_library_items` → `collabpro_get_library_icon` chain together: search by keyword, take a result's `source`, list every real icon it contains by name, then fetch and place a specific one (by 0-based index or name substring) at a target position — pass the returned `ref` to `collabpro_update_whiteboard`'s `iconRefs`, not the element geometry (which the fetch call no longer even returns). The fetch only ever hits the fixed `excalidraw/excalidraw-libraries` GitHub repo (`librarySource` is validated against `author/name.excalidrawlib`, never a full URL — no SSRF surface), is cached in-memory for an hour (up to 8MB per library file), and rejects any item containing an `image` element (won't render through this whiteboard's export path — see `lib/mcp/icon-libraries.ts`).
 
 ## Prompts
 
 | Prompt | Description |
 |---|---|
-| `collabpro_diagram_guidelines` | Layout, semantic color palette, typography, and icon-library guidance for `collabpro_update_whiteboard`, condensed from [Agents365-ai/excalidraw-skill](https://github.com/Agents365-ai/excalidraw-skill) (MIT). Fetch via `prompts/get` before drafting a diagram. |
+| `collabpro_diagram_guidelines` | Layout, semantic color palette, typography, section-header placement, real arrow-to-shape bindings (`startBinding`/`endBinding`), and icon-library guidance for `collabpro_update_whiteboard`, condensed from [Agents365-ai/excalidraw-skill](https://github.com/Agents365-ai/excalidraw-skill) (MIT). Fetch via `prompts/get` before drafting a diagram. |
 
 Prompts are a distinct MCP primitive from tools (`prompts/list`, `prompts/get`) — check your client supports them; not every MCP client surfaces prompts in its UI.
 
@@ -96,7 +105,7 @@ Prompts are a distinct MCP primitive from tools (`prompts/list`, `prompts/get`) 
 
 - **Rate limiting**: 120 requests/minute per API key (`LIMITS.MCP` in `lib/rate-limiter.ts`, same Redis-backed/in-memory-fallback limiter every other endpoint uses). Exceeding it returns `429` with a `Retry-After` header and a JSON-RPC `{code: -32000, message: "Rate limit exceeded"}` body.
 - **Body size cap**: requests over 5MB are rejected with `413` before the body is parsed.
-- **Audit log**: `mcp:auth:failure`, `mcp:rate_limited` (once per blocked window, not once per request), `mcp:update_document`, and `mcp:update_whiteboard` are written to the same `AuditLog` table as every other security-relevant action in the app (auth, API key, team/org changes) — an unattended agent editing content is exactly the kind of action worth an audit trail, unlike a routine human edit through the editor UI.
+- **Audit log**: `mcp:auth:failure`, `mcp:rate_limited` (once per blocked window, not once per request), `mcp:create_file`, `mcp:update_document`, and `mcp:update_whiteboard` are written to the same `AuditLog` table as every other security-relevant action in the app (auth, API key, team/org changes) — an unattended agent editing content is exactly the kind of action worth an audit trail, unlike a routine human edit through the editor UI.
 - **Observability**: every request logs a single structured `mcp_request` line (`lib/logger.ts`) with the calling user, JSON-RPC method, tool name, response status, and duration.
 
 ## Whose AI tokens get spent
