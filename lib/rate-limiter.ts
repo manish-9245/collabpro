@@ -71,6 +71,7 @@ export const LIMITS = {
   // AI chat sidebar sends: keyed per user. 20/min is generous for interactive
   // chat while bounding runaway cost against a team's own LLM provider key.
   AI_CHAT: { windowMs: 60 * 1000, maxAttempts: 20 },
+  AI_MODELS: { windowMs: 60 * 1000, maxAttempts: 20 },
 }
 
 /**

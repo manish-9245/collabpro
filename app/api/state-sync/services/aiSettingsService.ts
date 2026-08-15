@@ -22,11 +22,11 @@ export async function handleAiSettingsService(
       const row = await prisma.teamAiSettings.findUnique({ where: { teamId } });
       if (!row) return null;
       // Never return encryptedKey.
-      return { teamId: row.teamId, baseUrl: row.baseUrl, model: row.model, maskedKey: row.maskedKey, updatedAt: row.updatedAt };
+      return { teamId: row.teamId, provider: row.provider, baseUrl: row.baseUrl, model: row.model, maskedKey: row.maskedKey, updatedAt: row.updatedAt };
     }
 
     case 'ai:saveSettings': {
-      const { teamId, baseUrl, apiKey, model } = args || {};
+      const { teamId, provider, baseUrl, apiKey, model } = args || {};
       if (!teamId || !baseUrl || !model) throw new Error('teamId, baseUrl, and model are required');
 
       const team = await prisma.team.findUnique({ where: { id: teamId } });
@@ -34,7 +34,8 @@ export async function handleAiSettingsService(
         throw new Error('Forbidden: only the team owner can configure AI settings');
       }
 
-      const data: { baseUrl: string; model: string; updatedBy: string; encryptedKey?: string; maskedKey?: string } = {
+      const data: { provider: string; baseUrl: string; model: string; updatedBy: string; encryptedKey?: string; maskedKey?: string } = {
+        provider: provider || 'openai',
         baseUrl,
         model,
         updatedBy: authUserEmail as string,
@@ -56,6 +57,7 @@ export async function handleAiSettingsService(
         update: data,
         create: {
           teamId,
+          provider: data.provider,
           baseUrl,
           model,
           updatedBy: authUserEmail as string,
@@ -65,7 +67,7 @@ export async function handleAiSettingsService(
       });
 
       void logAuditEvent(teamId, authUserEmail as string, 'ai_settings:updated', { teamId }, ipAddress);
-      return { teamId: result.teamId, baseUrl: result.baseUrl, model: result.model, maskedKey: result.maskedKey };
+      return { teamId: result.teamId, provider: result.provider, baseUrl: result.baseUrl, model: result.model, maskedKey: result.maskedKey };
     }
 
     case 'ai:deleteSettings': {

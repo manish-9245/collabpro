@@ -8,6 +8,7 @@ import { logAuditEvent } from '@/lib/audit';
 import { decryptSecret } from '@/lib/crypto-secrets';
 import { extractTextFromDocument } from '@/lib/file-service';
 import { AI_CHAT_TOOLS, executeAiChatTool } from '@/lib/ai-chat-tools';
+import { runAnthropicChat } from '@/lib/ai-providers/anthropic-chat';
 
 /**
  * Real AI chat send endpoint for the workspace sidebar (AiSidebar.tsx). A
@@ -155,21 +156,30 @@ export async function POST(request: Request): Promise<Response> {
   const trimmed = trimHistory(recent.reverse());
   const baseMessages: any[] = [{ role: 'system', content: systemPrompt }, ...trimmed];
 
-  let client: OpenAI;
-  let round1Stream: AsyncIterable<any>;
-  try {
-    client = new OpenAI({ apiKey: decryptSecret(settings.encryptedKey), baseURL: settings.baseUrl });
-    round1Stream = await client.chat.completions.create({
-      model: settings.model,
-      stream: true,
-      messages: baseMessages,
-      tools: AI_CHAT_TOOLS,
-    });
-  } catch (err) {
-    return Response.json(
-      { error: 'llm_request_failed', message: err instanceof Error ? err.message : 'Failed to reach the configured AI provider' },
-      { status: 502 }
-    );
+  // Anthropic's Messages API is not OpenAI-compatible (no /chat/completions,
+  // no choices[].delta) and gets a real second code path (lib/ai-providers/
+  // anthropic-chat.ts). OpenAI, Gemini (via its own OpenAI-compat layer),
+  // and NVIDIA NIM are all genuinely OpenAI-compatible, so they share this
+  // one client/stream unchanged.
+  const isAnthropic = settings.provider === 'anthropic';
+
+  let client: OpenAI | null = null;
+  let round1Stream: AsyncIterable<any> | null = null;
+  if (!isAnthropic) {
+    try {
+      client = new OpenAI({ apiKey: decryptSecret(settings.encryptedKey), baseURL: settings.baseUrl });
+      round1Stream = await client.chat.completions.create({
+        model: settings.model,
+        stream: true,
+        messages: baseMessages,
+        tools: AI_CHAT_TOOLS,
+      });
+    } catch (err) {
+      return Response.json(
+        { error: 'llm_request_failed', message: err instanceof Error ? err.message : 'Failed to reach the configured AI provider' },
+        { status: 502 }
+      );
+    }
   }
 
   let full = '';
@@ -190,10 +200,35 @@ export async function POST(request: Request): Promise<Response> {
       };
 
       try {
+        if (isAnthropic) {
+          try {
+            await runAnthropicChat({
+              apiKey: decryptSecret(settings.encryptedKey),
+              baseUrl: settings.baseUrl || 'https://api.anthropic.com',
+              model: settings.model,
+              systemPrompt,
+              history: trimmed,
+              emit,
+              executeToolCall: async (name, argsJson) => {
+                const result = await executeAiChatTool(name, argsJson, { prisma, fileId: fileId as string });
+                void logAuditEvent(file.teamId, user.email as string, 'ai_chat:action', { fileId, tool: name }, getClientIp(request));
+                return result;
+              },
+            });
+          } catch (err) {
+            // Connection/auth failure before anything streamed - the OpenAI
+            // path gets a clean 502 for this (checked before the stream
+            // opens); Anthropic's equivalent failure surfaces mid-stream, so
+            // give it a visible message instead of a silently empty reply.
+            if (!full.trim()) {
+              emit(`⚠️ Failed to reach Anthropic: ${err instanceof Error ? err.message : 'Unknown error'}`);
+            }
+          }
+        } else {
         const toolCalls = new Map<number, AccumulatedToolCall>();
         let round1Content = '';
 
-        for await (const chunk of round1Stream) {
+        for await (const chunk of round1Stream!) {
           const delta = chunk.choices?.[0]?.delta;
           if (delta?.content) {
             round1Content += delta.content;
@@ -243,7 +278,7 @@ export async function POST(request: Request): Promise<Response> {
             { role: 'assistant', content: round1Content || null, tool_calls: assistantToolCalls },
             ...toolResultMessages,
           ];
-          const round2Stream = await client.chat.completions.create({
+          const round2Stream = await client!.chat.completions.create({
             model: settings.model,
             stream: true,
             messages: round2Messages,
@@ -252,6 +287,7 @@ export async function POST(request: Request): Promise<Response> {
             const delta = chunk.choices?.[0]?.delta?.content || '';
             if (delta) emit(delta);
           }
+        }
         }
       } catch {
         // Provider stream errored mid-flight - fall through to persist
