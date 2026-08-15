@@ -16,9 +16,11 @@ import {
   Sparkles,
   RefreshCw,
   Zap,
-  Info
+  Info,
+  Layers
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { MCP_TOOL_CATALOG } from '@/lib/mcp/tool-catalog';
 
 export default function McpSettingsHub() {
   const { user }: any = useSessionAuth();
@@ -497,6 +499,38 @@ export default function McpSettingsHub() {
               </>
             )}
           </button>
+        </div>
+
+        {/* Available Tools - the real registry (lib/mcp/tools.ts), shared
+            with the Developer Hub's API Reference so the two can't drift. */}
+        <div className="mt-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
+          <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
+            <Layers className="h-4 w-4 text-[#6965db]" />
+            <span className="text-xs font-black">Available Tools</span>
+            <span className="text-[10px] text-slate-400 dark:text-slate-500 ml-auto">{MCP_TOOL_CATALOG.length} tools · every client above gets all of them</span>
+          </div>
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            {MCP_TOOL_CATALOG.map((tool) => (
+              <div key={tool.name} className="p-3 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40">
+                <div className="flex items-center justify-between gap-2">
+                  <code className="text-[10.5px] font-mono font-bold text-slate-800 dark:text-slate-200">{tool.name}</code>
+                  <span
+                    className={`text-[8.5px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full border shrink-0 ${
+                      tool.access === 'write'
+                        ? 'text-amber-700 bg-amber-50 border-amber-200 dark:text-amber-400 dark:bg-amber-950/30 dark:border-amber-900/40'
+                        : 'text-emerald-700 bg-emerald-50 border-emerald-200 dark:text-emerald-400 dark:bg-emerald-950/30 dark:border-emerald-900/40'
+                    }`}
+                  >
+                    {tool.access === 'write' ? 'Write' : 'Read'}
+                  </span>
+                </div>
+                <p className="text-[10.5px] text-slate-500 dark:text-slate-400 leading-relaxed mt-1">{tool.description}</p>
+              </div>
+            ))}
+          </div>
+          <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-3">
+            Full parameter docs for each tool are in the <a href="/dashboard/developers" className="text-[#6965db] hover:underline font-semibold">Developer Hub</a>.
+          </p>
         </div>
 
     </div>

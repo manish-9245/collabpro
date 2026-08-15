@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { MCP_TOOL_CATALOG } from '@/lib/mcp/tool-catalog'
 
 function DevelopersDashboard() {
   const { user }: any = useSessionAuth();
@@ -560,6 +561,54 @@ func main() {
               </div>
             </div>
 
+            {/* API Reference - the real 6-tool registry (lib/mcp/tools.ts),
+                shared with MCP Settings' reference card so the two pages
+                can't drift apart. */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-md space-y-5">
+              <div className="flex items-center gap-2.5 border-b border-slate-100 pb-4">
+                <Layers className="h-5 w-5 text-purple-600" />
+                <h2 className="text-lg font-bold text-slate-900">API Reference</h2>
+                <span className="text-xs text-slate-400 ml-auto">{MCP_TOOL_CATALOG.length} tools</span>
+              </div>
+
+              <div className="space-y-3">
+                {MCP_TOOL_CATALOG.map((tool) => (
+                  <div key={tool.name} className="p-4 rounded-xl border border-slate-100 bg-slate-50/50 space-y-2">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <code className="text-xs font-mono font-bold text-slate-800">{tool.name}</code>
+                      <span
+                        className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                          tool.access === 'write'
+                            ? 'text-amber-700 bg-amber-50 border-amber-200'
+                            : 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                        }`}
+                      >
+                        {tool.access === 'write' ? 'Read/Write' : 'Read-only'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 leading-relaxed">{tool.description}</p>
+                    {tool.params.length > 0 && (
+                      <div className="pt-1 space-y-1">
+                        {tool.params.map((p) => (
+                          <div key={p.name} className="flex gap-2 text-[10.5px] leading-relaxed">
+                            <code className="font-mono font-bold text-slate-600 shrink-0">
+                              {p.name}
+                              {p.required && <span className="text-rose-500">*</span>}
+                            </code>
+                            <span className="text-slate-400 shrink-0">{p.type}</span>
+                            <span className="text-slate-500">{p.description}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-slate-400">
+                * required. Read-only API keys (scope <code className="font-mono">read-only</code>) can call read tools but get a 403 from write tools.
+              </p>
+            </div>
+
           </div>
 
           {/* RIGHT: JSON-RPC Live Playground */}
@@ -597,23 +646,19 @@ func main() {
                     setSelectedMethod(e.target.value);
                     if (e.target.value === 'list_tools') {
                       setArgumentsJson('{}');
-                    } else if (e.target.value === 'collabpro_list_files') {
-                      setArgumentsJson('{\n  "scope": "team"\n}');
-                    } else if (e.target.value === 'collabpro_get_file') {
-                      setArgumentsJson('{\n  "fileId": "YOUR_FILE_UUID"\n}');
-                    } else if (e.target.value === 'collabpro_update_document') {
-                      setArgumentsJson('{\n  "fileId": "YOUR_FILE_UUID",\n  "document": "{\\\"blocks\\\":[{\\\"type\\\":\\\"paragraph\\\",\\\"data\\\":{\\\"text\\\":\\\"Updated via CollabPro MCP\\\"}}]}"\n}');
-                    } else if (e.target.value === 'collabpro_update_whiteboard') {
-                      setArgumentsJson('{\n  "fileId": "YOUR_FILE_UUID",\n  "whiteboard": "[]"\n}');
+                      return;
                     }
+                    const tool = MCP_TOOL_CATALOG.find((t) => t.name === e.target.value);
+                    setArgumentsJson(JSON.stringify(tool?.exampleArgs ?? {}, null, 2));
                   }}
                   className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs font-bold rounded-lg px-3 py-2 h-9 outline-none focus:ring-1 focus:ring-blue-500"
                 >
                   <option value="list_tools">tools/list (Discover schemas)</option>
-                  <option value="collabpro_list_files">collabpro_list_files (Fetch files)</option>
-                  <option value="collabpro_get_file">collabpro_get_file (Fetch specific file)</option>
-                  <option value="collabpro_update_document">collabpro_update_document (Modify editor content)</option>
-                  <option value="collabpro_update_whiteboard">collabpro_update_whiteboard (Modify drawing board)</option>
+                  {MCP_TOOL_CATALOG.map((tool) => (
+                    <option key={tool.name} value={tool.name}>
+                      {tool.name} ({tool.title}{tool.access === 'write' ? ' - write' : ''})
+                    </option>
+                  ))}
                 </select>
               </div>
 
