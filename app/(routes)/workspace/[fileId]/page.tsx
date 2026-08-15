@@ -15,7 +15,10 @@ function Workspace({params}:any) {
    const resolvedParams: any = React.use(params);
    const fileId = resolvedParams?.fileId;
    const [triggerSave,setTriggerSave]=useState(false);
-   const [viewMode,setViewMode]=useState<'both'|'document'|'canvas'>('both');
+   // Defaults to document-only: the canvas panel (and its network calls -
+   // community icon library fetch, etc.) should only initialize once the
+   // user actually clicks into Split View or Canvas, not on every doc open.
+   const [viewMode,setViewMode]=useState<'both'|'document'|'canvas'>('document');
    const [savingStatus,setSavingStatus]=useState<'idle'|'saving'|'saved'>('idle');
    const [isAiOpen, setIsAiOpen] = useState(false);
 
@@ -288,15 +291,21 @@ function Workspace({params}:any) {
             className="h-full border-l border-slate-200 dark:border-slate-800"
             onMouseDownCapture={() => setActivePanel('canvas')}
           >
-            <Canvas
-              onSaveTrigger={triggerSave}
-              fileId={fileId}
-              fileData={fileData}
-              setSavingStatus={setSavingStatus}
-              undoTrigger={undoTrigger}
-              redoTrigger={redoTrigger}
-              activePanel={activePanel}
-            />
+            {/* Only mounted once the user actually opens Split View or Canvas -
+                Canvas fetches the community icon library directory and restores
+                library icons on mount, which has no reason to run while the
+                user is just looking at the document. */}
+            {viewMode !== 'document' && (
+              <Canvas
+                onSaveTrigger={triggerSave}
+                fileId={fileId}
+                fileData={fileData}
+                setSavingStatus={setSavingStatus}
+                undoTrigger={undoTrigger}
+                redoTrigger={redoTrigger}
+                activePanel={activePanel}
+              />
+            )}
           </div>
 
           {/* AI Co-Pilot Sidebar - must live INSIDE this flex-1 row (next to

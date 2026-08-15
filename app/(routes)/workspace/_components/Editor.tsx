@@ -169,11 +169,29 @@ function Editor({
         // Disable transitions during mouse movement to make drag fluid
         selectedImage.element.style.transition = 'none';
 
+        // The DOM width is mutated imperatively on every raw mousemove (cheap,
+        // no re-render). setSelectedImage only exists to drive the toolbar's
+        // %/slider readout, so it's throttled to one React update per animation
+        // frame instead of one per event - calling it on every mousemove forced
+        // a full re-render of the Editor tree dozens of times/sec, which is
+        // what actually made the drag feel janky (the resize itself was never
+        // the bottleneck).
+        let pendingWidthString: string | null = null;
+        let rafId: number | null = null;
+
+        const flushPendingWidth = () => {
+            rafId = null;
+            if (pendingWidthString === null) return;
+            const widthToApply = pendingWidthString;
+            pendingWidthString = null;
+            setSelectedImage(prev => prev ? { ...prev, width: widthToApply } : null);
+        };
+
         const handleMouseMove = (moveEvent: MouseEvent) => {
             const deltaX = moveEvent.clientX - dragStartXRef.current;
             const multiplier = direction === 'right' ? 2 : -2;
             let newWidthPx = dragStartWidthRef.current + (deltaX * multiplier);
-            
+
             const minPx = maxBlockWidth * 0.1;
             const maxPx = maxBlockWidth;
             newWidthPx = Math.max(minPx, Math.min(maxPx, newWidthPx));
@@ -182,14 +200,22 @@ function Editor({
             const newWidthString = `${widthPercent}%`;
 
             selectedImage.element.style.width = newWidthString;
-            setSelectedImage(prev => prev ? { ...prev, width: newWidthString } : null);
+            pendingWidthString = newWidthString;
+            if (rafId === null) {
+                rafId = requestAnimationFrame(flushPendingWidth);
+            }
         };
 
         const handleMouseUp = () => {
             setIsDraggingResize(false);
             window.removeEventListener('mousemove', handleMouseMove);
             window.removeEventListener('mouseup', handleMouseUp);
-            
+            if (rafId !== null) {
+                cancelAnimationFrame(rafId);
+                rafId = null;
+            }
+            flushPendingWidth();
+
             if (selectedImage) {
                 selectedImage.element.style.transition = ''; // restore CSS transition
                 const currentWidthPercent = selectedImage.element.style.width || "100%";
@@ -335,10 +361,18 @@ function Editor({
       onSaveTrigger&&onSaveDocument(true);
     },[onSaveTrigger])
 
-    // Clean up timeout on unmount
+    // Flush any pending debounced save on unmount instead of just cancelling
+    // it - handleUpdateImageWidth debounces its save by 1500ms, so navigating
+    // away (e.g. back to the dashboard) within that window used to silently
+    // drop the resize: the timeout got cleared, but the write it was going to
+    // perform never happened.
     useEffect(() => {
         return () => {
-            if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+            if (saveTimeoutRef.current) {
+                clearTimeout(saveTimeoutRef.current);
+                saveTimeoutRef.current = null;
+                onSaveDocument(false);
+            }
         }
     }, []);
 

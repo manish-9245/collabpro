@@ -1,9 +1,10 @@
 "use client"
 
 import { Button } from '@/components/ui/button'
-import { Link, Save, Edit2, Check, X, Loader2, FileText, Columns, Palette, Download, Share2, History, Plus, Cloud, Undo, Redo } from 'lucide-react'
+import { Link, Save, Edit2, Check, X, Loader2, FileText, Columns, Palette, Download, Share2, History, Plus, Cloud, Undo, Redo, Home } from 'lucide-react'
 import Image from 'next/image'
 import React, { useState, useEffect, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import { api, useMutation, useQuery, triggerQueryRefetch } from '@/lib/state-sync/react'
 import { toast } from 'sonner'
 import { useSessionAuth } from '@/lib/session-auth/client'
@@ -44,6 +45,7 @@ function WorkspaceHeader({
   canUndo = false,
   canRedo = false
 }: WorkspaceHeaderProps) {
+  const router = useRouter()
   const [isEditing, setIsEditing] = useState(false)
   const [fileName, setFileName] = useState('Untitled File')
   const [tempName, setTempName] = useState('Untitled File')
@@ -347,13 +349,21 @@ function WorkspaceHeader({
     <div className='p-3 border-b flex justify-between items-center bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm gap-2 h-14 shrink-0'>
       {/* Left section */}
       <div className='flex gap-3 items-center min-w-0 flex-1 mr-2'>
-        <img src={'/logo-1.png'}
-          alt='logo'
-          height={32}
-          width={32}
-          className='rounded-full bg-white p-0.5 border border-slate-200/60 dark:border-slate-800/80 transition-transform hover:scale-105 duration-200 shrink-0 shadow-sm'
-        />
-        
+        <button
+          type='button'
+          onClick={() => router.push('/dashboard')}
+          title='Back to Home'
+          className='group flex items-center gap-2 p-1 -m-1 rounded-full shrink-0 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors'
+        >
+          <img src={'/logo-1.png'}
+            alt='logo'
+            height={32}
+            width={32}
+            className='rounded-full bg-white p-0.5 border border-slate-200/60 dark:border-slate-800/80 transition-transform group-hover:scale-105 duration-200 shadow-sm'
+          />
+          <Home className='hidden sm:block h-3.5 w-3.5 text-slate-400 dark:text-slate-500 group-hover:text-slate-700 dark:group-hover:text-slate-200 mr-0.5 transition-colors' />
+        </button>
+
         {/* Dynamic / Editable File Name */}
         <div className='flex items-center gap-1.5 min-w-0 max-w-[200px] sm:max-w-md group'>
           {isEditing ? (
