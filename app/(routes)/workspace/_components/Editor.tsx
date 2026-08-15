@@ -792,7 +792,7 @@ function Editor({
                 same image once you click to resize then move the mouse back
                 over it, which previously stacked this button on top of the
                 resize handles/toolbar below (z-index 30/40). Resize mode wins. */}
-            {hoveredImageBlock && selectedImage?.id !== hoveredImageBlock.id && (
+            {hoveredImageBlock && selectedImage?.id !== hoveredImageBlock.id && !activeEditingImageBlock && (
                 <button
                     onClick={() => setActiveEditingImageBlock({ id: hoveredImageBlock.id, url: hoveredImageBlock.url })}
                     style={{
