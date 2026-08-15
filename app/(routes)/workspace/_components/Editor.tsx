@@ -1,5 +1,5 @@
 "use client"
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import EditorJS from '@editorjs/editorjs';
 // @ts-ignore
 import Header from '@editorjs/header';
@@ -95,8 +95,18 @@ function Editor({
 
     // Resizable images state variables
     const [selectedImage, setSelectedImage] = useState<{ id: string; element: HTMLElement; img: HTMLImageElement; width: string; align: 'left' | 'center' | 'right' } | null>(null);
-    const [overlayPos, setOverlayPos] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
     const [isDraggingResize, setIsDraggingResize] = useState(false);
+
+    // The dashed selection overlay's position/size is written directly to
+    // this ref's DOM node rather than through React state - it used to be
+    // React state (setOverlayPos) recalculated in a plain useEffect, which
+    // only runs after the browser paints. During an active resize drag the
+    // image's own width already updates on every raw mousemove via direct
+    // style mutation (see handleResizeStart), so the state-driven overlay
+    // visibly trailed a frame or more behind the image it's supposed to be
+    // outlining. Now both are written imperatively in the same handler, so
+    // they can't drift apart.
+    const overlayRef = useRef<HTMLDivElement | null>(null);
 
     const dragStartWidthRef = useRef<number>(0);
     const dragStartXRef = useRef<number>(0);
@@ -106,6 +116,22 @@ function Editor({
         if (align === 'left') return '0 auto 0 0';
         if (align === 'right') return '0 0 0 auto';
         return '0 auto';
+    };
+
+    // Writes the dashed selection overlay's position/size straight to the
+    // DOM, synchronously, in whatever handler is already mutating the
+    // image's own style - see overlayRef's declaration for why.
+    const syncOverlayToElement = (el: HTMLElement) => {
+        if (!overlayRef.current) return;
+        const parent = document.getElementById('editorjs')?.parentElement;
+        if (!parent) return;
+        const parentRect = parent.getBoundingClientRect();
+        const elemRect = el.getBoundingClientRect();
+        const style = overlayRef.current.style;
+        style.top = `${elemRect.top - parentRect.top}px`;
+        style.left = `${elemRect.left - parentRect.left}px`;
+        style.width = `${elemRect.width}px`;
+        style.height = `${elemRect.height}px`;
     };
 
     const applyImageWidths = () => {
@@ -145,6 +171,7 @@ function Editor({
             if (imageToolImage) {
                 imageToolImage.style.width = newWidth;
                 imageToolImage.style.maxWidth = "100%";
+                syncOverlayToElement(imageToolImage);
             }
         }
 
@@ -171,6 +198,7 @@ function Editor({
             const imageToolImage = blockEl.querySelector('.image-tool__image') as HTMLElement;
             if (imageToolImage) {
                 imageToolImage.style.margin = alignToMargin(align);
+                syncOverlayToElement(imageToolImage);
             }
         }
 
@@ -233,6 +261,11 @@ function Editor({
             const newWidthString = `${widthPercent}%`;
 
             selectedImage.element.style.width = newWidthString;
+            // Written on every raw event, not throttled to rAF like the
+            // React state below - the overlay has to track the image's
+            // actual, already-applied width on this exact frame, not
+            // whichever frame React eventually gets around to re-rendering.
+            syncOverlayToElement(selectedImage.element);
             pendingWidthString = newWidthString;
             if (rafId === null) {
                 rafId = requestAnimationFrame(flushPendingWidth);
@@ -373,46 +406,33 @@ function Editor({
         };
     }, []);
 
-    // Synchronize overlay position based on selection bounds
-    const updateOverlayPosition = () => {
-        if (!selectedImage) {
-            setOverlayPos(null);
-            return;
+    // Keeps the overlay correctly placed for everything that ISN'T already
+    // covered by an imperative syncOverlayToElement call at the point of
+    // mutation (resize drag, width/align buttons): the initial position when
+    // a new image is selected, and window resize / scroll, neither of which
+    // has a "handler already touching the image's style" to piggyback on.
+    // useLayoutEffect (not useEffect) so this runs before the browser paints
+    // the frame where selectedImage changed, instead of one tick after.
+    useLayoutEffect(() => {
+        if (!selectedImage) return;
+        syncOverlayToElement(selectedImage.element);
+
+        const handleReposition = () => {
+            if (selectedImage) syncOverlayToElement(selectedImage.element);
+        };
+        window.addEventListener('resize', handleReposition);
+        const scrollContainer = document.querySelector('.overflow-y-auto');
+        if (scrollContainer) {
+            scrollContainer.addEventListener('scroll', handleReposition);
         }
-        const parent = document.getElementById('editorjs')?.parentElement;
-        if (!parent) return;
 
-        const parentRect = parent.getBoundingClientRect();
-        const elemRect = selectedImage.element.getBoundingClientRect();
-
-        setOverlayPos({
-            top: elemRect.top - parentRect.top,
-            left: elemRect.left - parentRect.left,
-            width: elemRect.width,
-            height: elemRect.height
-        });
-    };
-
-    useEffect(() => {
-        if (selectedImage) {
-            updateOverlayPosition();
-            
-            window.addEventListener('resize', updateOverlayPosition);
-            const scrollContainer = document.querySelector('.overflow-y-auto');
+        return () => {
+            window.removeEventListener('resize', handleReposition);
             if (scrollContainer) {
-                scrollContainer.addEventListener('scroll', updateOverlayPosition);
+                scrollContainer.removeEventListener('scroll', handleReposition);
             }
-            
-            return () => {
-                window.removeEventListener('resize', updateOverlayPosition);
-                if (scrollContainer) {
-                    scrollContainer.removeEventListener('scroll', updateOverlayPosition);
-                }
-            };
-        } else {
-            setOverlayPos(null);
-        }
-    }, [selectedImage, selectedImage?.width]);
+        };
+    }, [selectedImage]);
 
     // Initialize Editor on mount
     useEffect(()=>{
@@ -792,14 +812,11 @@ function Editor({
             )}
 
             {/* Smooth Lossless Image Resize Overlay and Toolbar */}
-            {selectedImage && overlayPos && (
+            {selectedImage && (
                 <div
+                    ref={overlayRef}
                     style={{
                         position: 'absolute',
-                        top: overlayPos.top,
-                        left: overlayPos.left,
-                        width: overlayPos.width,
-                        height: overlayPos.height,
                         pointerEvents: isDraggingResize ? 'all' : 'none',
                         zIndex: 30,
                     }}
