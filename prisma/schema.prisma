@@ -140,6 +140,7 @@ model FilePresence {
 model TeamAiSettings {
   id           String   @id @default(uuid())
   teamId       String   @unique
+  provider     String   @default("openai")
   baseUrl      String
   encryptedKey String
   maskedKey    String   @default("")
