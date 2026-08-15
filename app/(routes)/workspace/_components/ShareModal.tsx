@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Lock, Shield, Calendar, Copy, Check, Trash2, Key, Loader2, Link2, Eye, MessageSquare, Edit } from 'lucide-react';
+import { X, Lock, Shield, Calendar, Copy, Check, Trash2, Key, Loader2, Link2, Eye, MessageSquare, Edit, Image as ImageIcon } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface ShareModalProps {
@@ -24,6 +24,7 @@ export default function ShareModal({ isOpen, onClose, fileId, fileName }: ShareM
   // Generated Link & Lists
   const [isCreating, setIsCreating] = useState(false);
   const [generatedLink, setGeneratedLink] = useState<string | null>(null);
+  const [lastCreatedLinkId, setLastCreatedLinkId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [activeLinks, setActiveLinks] = useState<any[]>([]);
   const [isLoadingLinks, setIsLoadingLinks] = useState(false);
@@ -74,6 +75,7 @@ export default function ShareModal({ isOpen, onClose, fileId, fileName }: ShareM
         const json = await res.json();
         const shareUrl = `${window.location.origin}/workspace/share/${json.data.id}`;
         setGeneratedLink(shareUrl);
+        setLastCreatedLinkId(json.data.id);
         toast.success('Secure share link generated successfully!');
         fetchActiveLinks(); // Refresh lists
       } else {
@@ -103,12 +105,19 @@ export default function ShareModal({ isOpen, onClose, fileId, fileName }: ShareM
     }
   };
 
-  const copyToClipboard = (text: string) => {
+  const copyToClipboard = (text: string, message = 'Copied sharing URL!') => {
     navigator.clipboard.writeText(text);
     setCopied(true);
-    toast.success('Copied sharing URL!');
+    toast.success(message);
     setTimeout(() => setCopied(false), 2000);
   };
+
+  // Public, always-fresh SVG of the current whiteboard state, gated by this
+  // same share link (no password - a static <img> can't prompt for one).
+  // Ready to paste straight into a GitHub README: the image updates on its
+  // own as the canvas changes, no re-export/re-upload needed.
+  const embedMarkdownFor = (linkId: string) =>
+    `[![${fileName}](${window.location.origin}/api/embed/${linkId})](${window.location.origin}/workspace/share/${linkId})`;
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -296,6 +305,16 @@ export default function ShareModal({ isOpen, onClose, fileId, fileName }: ShareM
                     </button>
                   </div>
                   
+                  {!usePassword && lastCreatedLinkId && (
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(embedMarkdownFor(lastCreatedLinkId), 'Copied Markdown embed snippet!')}
+                      className="w-full flex items-center justify-center gap-1.5 py-2 bg-white dark:bg-zinc-950/40 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-500/15 text-emerald-700 dark:text-emerald-400 rounded-xl text-[10px] font-bold transition-all"
+                    >
+                      <ImageIcon className="h-3.5 w-3.5" /> Copy live embed (Markdown, for a README)
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     onClick={() => setGeneratedLink(null)}
@@ -376,6 +395,15 @@ export default function ShareModal({ isOpen, onClose, fileId, fileName }: ShareM
                         >
                           <Copy className="h-4 w-4" />
                         </button>
+                        {!link.passwordHash && !isExpired && (
+                          <button
+                            onClick={() => copyToClipboard(embedMarkdownFor(link.id), 'Copied Markdown embed snippet!')}
+                            className="p-1.5 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 rounded-lg text-slate-400 hover:text-emerald-600 dark:text-zinc-400 dark:hover:text-emerald-400 transition-colors"
+                            title="Copy live embed (Markdown, for a README)"
+                          >
+                            <ImageIcon className="h-4 w-4" />
+                          </button>
+                        )}
                         <button
                           onClick={() => handleRevokeLink(link.id)}
                           className="p-1.5 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg text-slate-400 hover:text-red-600 dark:text-zinc-400 dark:hover:text-red-400 transition-colors"
