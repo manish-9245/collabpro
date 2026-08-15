@@ -3,6 +3,7 @@ import { POST as mcpPOST } from '@/app/api/mcp/route';
 import { verifyApiKey } from '@/lib/api-key-middleware';
 import { checkRateLimit } from '@/lib/rate-limiter';
 import { logAuditEvent } from '@/lib/audit';
+import { storeIconPlacement } from '@/lib/mcp/icon-placement-cache';
 
 // Mock database prisma
 const mockFindMany = vi.fn();
@@ -545,6 +546,235 @@ describe('Model Context Protocol (MCP) HTTP Endpoint', () => {
     const body = await res.json();
     expect(body.result.isError).toBeUndefined();
     expect(mockUpdateMany).toHaveBeenCalled();
+  });
+
+  it('collabpro_update_whiteboard places an icon via iconRefs, merged onto an explicit whiteboard array', async () => {
+    const ref = storeIconPlacement('EC2', [{ id: 'icon_el', type: 'rectangle', x: 300, y: 300, width: 50, height: 50, groupIds: ['icon_grp'] }]);
+
+    vi.mocked(verifyApiKey).mockResolvedValueOnce({
+      isValid: true,
+      userEmail: 'dev@collabpro.com',
+      scope: 'read-write',
+    });
+    mockFindMany.mockResolvedValueOnce([{ teamId: 'team-123' }]);
+    mockFindUnique.mockResolvedValueOnce({ id: 'file-1', teamId: 'team-123' });
+    mockFindUnique.mockResolvedValueOnce({ whiteboard: '' });
+    mockUpdateMany.mockResolvedValueOnce({ count: 1 });
+
+    const res = await mcpPOST(mcpRequest({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: {
+        name: 'collabpro_update_whiteboard',
+        arguments: {
+          fileId: 'file-1',
+          whiteboard: [{ id: 'a', type: 'rectangle', x: 0, y: 0, width: 100, height: 100 }],
+          iconRefs: [ref],
+        },
+      },
+      id: 100,
+    }));
+
+    const body = await res.json();
+    expect(body.result.isError).toBeUndefined();
+    const saved = JSON.parse(body.result.content[0].text);
+    const elementIds = saved.whiteboard.elements.map((e: any) => e.id);
+    expect(elementIds).toEqual(['a', 'icon_el']);
+  });
+
+  it('collabpro_update_whiteboard places icons via iconRefs alone (no "whiteboard" arg) without wiping the rest of the board', async () => {
+    const ref = storeIconPlacement('EC2', [{ id: 'icon_el', type: 'rectangle', x: 300, y: 300, width: 50, height: 50 }]);
+
+    vi.mocked(verifyApiKey).mockResolvedValueOnce({
+      isValid: true,
+      userEmail: 'dev@collabpro.com',
+      scope: 'read-write',
+    });
+    mockFindMany.mockResolvedValueOnce([{ teamId: 'team-123' }]);
+    mockFindUnique.mockResolvedValueOnce({ id: 'file-1', teamId: 'team-123' });
+    // Existing board already has one element - an empty-delta merge (the
+    // "iconRefs only" path) must preserve it, not replace the board.
+    mockFindUnique.mockResolvedValueOnce({
+      whiteboard: JSON.stringify({ elements: [{ id: 'existing', type: 'rectangle', x: 0, y: 0, width: 10, height: 10 }], files: {} }),
+    });
+    mockUpdateMany.mockResolvedValueOnce({ count: 1 });
+
+    const res = await mcpPOST(mcpRequest({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: {
+        name: 'collabpro_update_whiteboard',
+        arguments: { fileId: 'file-1', iconRefs: [ref] },
+      },
+      id: 101,
+    }));
+
+    const body = await res.json();
+    expect(body.result.isError).toBeUndefined();
+    const saved = JSON.parse(body.result.content[0].text);
+    const elementIds = saved.whiteboard.elements.map((e: any) => e.id);
+    expect(elementIds).toEqual(['existing', 'icon_el']);
+  });
+
+  it('collabpro_update_whiteboard MERGES a plain "whiteboard" array onto the existing board by default - the fix for a later call silently wiping an earlier one', async () => {
+    // Regression: this tool used to treat a plain array as a full REPLACE.
+    // An agent placing one node per call (a completely natural way to
+    // build a diagram) would have each call discard everything the
+    // previous call wrote, since it only ever echoed the new node.
+    vi.mocked(verifyApiKey).mockResolvedValueOnce({
+      isValid: true,
+      userEmail: 'dev@collabpro.com',
+      scope: 'read-write',
+    });
+    mockFindMany.mockResolvedValueOnce([{ teamId: 'team-123' }]);
+    mockFindUnique.mockResolvedValueOnce({ id: 'file-1', teamId: 'team-123' });
+    mockFindUnique.mockResolvedValueOnce({
+      whiteboard: JSON.stringify({ elements: [{ id: 'earlier-node', type: 'rectangle', x: 0, y: 0, width: 50, height: 50 }], files: {} }),
+    });
+    mockUpdateMany.mockResolvedValueOnce({ count: 1 });
+
+    const res = await mcpPOST(mcpRequest({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: {
+        name: 'collabpro_update_whiteboard',
+        arguments: { fileId: 'file-1', whiteboard: [{ id: 'new-node', type: 'rectangle', x: 200, y: 0, width: 50, height: 50 }] },
+      },
+      id: 104,
+    }));
+
+    const body = await res.json();
+    expect(body.result.isError).toBeUndefined();
+    const saved = JSON.parse(body.result.content[0].text);
+    const elementIds = saved.whiteboard.elements.map((e: any) => e.id);
+    expect(elementIds).toEqual(['earlier-node', 'new-node']);
+  });
+
+  it('collabpro_update_whiteboard removes elements listed in "deleted" while merging the rest', async () => {
+    vi.mocked(verifyApiKey).mockResolvedValueOnce({
+      isValid: true,
+      userEmail: 'dev@collabpro.com',
+      scope: 'read-write',
+    });
+    mockFindMany.mockResolvedValueOnce([{ teamId: 'team-123' }]);
+    mockFindUnique.mockResolvedValueOnce({ id: 'file-1', teamId: 'team-123' });
+    mockFindUnique.mockResolvedValueOnce({
+      whiteboard: JSON.stringify({
+        elements: [
+          { id: 'keep-me', type: 'rectangle', x: 0, y: 0, width: 50, height: 50 },
+          { id: 'remove-me', type: 'rectangle', x: 200, y: 0, width: 50, height: 50 },
+        ],
+        files: {},
+      }),
+    });
+    mockUpdateMany.mockResolvedValueOnce({ count: 1 });
+
+    const res = await mcpPOST(mcpRequest({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: { name: 'collabpro_update_whiteboard', arguments: { fileId: 'file-1', deleted: ['remove-me'] } },
+      id: 105,
+    }));
+
+    const body = await res.json();
+    expect(body.result.isError).toBeUndefined();
+    const saved = JSON.parse(body.result.content[0].text);
+    const elementIds = saved.whiteboard.elements.map((e: any) => e.id);
+    expect(elementIds).toEqual(['keep-me']);
+  });
+
+  it('collabpro_update_whiteboard with replaceAll:true still fully replaces the board, discarding anything not included', async () => {
+    vi.mocked(verifyApiKey).mockResolvedValueOnce({
+      isValid: true,
+      userEmail: 'dev@collabpro.com',
+      scope: 'read-write',
+    });
+    mockFindMany.mockResolvedValueOnce([{ teamId: 'team-123' }]);
+    mockFindUnique.mockResolvedValueOnce({ id: 'file-1', teamId: 'team-123' });
+    mockFindUnique.mockResolvedValueOnce({
+      whiteboard: JSON.stringify({ elements: [{ id: 'old-node', type: 'rectangle', x: 0, y: 0, width: 50, height: 50 }], files: {} }),
+    });
+    mockUpdateMany.mockResolvedValueOnce({ count: 1 });
+
+    const res = await mcpPOST(mcpRequest({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: {
+        name: 'collabpro_update_whiteboard',
+        arguments: { fileId: 'file-1', whiteboard: [{ id: 'only-node', type: 'rectangle', x: 0, y: 0, width: 50, height: 50 }], replaceAll: true },
+      },
+      id: 106,
+    }));
+
+    const body = await res.json();
+    expect(body.result.isError).toBeUndefined();
+    const saved = JSON.parse(body.result.content[0].text);
+    const elementIds = saved.whiteboard.elements.map((e: any) => e.id);
+    expect(elementIds).toEqual(['only-node']);
+  });
+
+  it('collabpro_update_whiteboard rejects replaceAll:true without "whiteboard"', async () => {
+    vi.mocked(verifyApiKey).mockResolvedValueOnce({
+      isValid: true,
+      userEmail: 'dev@collabpro.com',
+      scope: 'read-write',
+    });
+
+    const res = await mcpPOST(mcpRequest({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: { name: 'collabpro_update_whiteboard', arguments: { fileId: 'file-1', replaceAll: true } },
+      id: 107,
+    }));
+
+    const body = await res.json();
+    expect(body.result.isError).toBe(true);
+    expect(body.result.content[0].text).toContain('"whiteboard" is required when "replaceAll" is true');
+  });
+
+  it('collabpro_update_whiteboard rejects an unknown or expired icon ref with a helpful message', async () => {
+    vi.mocked(verifyApiKey).mockResolvedValueOnce({
+      isValid: true,
+      userEmail: 'dev@collabpro.com',
+      scope: 'read-write',
+    });
+    mockFindMany.mockResolvedValueOnce([{ teamId: 'team-123' }]);
+    mockFindUnique.mockResolvedValueOnce({ id: 'file-1', teamId: 'team-123' });
+
+    const res = await mcpPOST(mcpRequest({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: {
+        name: 'collabpro_update_whiteboard',
+        arguments: { fileId: 'file-1', iconRefs: ['iconref_bogus'] },
+      },
+      id: 102,
+    }));
+
+    const body = await res.json();
+    expect(body.result.isError).toBe(true);
+    expect(body.result.content[0].text).toContain('unknown or has expired');
+    expect(mockUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it('collabpro_update_whiteboard requires at least "whiteboard" or "iconRefs"', async () => {
+    vi.mocked(verifyApiKey).mockResolvedValueOnce({
+      isValid: true,
+      userEmail: 'dev@collabpro.com',
+      scope: 'read-write',
+    });
+
+    const res = await mcpPOST(mcpRequest({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: { name: 'collabpro_update_whiteboard', arguments: { fileId: 'file-1' } },
+      id: 103,
+    }));
+
+    const body = await res.json();
+    expect(body.result.isError).toBe(true);
+    expect(body.result.content[0].text).toContain('Provide "whiteboard"');
+    expect(mockFindUnique).not.toHaveBeenCalled();
   });
 
   it('returns 429 with Retry-After once the per-key rate limit is exceeded', async () => {

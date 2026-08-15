@@ -64,9 +64,14 @@ describe('lib/mcp/icon-libraries', () => {
 
       // No top-level itemNames on fakeLibrary, so this falls back to the
       // item's own bound text element ("EC2") - see fallbackItemName.
-      const { name, elements } = await getLibraryIcon('author/lib.excalidrawlib', '0', 500, 500, 'myicon', 1);
+      const { name, elements, width, height } = await getLibraryIcon('author/lib.excalidrawlib', '0', 500, 500, 'myicon', 1);
       expect(name).toBe('EC2');
       expect(elements).toHaveLength(3);
+      // Placed group spans x:[500,550] (bg 50w, part inside it) and
+      // y:[500,570] (lbl sits below the ellipse) - lets a caller lay out
+      // the next icon without overlap on the first try.
+      expect(width).toBe(50);
+      expect(height).toBe(70);
 
       const bg = elements.find((e: any) => e.id === 'myicon_bg') as any;
       const part = elements.find((e: any) => e.id === 'myicon_part') as any;

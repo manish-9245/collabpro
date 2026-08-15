@@ -68,11 +68,14 @@ export const MCP_TOOL_CATALOG: McpToolDoc[] = [
   {
     name: 'collabpro_update_whiteboard',
     title: 'Update Whiteboard',
-    description: "Push new Excalidraw-compatible elements to a file's whiteboard. Server-side rejects overlapping shapes and malformed geometry.",
+    description: "Add or update Excalidraw-compatible elements on a file's whiteboard. Merges onto the existing board by id by default (safe across a multi-call diagram build) - set replaceAll for a full regenerate. Server-side rejects overlapping shapes and malformed geometry.",
     access: 'write',
     params: [
       { name: 'fileId', type: 'string', required: true, description: 'The target file ID.' },
-      { name: 'whiteboard', type: 'array | string', required: true, description: 'Excalidraw-compatible element objects, or a JSON string of the same shape.' },
+      { name: 'whiteboard', type: 'array | string', required: false, description: 'Elements to add or update (matched by id in the default merge mode), or a JSON string of the same shape. Optional if only placing icons via iconRefs or removing via deleted.' },
+      { name: 'iconRefs', type: 'string[]', required: false, description: 'refs from prior collabpro_get_library_icon calls, to place those icons without re-passing their full geometry.' },
+      { name: 'deleted', type: 'string[]', required: false, description: 'Element ids to remove. Only applies in the default merge mode.' },
+      { name: 'replaceAll', type: 'boolean', required: false, description: 'If true, whiteboard REPLACES the entire board - destructive, anything not included is discarded. Default false (merge).' },
     ],
     exampleArgs: { fileId: 'YOUR_FILE_UUID', whiteboard: '[]' },
   },
@@ -97,7 +100,7 @@ export const MCP_TOOL_CATALOG: McpToolDoc[] = [
   {
     name: 'collabpro_get_library_icon',
     title: 'Get Library Icon',
-    description: 'Fetch one icon\'s elements from a community library (from collabpro_search_icon_libraries), positioned and ID-namespaced to drop straight into a whiteboard.',
+    description: 'Fetch and place one icon from a community library (from collabpro_search_icon_libraries) at (x, y). Returns a short-lived ref instead of the full element geometry - pass it to collabpro_update_whiteboard\'s iconRefs to place it.',
     access: 'read',
     params: [
       { name: 'librarySource', type: 'string', required: true, description: '"source" field from collabpro_search_icon_libraries.' },

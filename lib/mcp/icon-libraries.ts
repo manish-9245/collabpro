@@ -201,6 +201,24 @@ export async function listLibraryItems(librarySource: string): Promise<LibraryIt
 export interface LibraryIconResult {
   name: string;
   elements: LibraryElement[];
+  /** Footprint of the placed group, in board units - lets a caller lay out the next icon without overlap on the first try, no full geometry needed. */
+  width: number;
+  height: number;
+}
+
+function boundingBox(elements: LibraryElement[]): { width: number; height: number } {
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (const e of elements) {
+    const x = typeof e.x === 'number' ? e.x : 0;
+    const y = typeof e.y === 'number' ? e.y : 0;
+    const w = typeof e.width === 'number' ? e.width : 0;
+    const h = typeof e.height === 'number' ? e.height : 0;
+    xs.push(x, x + w);
+    ys.push(y, y + h);
+  }
+  if (xs.length === 0) return { width: 0, height: 0 };
+  return { width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) };
 }
 
 export async function getLibraryIcon(
@@ -229,5 +247,6 @@ export async function getLibraryIcon(
     throw new Error(`Item "${resolved.name}" contains an image element and won't render through this whiteboard field - pick a vector-only item.`);
   }
 
-  return { name: resolved.name, elements: place(resolved.elements, targetX, targetY, idPrefix, scale) };
+  const elements = place(resolved.elements, targetX, targetY, idPrefix, scale);
+  return { name: resolved.name, elements, ...boundingBox(elements) };
 }
