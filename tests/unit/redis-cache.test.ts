@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { getRedisClient, getCachedFile, invalidateCachedFile } from '@/lib/redis-cache';
+import { getRedisClient, getCachedFile, invalidateCachedFile, resetRedisCircuitBreakerForTests } from '@/lib/redis-cache';
 import { prisma } from '@/lib/db';
 
 // Mock DB prisma
@@ -41,6 +41,10 @@ vi.mock('ioredis', () => {
 describe('Redis Cache-Aside Layer (Issue 54)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // A failure in one test trips the module-level circuit breaker
+    // (lib/redis-cache.ts) for a real 30s cooldown, which would otherwise
+    // make every later test in this file silently skip Redis entirely.
+    resetRedisCircuitBreakerForTests();
   });
 
   describe('Connection & Fallback Resilience', () => {
@@ -102,6 +106,25 @@ describe('Redis Cache-Aside Layer (Issue 54)', () => {
 
       const result = await getCachedFile('file-123');
       expect(result).toEqual(mockFile);
+    });
+  });
+
+  describe('Circuit breaker (skip Redis entirely after a failure, for a cooldown)', () => {
+    it('skips both the read and the write on the next call after a read failure, instead of paying a fresh timeout twice', async () => {
+      mockGet.mockRejectedValueOnce(new Error('Redis Connection Failure'));
+      const mockFile = { id: 'file-123', fileName: 'Board', document: '{}', whiteboard: '[]' };
+      mockFindUnique.mockResolvedValue(mockFile);
+
+      // First call: read fails, trips the breaker, falls back to DB.
+      await getCachedFile('file-123');
+      expect(mockSet).not.toHaveBeenCalled(); // breaker tripped before the write too
+
+      // Second call, still within the cooldown: skip Redis entirely - no get, no set.
+      mockGet.mockClear();
+      await getCachedFile('file-123');
+      expect(mockGet).not.toHaveBeenCalled();
+      expect(mockSet).not.toHaveBeenCalled();
+      expect(mockFindUnique).toHaveBeenCalledTimes(2);
     });
   });
 
