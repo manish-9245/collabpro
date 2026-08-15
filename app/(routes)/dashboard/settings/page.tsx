@@ -8,6 +8,8 @@ import { api, useSync, useQuery, useMutation } from '@/lib/state-sync/react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Settings, Users, LogOut, Trash2, Shield, ShieldCheck, Mail, ChevronDown, ChevronUp, Loader2, Key, Copy, Check, Plus, AlertTriangle, Calendar } from 'lucide-react'
+import CodeBlock from '@/components/ui/code-block'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 
 
 function SettingsPage() {
@@ -393,20 +395,22 @@ function SettingsPage() {
                 <span className="text-xs font-bold text-blue-400">Claude Desktop Integration Setup</span>
                 <span className="text-[10px] text-zinc-500">Append this config block to your local claude_desktop_config.json</span>
               </div>
-              <pre className="text-[10px] font-mono overflow-x-auto p-3 bg-black/40 rounded-lg text-emerald-400 select-all border border-slate-800/60 leading-relaxed">
-{JSON.stringify({
-  mcpServers: {
-    collabpro: {
-      command: "npx",
-      args: ["-y", "collabpro-mcp"],
-      env: {
-        COLLABPRO_API_KEY: newlyCreatedKey.key,
-        COLLABPRO_BASE_URL: typeof window !== 'undefined' ? window.location.origin : "https://collabpro.buildwithmanish.com"
-      }
-    }
-  }
-}, null, 2)}
-              </pre>
+              <CodeBlock
+                language="json"
+                className="text-[10px] p-3 bg-black/40 rounded-lg select-all border border-slate-800/60 leading-relaxed"
+                code={JSON.stringify({
+                  mcpServers: {
+                    collabpro: {
+                      command: "npx",
+                      args: ["-y", "collabpro-mcp"],
+                      env: {
+                        COLLABPRO_API_KEY: newlyCreatedKey.key,
+                        COLLABPRO_BASE_URL: typeof window !== 'undefined' ? window.location.origin : "https://collabpro.buildwithmanish.com"
+                      }
+                    }
+                  }
+                }, null, 2)}
+              />
               <p className="text-[9px] text-zinc-400 leading-normal">
                 💡 **Pro Tip**: Use this configuration to empower Claude Desktop with the native ability to read, sync, edit, and orchestrate CollabPro team-shared documents and Excalidraw whiteboards programmatically!
               </p>
@@ -438,16 +442,17 @@ function SettingsPage() {
 
           <div className="space-y-1.5">
             <label className="text-xs font-bold text-slate-500 dark:text-zinc-400 block">Expiration</label>
-            <select
-              value={expiresDays}
-              onChange={(e) => setExpiresDays(e.target.value)}
-              className="w-full text-xs px-3 py-2 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium"
-            >
-              <option value="7">7 Days</option>
-              <option value="30">30 Days</option>
-              <option value="90">90 Days</option>
-              <option value="never">No Expiration (Never)</option>
-            </select>
+            <Select value={expiresDays} onValueChange={setExpiresDays}>
+              <SelectTrigger className="text-xs px-3 py-2 bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 focus:border-blue-500 font-medium">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="7">7 Days</SelectItem>
+                <SelectItem value="30">30 Days</SelectItem>
+                <SelectItem value="90">90 Days</SelectItem>
+                <SelectItem value="never">No Expiration (Never)</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <button

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AI_PROVIDER_PRESETS, AiProviderId } from '@/lib/ai-providers';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 
 const PROVIDER_ORDER: AiProviderId[] = ['openai', 'anthropic', 'gemini', 'nvidia_nim', 'custom'];
 
@@ -280,17 +281,17 @@ export default function AiSettingsHub() {
                   </div>
 
                   {availableModels && availableModels.length > 0 ? (
-                    <select
-                      value={model}
-                      disabled={!isOwner}
-                      onChange={(e) => setModel(e.target.value)}
-                      className="w-full text-[10.5px] font-semibold bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 outline-none focus:border-[#6965db] text-slate-700 dark:text-slate-300 disabled:opacity-60"
-                    >
-                      {!availableModels.includes(model) && model && <option value={model}>{model}</option>}
-                      {availableModels.map((m) => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
+                    <Select value={model} disabled={!isOwner} onValueChange={setModel}>
+                      <SelectTrigger className="text-[10.5px] font-semibold bg-slate-50 dark:bg-slate-950 p-3">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {!availableModels.includes(model) && model && <SelectItem value={model}>{model}</SelectItem>}
+                        {availableModels.map((m) => (
+                          <SelectItem key={m} value={m}>{m}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   ) : (
                     <input
                       type="text"

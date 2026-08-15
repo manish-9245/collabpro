@@ -12,6 +12,7 @@ import {
   AlertTriangle, ArrowLeft, Globe, Lock, Info, Server, Sparkles, UserPlus, 
   Trash2, UserCheck, Download, Search, Filter, Clock, ShieldAlert
 } from 'lucide-react'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 
 export default function AdminSettingsPage() {
   const router = useRouter();
@@ -598,18 +599,22 @@ export default function AdminSettingsPage() {
 
               {/* Action dropdown selector */}
               <div className="relative w-full sm:w-60">
-                <Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
-                <select
-                  value={actionFilter}
-                  onChange={(e) => setActionFilter(e.target.value)}
-                  className="w-full h-10 pl-9 pr-8 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-zinc-100 appearance-none cursor-pointer"
+                <Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none z-10" />
+                <Select
+                  value={actionFilter === '' ? 'all' : actionFilter}
+                  onValueChange={(v) => setActionFilter(v === 'all' ? '' : v)}
                 >
-                  <option value="">All Security Events</option>
-                  <option value="file:delete">File Deletion (file:delete)</option>
-                  <option value="member:invite">Teammate Invite (member:invite)</option>
-                  <option value="member:remove">Teammate Removal (member:remove)</option>
-                  <option value="settings:update">SSO & Policies Update (settings:update)</option>
-                </select>
+                  <SelectTrigger className="h-10 pl-9 pr-3 rounded-xl border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-zinc-100">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Security Events</SelectItem>
+                    <SelectItem value="file:delete">File Deletion (file:delete)</SelectItem>
+                    <SelectItem value="member:invite">Teammate Invite (member:invite)</SelectItem>
+                    <SelectItem value="member:remove">Teammate Removal (member:remove)</SelectItem>
+                    <SelectItem value="settings:update">SSO & Policies Update (settings:update)</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
             </div>

@@ -21,6 +21,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { MCP_TOOL_CATALOG } from '@/lib/mcp/tool-catalog';
+import CodeBlock from '@/components/ui/code-block';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 
 export default function McpSettingsHub() {
   const { user }: any = useSessionAuth();
@@ -234,17 +236,18 @@ export default function McpSettingsHub() {
                 No API keys yet — generate one in Profile settings first.
               </div>
             ) : (
-              <select
-                value={selectedKey}
-                onChange={(e) => setSelectedKey(e.target.value)}
-                className="w-full text-[10px] font-mono bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2.5 py-2 outline-none focus:border-[#6965db] text-slate-700 dark:text-slate-300 cursor-pointer"
-              >
-                {apiKeys.map((key) => (
-                  <option key={key.id} value={key.key}>
-                    {key.name} (***{key.key.substring(key.key.length - 8)})
-                  </option>
-                ))}
-              </select>
+              <Select value={selectedKey} onValueChange={setSelectedKey}>
+                <SelectTrigger className="text-[10px] font-mono px-2.5 py-2">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {apiKeys.map((key) => (
+                    <SelectItem key={key.id} value={key.key} className="text-[10px] font-mono">
+                      {key.name} (***{key.key.substring(key.key.length - 8)})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             )}
           </div>
 
@@ -360,9 +363,11 @@ export default function McpSettingsHub() {
               </p>
 
               <div className="relative">
-                <pre className="bg-slate-900 rounded-xl p-4 font-mono text-[10.5px] text-slate-100 overflow-x-auto select-all max-h-[220px]">
-                  {vscodeConfig}
-                </pre>
+                <CodeBlock
+                  code={vscodeConfig}
+                  language="json"
+                  className="bg-slate-900 rounded-xl p-4 text-[10.5px] select-all max-h-[220px]"
+                />
                 <button
                   type="button"
                   onClick={() => copyToClipboard(vscodeConfig, setCopiedCmd)}
@@ -389,9 +394,11 @@ export default function McpSettingsHub() {
               </p>
 
               <div className="relative">
-                <pre className="bg-slate-900 rounded-xl p-4 font-mono text-[10.5px] text-slate-100 overflow-x-auto select-all max-h-[180px]">
-                  {claudeConfig}
-                </pre>
+                <CodeBlock
+                  code={claudeConfig}
+                  language="json"
+                  className="bg-slate-900 rounded-xl p-4 text-[10.5px] select-all max-h-[180px]"
+                />
                 <button
                   type="button"
                   onClick={() => copyToClipboard(claudeConfig, setCopiedText)}
@@ -430,9 +437,11 @@ export default function McpSettingsHub() {
 
                 <div>
                   <div className="text-[9px] font-black uppercase text-slate-400 tracking-wider mb-1.5">Environment Variables</div>
-                  <pre className="bg-slate-900 rounded-xl p-4 font-mono text-[10.5px] text-emerald-400 overflow-x-auto select-all">
-                    {cursorEnv}
-                  </pre>
+                  <CodeBlock
+                    code={cursorEnv}
+                    language="bash"
+                    className="bg-slate-900 rounded-xl p-4 text-[10.5px] select-all"
+                  />
                 </div>
               </div>
             </div>

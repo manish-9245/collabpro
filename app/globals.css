@@ -321,3 +321,54 @@ h6.ce-header {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
+
+/* Shared syntax-highlighting theme for components/ui/code-block.tsx - every
+   code snippet in the app renders through that component so this is the
+   single place highlight colors live. Tuned to sit on the app's existing
+   dark (slate-900/950) snippet backgrounds rather than a stock Prism theme. */
+.code-block-prism {
+  color: #e2e8f0; /* slate-200 */
+}
+
+.code-block-prism .token.comment,
+.code-block-prism .token.prolog,
+.code-block-prism .token.doctype,
+.code-block-prism .token.cdata {
+  color: #64748b; /* slate-500 */
+  font-style: italic;
+}
+
+.code-block-prism .token.string,
+.code-block-prism .token.char,
+.code-block-prism .token.attr-value {
+  color: #34d399; /* emerald-400 */
+}
+
+.code-block-prism .token.keyword,
+.code-block-prism .token.selector,
+.code-block-prism .token.atrule {
+  color: #a5b4fc; /* indigo-300, close to app's #6965db brand */
+}
+
+.code-block-prism .token.function,
+.code-block-prism .token.class-name,
+.code-block-prism .token.builtin {
+  color: #38bdf8; /* sky-400 */
+}
+
+.code-block-prism .token.number,
+.code-block-prism .token.boolean,
+.code-block-prism .token.constant {
+  color: #fcd34d; /* amber-300 */
+}
+
+.code-block-prism .token.property,
+.code-block-prism .token.tag,
+.code-block-prism .token.symbol {
+  color: #f0abfc; /* fuchsia-300 */
+}
+
+.code-block-prism .token.punctuation,
+.code-block-prism .token.operator {
+  color: #94a3b8; /* slate-400 */
+}

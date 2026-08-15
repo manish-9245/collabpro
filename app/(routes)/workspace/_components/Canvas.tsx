@@ -9,6 +9,7 @@ import { Sparkles, Cloud, Search, Loader2, ChevronLeft, ChevronRight, Plus, Tras
 import { toast } from 'sonner';
 import { AWS_ICONS } from './aws_icons_list';
 import ImageEditorModal from './ImageEditorModal';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectGroup, SelectLabel, SelectItem } from '@/components/ui/select';
 
 // Cache AWS icons by ID for highly performant O(1) lookups during canvas render and session recovery
 const AWS_ICONS_MAP = new Map(AWS_ICONS.map(i => [i.id, i]));
@@ -2112,38 +2113,43 @@ function Canvas({
                           </button>
                         </div>
                       </div>
-                      <select
-                        value={selectedLibraryId}
-                        onChange={(e) => setSelectedLibraryId(e.target.value)}
-                        className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#6965db]/50 text-slate-700 dark:text-slate-300 font-bold cursor-pointer"
-                      >
-                        <optgroup label="Curated Technical Libraries" className="dark:bg-slate-900">
-                          {CURATED_LIBRARIES.map(lib => (
-                            <option key={lib.id} value={lib.id}>{lib.name}</option>
-                          ))}
-                        </optgroup>
-                        {customLibrariesList.length > 0 && (
-                          <optgroup label="Imported & Community Libraries" className="dark:bg-slate-900">
-                            {customLibrariesList.map(lib => (
-                              <option key={lib.id} value={lib.id}>{lib.name}</option>
+                      <Select value={selectedLibraryId} onValueChange={setSelectedLibraryId}>
+                        <SelectTrigger className="px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 focus:ring-1 focus:ring-[#6965db]/50 font-bold">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            <SelectLabel>Curated Technical Libraries</SelectLabel>
+                            {CURATED_LIBRARIES.map(lib => (
+                              <SelectItem key={lib.id} value={lib.id}>{lib.name}</SelectItem>
                             ))}
-                          </optgroup>
-                        )}
-                        {Array.isArray(sharedLibraryItems) && sharedLibraryItems.length > 0 && (
-                          <optgroup label="Shared Team Catalog" className="dark:bg-slate-900">
-                            {sharedLibraryItems.map((lib: any) => (
-                              <option key={lib.id} value={`shared_${lib.id}`}>{lib.name}</option>
-                            ))}
-                          </optgroup>
-                        )}
-                        {loadedLibraries.filter(l => l.id.startsWith('uploaded_')).length > 0 && (
-                          <optgroup label="Locally Uploaded Files" className="dark:bg-slate-900">
-                            {loadedLibraries.filter(l => l.id.startsWith('uploaded_')).map(lib => (
-                              <option key={lib.id} value={lib.id}>{lib.name}</option>
-                            ))}
-                          </optgroup>
-                        )}
-                      </select>
+                          </SelectGroup>
+                          {customLibrariesList.length > 0 && (
+                            <SelectGroup>
+                              <SelectLabel>Imported & Community Libraries</SelectLabel>
+                              {customLibrariesList.map(lib => (
+                                <SelectItem key={lib.id} value={lib.id}>{lib.name}</SelectItem>
+                              ))}
+                            </SelectGroup>
+                          )}
+                          {Array.isArray(sharedLibraryItems) && sharedLibraryItems.length > 0 && (
+                            <SelectGroup>
+                              <SelectLabel>Shared Team Catalog</SelectLabel>
+                              {sharedLibraryItems.map((lib: any) => (
+                                <SelectItem key={lib.id} value={`shared_${lib.id}`}>{lib.name}</SelectItem>
+                              ))}
+                            </SelectGroup>
+                          )}
+                          {loadedLibraries.filter(l => l.id.startsWith('uploaded_')).length > 0 && (
+                            <SelectGroup>
+                              <SelectLabel>Locally Uploaded Files</SelectLabel>
+                              {loadedLibraries.filter(l => l.id.startsWith('uploaded_')).map(lib => (
+                                <SelectItem key={lib.id} value={lib.id}>{lib.name}</SelectItem>
+                              ))}
+                            </SelectGroup>
+                          )}
+                        </SelectContent>
+                      </Select>
                     </div>
 
                     {/* Import Custom Library URL or upload local file form */}

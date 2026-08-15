@@ -13,6 +13,8 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { MCP_TOOL_CATALOG } from '@/lib/mcp/tool-catalog'
+import CodeBlock, { CodeLanguage } from '@/components/ui/code-block'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 
 function DevelopersDashboard() {
   const { user }: any = useSessionAuth();
@@ -442,16 +444,17 @@ func main() {
                   />
                 </div>
                 <div className="w-32 shrink-0">
-                  <select 
-                    value={expiresDays} 
-                    onChange={(e) => setExpiresDays(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-sm rounded-lg px-3 py-2 h-9 outline-none focus:ring-1 focus:ring-blue-500"
-                  >
-                    <option value="7">7 Days</option>
-                    <option value="30">30 Days</option>
-                    <option value="90">90 Days</option>
-                    <option value="365">1 Year</option>
-                  </select>
+                  <Select value={expiresDays} onValueChange={setExpiresDays}>
+                    <SelectTrigger className="bg-slate-50 border-slate-200 text-slate-800 text-sm px-3 py-2 h-9 focus:border-blue-500">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="7">7 Days</SelectItem>
+                      <SelectItem value="30">30 Days</SelectItem>
+                      <SelectItem value="90">90 Days</SelectItem>
+                      <SelectItem value="365">1 Year</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <Button 
                   type="submit" 
@@ -548,9 +551,11 @@ func main() {
                 </div>
 
                 <div className="relative">
-                  <pre className="bg-slate-950 text-slate-100 p-4 rounded-xl border border-slate-800 text-[11px] font-mono leading-relaxed overflow-x-auto max-h-[250px] scrollbar-thin">
-                    <code>{getCodeSnippet()}</code>
-                  </pre>
+                  <CodeBlock
+                    code={getCodeSnippet() || ''}
+                    language={({ curl: 'bash', js: 'javascript', python: 'python', go: 'go' } as const)[selectedLanguage]}
+                    className="bg-slate-950 p-4 rounded-xl border border-slate-800 text-[11px] leading-relaxed max-h-[250px] scrollbar-thin"
+                  />
                   <Button
                     onClick={() => copyToClipboard(getCodeSnippet(), 'snippet_copy')}
                     className="absolute top-2.5 right-2.5 h-7 w-7 p-0 bg-slate-800 hover:bg-slate-700 text-zinc-300 border border-slate-700"
@@ -592,26 +597,30 @@ func main() {
               {/* Methods selector */}
               <div className="space-y-1.5">
                 <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Target MCP / REST Method</label>
-                <select
+                <Select
                   value={selectedMethod}
-                  onChange={(e) => {
-                    setSelectedMethod(e.target.value);
-                    if (e.target.value === 'list_tools') {
+                  onValueChange={(value) => {
+                    setSelectedMethod(value);
+                    if (value === 'list_tools') {
                       setArgumentsJson('{}');
                       return;
                     }
-                    const tool = MCP_TOOL_CATALOG.find((t) => t.name === e.target.value);
+                    const tool = MCP_TOOL_CATALOG.find((t) => t.name === value);
                     setArgumentsJson(JSON.stringify(tool?.exampleArgs ?? {}, null, 2));
                   }}
-                  className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs font-bold rounded-lg px-3 py-2 h-9 outline-none focus:ring-1 focus:ring-blue-500"
                 >
-                  <option value="list_tools">tools/list (Discover schemas)</option>
-                  {MCP_TOOL_CATALOG.map((tool) => (
-                    <option key={tool.name} value={tool.name}>
-                      {tool.name} ({tool.title}{tool.access === 'write' ? ' - write' : ''})
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger className="bg-slate-50 border-slate-200 text-slate-800 text-xs font-bold px-3 py-2 h-9 focus:border-blue-500">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="list_tools">tools/list (Discover schemas)</SelectItem>
+                    {MCP_TOOL_CATALOG.map((tool) => (
+                      <SelectItem key={tool.name} value={tool.name}>
+                        {tool.name} ({tool.title}{tool.access === 'write' ? ' - write' : ''})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               {/* Arguments JSON Textarea */}
@@ -664,9 +673,11 @@ func main() {
                           </span>
                           <span>{log.timestamp}</span>
                         </div>
-                        <pre className="whitespace-pre-wrap leading-relaxed max-w-full overflow-x-auto text-green-300 font-mono">
-                          {JSON.stringify(log.payload, null, 2)}
-                        </pre>
+                        <CodeBlock
+                          code={JSON.stringify(log.payload, null, 2)}
+                          language="json"
+                          className="whitespace-pre-wrap leading-relaxed max-w-full"
+                        />
                       </div>
                     ))
                   )}
