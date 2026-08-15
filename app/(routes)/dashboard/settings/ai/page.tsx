@@ -11,9 +11,15 @@ import {
   RefreshCw,
   Zap,
   Trash2,
-  Lock
+  Lock,
+  ExternalLink,
+  ListChecks,
+  AlertTriangle
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { AI_PROVIDER_PRESETS, AiProviderId } from '@/lib/ai-providers';
+
+const PROVIDER_ORDER: AiProviderId[] = ['openai', 'anthropic', 'gemini', 'nvidia_nim', 'custom'];
 
 export default function AiSettingsHub() {
   const { user }: any = useSessionAuth();
@@ -27,10 +33,17 @@ export default function AiSettingsHub() {
 
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState<any>(null);
+  const [provider, setProvider] = useState<AiProviderId>('openai');
   const [baseUrl, setBaseUrl] = useState('');
   const [model, setModel] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [saving, setSaving] = useState(false);
+
+  const [availableModels, setAvailableModels] = useState<string[] | null>(null);
+  const [fetchingModels, setFetchingModels] = useState(false);
+  const [modelFetchError, setModelFetchError] = useState<string | null>(null);
+
+  const preset = AI_PROVIDER_PRESETS[provider];
 
   useEffect(() => {
     if (activeTeam?._id) {
@@ -46,14 +59,50 @@ export default function AiSettingsHub() {
     try {
       const data = await sync.query(api.ai.getSettings, { teamId: activeTeam._id });
       setSettings(data);
-      setBaseUrl(data?.baseUrl || '');
+      const loadedProvider: AiProviderId = data?.provider && data.provider in AI_PROVIDER_PRESETS ? data.provider : 'openai';
+      setProvider(loadedProvider);
+      setBaseUrl(data?.baseUrl || AI_PROVIDER_PRESETS[loadedProvider].defaultBaseUrl);
       setModel(data?.model || '');
       setApiKey('');
+      setAvailableModels(null);
+      setModelFetchError(null);
     } catch (err: any) {
       console.error(err);
       toast.error('Failed to load AI settings.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleProviderChange = (next: AiProviderId) => {
+    setProvider(next);
+    setBaseUrl(AI_PROVIDER_PRESETS[next].defaultBaseUrl);
+    setModel('');
+    setAvailableModels(null);
+    setModelFetchError(null);
+  };
+
+  const handleFetchModels = async () => {
+    if (!activeTeam?._id) return;
+    setFetchingModels(true);
+    setModelFetchError(null);
+    try {
+      const res = await fetch('/api/ai/models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teamId: activeTeam._id, provider, baseUrl, apiKey: apiKey || undefined }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.message || 'Failed to fetch models');
+      setAvailableModels(json.models || []);
+      if (json.models?.length && !json.models.includes(model)) {
+        setModel(json.models[0]);
+      }
+    } catch (err: any) {
+      setModelFetchError(err.message || 'Failed to fetch models');
+      toast.error(err.message || 'Failed to fetch models');
+    } finally {
+      setFetchingModels(false);
     }
   };
 
@@ -65,6 +114,7 @@ export default function AiSettingsHub() {
     try {
       await saveSettings({
         teamId: activeTeam._id,
+        provider,
         baseUrl,
         model,
         apiKey: apiKey || undefined, // blank means "keep the existing key"
@@ -86,9 +136,9 @@ export default function AiSettingsHub() {
       await deleteSettings({ teamId: activeTeam._id });
       toast.success('AI provider removed.');
       setSettings(null);
-      setBaseUrl('');
       setModel('');
       setApiKey('');
+      setAvailableModels(null);
     } catch (err: any) {
       console.error(err);
       toast.error(err.message || 'Failed to remove AI configuration.');
@@ -108,7 +158,7 @@ export default function AiSettingsHub() {
               AI Co-Pilot Setup
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-xl leading-relaxed">
-              Configure your team's AI provider for {activeTeam?.teamName || 'this team'}. Any OpenAI-compatible endpoint works (OpenAI, Azure OpenAI, Groq, OpenRouter, local Ollama, etc). The key is encrypted at rest and used server-side, once per chat message - it is never sent to or stored in any browser.
+              Configure your team's AI provider for {activeTeam?.teamName || 'this team'}. The key is encrypted at rest and used server-side, once per chat message - it is never sent to or stored in any browser.
             </p>
           </div>
         </div>
@@ -137,6 +187,49 @@ export default function AiSettingsHub() {
               </div>
 
               <form onSubmit={handleSave} className="space-y-4 mt-6">
+                {/* Provider picker */}
+                <div>
+                  <label className="block text-[9px] font-black uppercase text-slate-400 tracking-wider mb-1.5">
+                    Provider
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                    {PROVIDER_ORDER.map((id) => {
+                      const isActive = provider === id;
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          disabled={!isOwner}
+                          onClick={() => handleProviderChange(id)}
+                          className={`px-2.5 py-2 rounded-xl border text-[10.5px] font-bold transition-all disabled:opacity-60 disabled:cursor-not-allowed ${
+                            isActive
+                              ? 'border-[#6965db] bg-[#6965db]/5 text-[#6965db] shadow-sm'
+                              : 'border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700'
+                          }`}
+                        >
+                          {AI_PROVIDER_PRESETS[id].label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-2 leading-relaxed">
+                    {preset.setupNote}
+                    {preset.keyManagementUrl && (
+                      <>
+                        {' '}
+                        <a
+                          href={preset.keyManagementUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[#6965db] font-semibold hover:underline inline-flex items-center gap-0.5"
+                        >
+                          Get an API key <ExternalLink className="h-2.5 w-2.5" />
+                        </a>
+                      </>
+                    )}
+                  </p>
+                </div>
+
                 <div>
                   <label className="block text-[9px] font-black uppercase text-slate-400 tracking-wider mb-1.5">
                     Base URL
@@ -145,7 +238,7 @@ export default function AiSettingsHub() {
                     type="text"
                     placeholder="https://api.openai.com/v1"
                     value={baseUrl}
-                    disabled={!isOwner}
+                    disabled={!isOwner || provider !== 'custom'}
                     onChange={(e) => setBaseUrl(e.target.value)}
                     className="w-full text-xs font-mono bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 outline-none focus:border-[#6965db] text-slate-700 dark:text-slate-300 disabled:opacity-60"
                     required
@@ -166,19 +259,54 @@ export default function AiSettingsHub() {
                   />
                 </div>
 
+                {/* Model - dynamically fetched dropdown, falling back to free text */}
                 <div>
-                  <label className="block text-[9px] font-black uppercase text-slate-400 tracking-wider mb-1.5">
-                    Model
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="gpt-4o-mini"
-                    value={model}
-                    disabled={!isOwner}
-                    onChange={(e) => setModel(e.target.value)}
-                    className="w-full text-[10.5px] font-semibold bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 outline-none focus:border-[#6965db] text-slate-700 dark:text-slate-300 disabled:opacity-60"
-                    required
-                  />
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-[9px] font-black uppercase text-slate-400 tracking-wider">
+                      Model
+                    </label>
+                    {isOwner && (
+                      <button
+                        type="button"
+                        onClick={handleFetchModels}
+                        disabled={fetchingModels || (!apiKey && !settings?.maskedKey)}
+                        className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-[#6965db] hover:underline disabled:opacity-40 disabled:no-underline disabled:cursor-not-allowed"
+                        title={!apiKey && !settings?.maskedKey ? 'Enter an API key first' : 'Fetch the live model list from this provider'}
+                      >
+                        {fetchingModels ? <RefreshCw className="h-3 w-3 animate-spin" /> : <ListChecks className="h-3 w-3" />}
+                        Fetch available models
+                      </button>
+                    )}
+                  </div>
+
+                  {availableModels && availableModels.length > 0 ? (
+                    <select
+                      value={model}
+                      disabled={!isOwner}
+                      onChange={(e) => setModel(e.target.value)}
+                      className="w-full text-[10.5px] font-semibold bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 outline-none focus:border-[#6965db] text-slate-700 dark:text-slate-300 disabled:opacity-60"
+                    >
+                      {!availableModels.includes(model) && model && <option value={model}>{model}</option>}
+                      {availableModels.map((m) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      placeholder={provider === 'openai' ? 'gpt-4o-mini' : provider === 'anthropic' ? 'claude-sonnet-4-5' : 'model-id'}
+                      value={model}
+                      disabled={!isOwner}
+                      onChange={(e) => setModel(e.target.value)}
+                      className="w-full text-[10.5px] font-semibold bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 outline-none focus:border-[#6965db] text-slate-700 dark:text-slate-300 disabled:opacity-60"
+                      required
+                    />
+                  )}
+                  {modelFetchError && (
+                    <p className="mt-1.5 text-[10px] text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                      <AlertTriangle className="h-3 w-3 shrink-0" /> {modelFetchError} - you can still type a model ID above.
+                    </p>
+                  )}
                 </div>
 
                 <div className="p-4 bg-slate-50 dark:bg-slate-950 border border-slate-200/50 dark:border-slate-800/80 rounded-2xl flex items-start gap-3">
