@@ -154,7 +154,7 @@ describe('Model Context Protocol (MCP) HTTP Endpoint', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.id).toBe(10);
-    expect(body.result.tools).toHaveLength(7);
+    expect(body.result.tools).toHaveLength(8);
 
     const names = body.result.tools.map((t: { name: string }) => t.name);
     expect(names).toEqual([
@@ -164,6 +164,7 @@ describe('Model Context Protocol (MCP) HTTP Endpoint', () => {
       'collabpro_update_document',
       'collabpro_update_whiteboard',
       'collabpro_search_icon_libraries',
+      'collabpro_list_library_items',
       'collabpro_get_library_icon',
     ]);
 

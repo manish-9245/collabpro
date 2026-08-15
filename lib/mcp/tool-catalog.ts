@@ -85,6 +85,16 @@ export const MCP_TOOL_CATALOG: McpToolDoc[] = [
     exampleArgs: { query: 'aws' },
   },
   {
+    name: 'collabpro_list_library_items',
+    title: 'List Library Items',
+    description: 'List every icon/item in one community library with a real name, derived from the item itself when the library has no metadata name - use before collabpro_get_library_icon to work through everything a library offers instead of guessing indices.',
+    access: 'read',
+    params: [
+      { name: 'librarySource', type: 'string', required: true, description: '"source" field from collabpro_search_icon_libraries.' },
+    ],
+    exampleArgs: { librarySource: 'husainkhambaty/aws-simple-icons.excalidrawlib' },
+  },
+  {
     name: 'collabpro_get_library_icon',
     title: 'Get Library Icon',
     description: 'Fetch one icon\'s elements from a community library (from collabpro_search_icon_libraries), positioned and ID-namespaced to drop straight into a whiteboard.',

@@ -6,7 +6,7 @@ import { invalidateCachedFile } from '@/lib/redis-cache';
 import { logAuditEvent } from '@/lib/audit';
 import { parseJsonIfString, asEditorDocument, asWhiteboardPayload, asJsonString } from '@/lib/state-sync-helpers';
 import { extractTextFromWhiteboard } from '@/lib/file-service';
-import { searchIconLibraries, getLibraryIcon } from '@/lib/mcp/icon-libraries';
+import { searchIconLibraries, listLibraryItems, getLibraryIcon } from '@/lib/mcp/icon-libraries';
 
 /**
  * Canonical MCP tool registry - the single source of truth for every tool
@@ -328,7 +328,7 @@ export function registerCollabProTools(server: McpServer, ctx: McpToolContext) {
   server.registerTool(
     'collabpro_search_icon_libraries',
     {
-      description: 'Search the 200+ community Excalidraw icon libraries (AWS/Azure/GCP/network/UML/BPMN/etc, from libraries.excalidraw.com) by keyword. Returns each match\'s "source" - pass it to collabpro_get_library_icon to fetch a specific icon.',
+      description: 'Search the 200+ community Excalidraw icon libraries (AWS/Azure/GCP/network/UML/BPMN/etc, from libraries.excalidraw.com) by keyword. Returns each match\'s "source" - pass it to collabpro_list_library_items to see every icon it contains, or straight to collabpro_get_library_icon if you already know which item you want.',
       inputSchema: {
         query: z.string().min(1).describe('Keyword to match against library names/descriptions/item names, e.g. "aws", "azure", "network".'),
       },
@@ -340,6 +340,25 @@ export function registerCollabProTools(server: McpServer, ctx: McpToolContext) {
         return textResult({ results });
       } catch (err) {
         return errorResult(`Failed to search icon libraries: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  );
+
+  server.registerTool(
+    'collabpro_list_library_items',
+    {
+      description: 'List every icon/item in one community Excalidraw library (see collabpro_search_icon_libraries\'s "source" field), each with a real name - not just an index. Most library files have no per-item metadata name at all, so this derives one the same way the in-app library picker does (the item\'s own text label, or its element type) rather than leaving you to guess numeric indices blind. Call this before collabpro_get_library_icon when you want to work through everything a library offers.',
+      inputSchema: {
+        librarySource: z.string().describe('Library file, e.g. "childishgirl/aws-architecture-icons.excalidrawlib" - from collabpro_search_icon_libraries\'s "source" field.'),
+      },
+      annotations: { title: 'List Library Items', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    async ({ librarySource }) => {
+      try {
+        const items = await listLibraryItems(librarySource);
+        return textResult({ librarySource, count: items.length, items });
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err));
       }
     }
   );

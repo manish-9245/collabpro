@@ -19,7 +19,14 @@
 
 const LIBRARY_BASE = 'https://raw.githubusercontent.com/excalidraw/excalidraw-libraries/main';
 const FETCH_TIMEOUT_MS = 5000;
-const MAX_RESPONSE_BYTES = 3 * 1024 * 1024; // generous for a library file, bounds a runaway response
+// 3MB rejected real, popular libraries outright (e.g.
+// childishgirl/aws-architecture-icons.excalidrawlib, 249 named items, is
+// ~3.9MB - one of the largest in the whole 231-library catalog but a
+// completely legitimate one). This is a fixed, hardcoded-host fetch (see
+// isValidLibrarySource), not arbitrary user input, so the bound only needs
+// to catch a genuinely pathological response, not defend against SSRF-style
+// abuse - 8MB comfortably covers every real library with headroom to spare.
+const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 const CACHE_TTL_MS = 60 * 60 * 1000; // library content changes rarely
 
 // Only ever fetches "<author>/<name>.excalidrawlib" appended to the fixed
@@ -79,12 +86,35 @@ interface LibraryItem {
   elements: LibraryElement[];
 }
 
+// Same 3-tier fallback the whiteboard's own picker uses (Canvas.tsx's
+// getItemName) - most real .excalidrawlib files have NO per-item name field
+// at all (naming lives in the file's top-level itemNames array, positional
+// and often entirely absent), so without this every item from most
+// libraries came back as a useless "item0"/"item1"/... with no way for an
+// MCP caller to know what it actually depicts.
+function fallbackItemName(elements: LibraryElement[], index: number): string {
+  const textEl = elements.find((e) => e.type === 'text');
+  if (textEl && typeof textEl.text === 'string' && textEl.text.trim()) {
+    return textEl.text.trim();
+  }
+  const types = Array.from(new Set(elements.map((e) => e.type).filter(Boolean)));
+  if (types.length === 1) {
+    const t = String(types[0]);
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  }
+  return `Asset ${index + 1}`;
+}
+
 function itemsOf(lib: unknown): LibraryItem[] {
   const raw: unknown[] = (lib as any)?.libraryItems || (lib as any)?.library || [];
+  const itemNames: unknown = (lib as any)?.itemNames;
+  const names = Array.isArray(itemNames) ? itemNames : [];
   return raw.map((it, i) => {
-    if (Array.isArray(it)) return { name: `item${i}`, elements: it as LibraryElement[] };
-    const obj = it as any;
-    return { name: obj?.name || `item${i}`, elements: Array.isArray(obj?.elements) ? obj.elements : [] };
+    const elements = Array.isArray(it)
+      ? (it as LibraryElement[])
+      : (Array.isArray((it as any)?.elements) ? (it as any).elements : []);
+    const name = (typeof names[i] === 'string' && names[i]) || fallbackItemName(elements, i);
+    return { name, elements };
   });
 }
 
@@ -141,6 +171,31 @@ function place(elements: LibraryElement[], tx: number, ty: number, prefix: strin
     }
     return e;
   });
+}
+
+export interface LibraryItemSummary {
+  index: number;
+  name: string;
+  elementCount: number;
+  /** get_library_icon rejects image-element items outright - flagged here so a caller doesn't waste a call picking one. */
+  hasImage: boolean;
+}
+
+// Enumerate every item in a library by name, so a caller can pick items
+// deliberately instead of guessing numeric indices one fetch at a time -
+// the practical way to actually get "all icons" out of a library through
+// MCP rather than blindly trying index 0, 1, 2...
+export async function listLibraryItems(librarySource: string): Promise<LibraryItemSummary[]> {
+  if (!isValidLibrarySource(librarySource)) {
+    throw new Error('librarySource must look like "author/name.excalidrawlib" (see collabpro_search_icon_libraries\'s "source" field)');
+  }
+  const lib = await fetchJsonCached(`${LIBRARY_BASE}/libraries/${librarySource}`);
+  return itemsOf(lib).map((it, index) => ({
+    index,
+    name: it.name,
+    elementCount: it.elements.length,
+    hasImage: it.elements.some((e) => e.type === 'image'),
+  }));
 }
 
 export interface LibraryIconResult {

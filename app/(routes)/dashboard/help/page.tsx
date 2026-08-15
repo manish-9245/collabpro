@@ -93,7 +93,7 @@ const FAQS = [
   },
   {
     q: "What can an MCP client (Claude Desktop, Cursor, etc.) actually do once connected?",
-    a: "Exactly 7 tools, all listed with full parameters in the Developer Hub: list files, create a new file, fetch/update a document or whiteboard, and search/insert icons from community Excalidraw libraries. A read-only API key can use the read tools but gets a 403 from the write ones."
+    a: "Exactly 8 tools, all listed with full parameters in the Developer Hub: list files, create a new file, fetch/update a document or whiteboard, and search/browse/insert icons from community Excalidraw libraries. A read-only API key can use the read tools but gets a 403 from the write ones."
   }
 ]
 

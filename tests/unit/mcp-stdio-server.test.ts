@@ -133,6 +133,7 @@ describe('scripts/mcp-server.ts stdio<->HTTP bridge', () => {
       'collabpro_update_document',
       'collabpro_update_whiteboard',
       'collabpro_search_icon_libraries',
+      'collabpro_list_library_items',
       'collabpro_get_library_icon',
     ]);
   }, 15000);

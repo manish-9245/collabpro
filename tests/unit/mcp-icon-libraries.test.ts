@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { isValidLibrarySource, searchIconLibraries, getLibraryIcon } from '@/lib/mcp/icon-libraries';
+import { isValidLibrarySource, searchIconLibraries, listLibraryItems, getLibraryIcon } from '@/lib/mcp/icon-libraries';
 
 const mockFetch = vi.fn();
 
@@ -62,8 +62,10 @@ describe('lib/mcp/icon-libraries', () => {
     it('translates coordinates relative to the item bbox and namespaces every ID reference', async () => {
       mockFetch.mockResolvedValueOnce(jsonResponse(fakeLibrary));
 
+      // No top-level itemNames on fakeLibrary, so this falls back to the
+      // item's own bound text element ("EC2") - see fallbackItemName.
       const { name, elements } = await getLibraryIcon('author/lib.excalidrawlib', '0', 500, 500, 'myicon', 1);
-      expect(name).toBe('item0');
+      expect(name).toBe('EC2');
       expect(elements).toHaveLength(3);
 
       const bg = elements.find((e: any) => e.id === 'myicon_bg') as any;
@@ -89,7 +91,10 @@ describe('lib/mcp/icon-libraries', () => {
       // Each getLibraryIcon call below uses a distinct librarySource so the
       // module-level response cache (keyed by URL, shared across this whole
       // test file) can't serve one call's queued mock to a different call.
-      const namedLibrary = { library: [{ name: 'Lambda Function', elements: [{ id: 'x', type: 'rectangle', x: 0, y: 0, width: 10, height: 10 }] }] };
+      // Real .excalidrawlib files name items via a top-level itemNames
+      // array (positional), not a per-item name field - matches what the
+      // in-app picker (Canvas.tsx's getItemName) actually reads.
+      const namedLibrary = { itemNames: ['Lambda Function'], library: [{ elements: [{ id: 'x', type: 'rectangle', x: 0, y: 0, width: 10, height: 10 }] }] };
 
       mockFetch.mockResolvedValueOnce(jsonResponse(namedLibrary));
       const byIndex = await getLibraryIcon('by-index/lib.excalidrawlib', '0', 0, 0, 'p', 1);
@@ -109,6 +114,46 @@ describe('lib/mcp/icon-libraries', () => {
     it('rejects an out-of-range item selector with a helpful message', async () => {
       mockFetch.mockResolvedValueOnce(jsonResponse(fakeLibrary));
       await expect(getLibraryIcon('out-of-range/lib.excalidrawlib', '99', 0, 0, 'p', 1)).rejects.toThrow(/No item matching/);
+    });
+  });
+
+  describe('listLibraryItems', () => {
+    it('names each item via itemNames first, then a bound text label, then its element type, then a numbered fallback', async () => {
+      const mixedLibrary = {
+        itemNames: ['VPC', undefined, '', undefined],
+        libraryItems: [
+          [{ id: 'a', type: 'rectangle', x: 0, y: 0, width: 10, height: 10 }], // itemNames[0] = 'VPC' wins
+          [{ id: 'b', type: 'text', x: 0, y: 0, width: 10, height: 10, text: 'S3 Bucket' }], // no itemNames[1] -> text label
+          [ // no itemNames[2] (empty string, falsy) and no text -> homogeneous type
+            { id: 'c1', type: 'ellipse', x: 0, y: 0, width: 10, height: 10 },
+            { id: 'c2', type: 'ellipse', x: 5, y: 5, width: 10, height: 10 },
+          ],
+          [ // no name anywhere, mixed types -> numbered fallback
+            { id: 'd1', type: 'rectangle', x: 0, y: 0, width: 10, height: 10 },
+            { id: 'd2', type: 'diamond', x: 5, y: 5, width: 10, height: 10 },
+          ],
+        ],
+      };
+      mockFetch.mockResolvedValueOnce(jsonResponse(mixedLibrary));
+
+      const items = await listLibraryItems('mixed/lib.excalidrawlib');
+      expect(items).toEqual([
+        { index: 0, name: 'VPC', elementCount: 1, hasImage: false },
+        { index: 1, name: 'S3 Bucket', elementCount: 1, hasImage: false },
+        { index: 2, name: 'Ellipse', elementCount: 2, hasImage: false },
+        { index: 3, name: 'Asset 4', elementCount: 2, hasImage: false },
+      ]);
+    });
+
+    it('flags items containing an image element, so a caller knows get_library_icon would reject them', async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse({ libraryItems: [[{ id: 'x', type: 'image', x: 0, y: 0, width: 10, height: 10 }]] }));
+      const items = await listLibraryItems('has-image/lib.excalidrawlib');
+      expect(items).toEqual([{ index: 0, name: 'Image', elementCount: 1, hasImage: true }]);
+    });
+
+    it('rejects a librarySource that fails validation before ever calling fetch', async () => {
+      await expect(listLibraryItems('not-a-valid-source')).rejects.toThrow(/author\/name/);
+      expect(mockFetch).not.toHaveBeenCalled();
     });
   });
 });
