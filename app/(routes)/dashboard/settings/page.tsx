@@ -2,7 +2,6 @@
 
 import React, { useContext, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import Header from '../_components/Header'
 import { ActiveTeamContext } from '@/app/_context/ActiveTeamContext'
 import { useSessionAuth } from '@/lib/session-auth/client'
 import { api, useSync, useQuery, useMutation } from '@/lib/state-sync/react'
@@ -191,11 +190,9 @@ function SettingsPage() {
   };
 
   return (
-    <div className='p-8 min-h-screen bg-slate-50/30 dark:bg-zinc-950/20'>
-      <Header />
-
+    <div>
       {/* Main Settings Header */}
-      <div className='mt-8 relative overflow-hidden rounded-2xl border border-slate-100 dark:border-zinc-900 bg-white dark:bg-zinc-950 p-6 sm:p-8 shadow-sm'>
+      <div className='relative overflow-hidden rounded-2xl border border-slate-100 dark:border-zinc-900 bg-white dark:bg-zinc-950 p-6 sm:p-8 shadow-sm'>
         <div className="absolute top-0 right-0 -mt-4 -mr-4 w-56 h-56 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute bottom-0 left-1/3 -mb-4 w-44 h-44 bg-indigo-500/5 rounded-full blur-2xl pointer-events-none" />
 

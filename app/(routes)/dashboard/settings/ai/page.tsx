@@ -1,7 +1,6 @@
 "use client"
 
 import React, { useContext, useEffect, useState } from 'react';
-import Header from '../../_components/Header';
 import { ActiveTeamContext } from '@/app/_context/ActiveTeamContext';
 import { useSessionAuth } from '@/lib/session-auth/client';
 import { api, useSync, useMutation } from '@/lib/state-sync/react';
@@ -97,12 +96,9 @@ export default function AiSettingsHub() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50/50 dark:bg-slate-950 font-sans pb-16">
-      <Header />
-      <div className="max-w-4xl mx-auto px-6 pt-8">
-
-        {/* Hub Header */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-8 border-b border-slate-200/50 dark:border-slate-800/60">
+    <div className="max-w-4xl">
+      {/* Hub Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-8 border-b border-slate-200/50 dark:border-slate-800/60">
           <div>
             <div className="flex items-center gap-2 text-[#6965db]">
               <BrainCircuit className="h-5 w-5" />
@@ -225,7 +221,6 @@ export default function AiSettingsHub() {
           </div>
         )}
 
-      </div>
     </div>
   );
 }

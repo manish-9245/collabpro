@@ -1,7 +1,6 @@
 "use client"
 
 import React, { useContext, useEffect, useState } from 'react';
-import Header from '../../_components/Header';
 import { useSessionAuth } from '@/lib/session-auth/client';
 import { 
   Server, 
@@ -191,11 +190,8 @@ export default function McpSettingsHub() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50/50 dark:bg-slate-950 font-sans pb-16">
-      <Header />
-      <div className="max-w-4xl mx-auto px-6 pt-8">
-
-        {/* Hub Header */}
+    <div className="max-w-4xl">
+      {/* Hub Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6">
           <div>
             <h1 className="text-2xl font-black text-slate-900 dark:text-slate-100 tracking-tight">
@@ -503,7 +499,6 @@ export default function McpSettingsHub() {
           </button>
         </div>
 
-      </div>
     </div>
   );
 }

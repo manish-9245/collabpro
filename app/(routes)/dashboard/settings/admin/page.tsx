@@ -2,7 +2,6 @@
 
 import React, { useContext, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import Header from '../../_components/Header'
 import { ActiveTeamContext } from '@/app/_context/ActiveTeamContext'
 import { useSessionAuth } from '@/lib/session-auth/client'
 import { api, useSync, useMutation } from '@/lib/state-sync/react'
@@ -212,55 +211,35 @@ export default function AdminSettingsPage() {
 
   if (!activeTeam) {
     return (
-      <div className="p-8 min-h-screen bg-slate-50/30 dark:bg-zinc-950/20">
-        <Header />
-        <div className="mt-12 text-center py-20 bg-white dark:bg-zinc-950 border border-slate-100 dark:border-zinc-900 rounded-2xl shadow-sm">
-          <AlertTriangle className="h-10 w-10 text-amber-500 mx-auto mb-4" />
-          <h2 className="text-lg font-bold text-slate-800 dark:text-zinc-100">No Active Organization Selected</h2>
-          <p className="text-sm text-slate-400 mt-2 max-w-sm mx-auto">
-            Please select or create an active organization/team from the sidebar before accessing admin controls.
-          </p>
-        </div>
+      <div className="text-center py-20 bg-white dark:bg-zinc-950 border border-slate-100 dark:border-zinc-900 rounded-2xl shadow-sm">
+        <AlertTriangle className="h-10 w-10 text-amber-500 mx-auto mb-4" />
+        <h2 className="text-lg font-bold text-slate-800 dark:text-zinc-100">No Active Organization Selected</h2>
+        <p className="text-sm text-slate-400 mt-2 max-w-sm mx-auto">
+          Please select or create an active organization/team from the sidebar before accessing admin controls.
+        </p>
       </div>
     );
   }
 
   if (!isOwner) {
     return (
-      <div className="p-8 min-h-screen bg-slate-50/30 dark:bg-zinc-950/20">
-        <Header />
-        <div className="mt-12 text-center py-20 bg-white dark:bg-zinc-950 border border-slate-100 dark:border-zinc-900 rounded-2xl shadow-sm">
-          <Shield className="h-10 w-10 text-rose-500 mx-auto mb-4" />
-          <h2 className="text-lg font-bold text-slate-800 dark:text-zinc-100">Access Denied</h2>
-          <p className="text-sm text-slate-400 mt-2 max-w-sm mx-auto">
-            Administrative controls are restricted to the organization owner ({activeTeam.createdBy}).
-          </p>
-          <Button onClick={() => router.push('/dashboard/settings')} className="mt-6 gap-2" variant="outline">
-            <ArrowLeft className="h-4 w-4" /> Back to My Organizations
-          </Button>
-        </div>
+      <div className="text-center py-20 bg-white dark:bg-zinc-950 border border-slate-100 dark:border-zinc-900 rounded-2xl shadow-sm">
+        <Shield className="h-10 w-10 text-rose-500 mx-auto mb-4" />
+        <h2 className="text-lg font-bold text-slate-800 dark:text-zinc-100">Access Denied</h2>
+        <p className="text-sm text-slate-400 mt-2 max-w-sm mx-auto">
+          Administrative controls are restricted to the organization owner ({activeTeam.createdBy}).
+        </p>
+        <Button onClick={() => router.push('/dashboard/settings')} className="mt-6 gap-2" variant="outline">
+          <ArrowLeft className="h-4 w-4" /> Back to My Organizations
+        </Button>
       </div>
     );
   }
 
   return (
-    <div className='p-8 min-h-screen bg-slate-50/30 dark:bg-zinc-950/20'>
-      <Header />
-
-      {/* Back button and title */}
-      <div className="mt-8 flex items-center gap-3">
-        <Button 
-          onClick={() => router.push('/dashboard/settings')}
-          variant="ghost" 
-          className="p-2 h-9 w-9 rounded-lg border border-slate-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-950 hover:bg-slate-100 dark:hover:bg-zinc-900 shadow-sm"
-        >
-          <ArrowLeft className="h-4 w-4 text-slate-600 dark:text-zinc-300" />
-        </Button>
-        <span className="text-xs font-semibold text-slate-400 dark:text-zinc-500">Settings / Admin Control Center</span>
-      </div>
-
+    <div>
       {/* Organization Header */}
-      <div className='mt-4 relative overflow-hidden rounded-2xl border border-slate-100 dark:border-zinc-900 bg-white dark:bg-zinc-950 p-6 sm:p-8 shadow-sm'>
+      <div className='relative overflow-hidden rounded-2xl border border-slate-100 dark:border-zinc-900 bg-white dark:bg-zinc-950 p-6 sm:p-8 shadow-sm'>
         <div className="absolute top-0 right-0 -mt-4 -mr-4 w-56 h-56 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute bottom-0 left-1/3 -mb-4 w-44 h-44 bg-blue-500/5 rounded-full blur-2xl pointer-events-none" />
 
