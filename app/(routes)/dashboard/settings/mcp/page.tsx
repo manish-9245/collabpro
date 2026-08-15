@@ -471,7 +471,7 @@ export default function McpSettingsHub() {
             Test the selected API key against the live MCP endpoint.
           </p>
 
-          <div className="mt-4 min-h-[110px] max-h-[140px] bg-slate-900 rounded-xl p-3.5 font-mono text-[10px] overflow-y-auto space-y-1 select-none">
+          <div data-testid="mcp-diagnostics-console" className="mt-4 min-h-[110px] max-h-[140px] bg-slate-900 rounded-xl p-3.5 font-mono text-[10px] overflow-y-auto space-y-1 select-none">
             {handshakeLogs.length === 0 ? (
               <div className="text-slate-500 italic text-center pt-8">Console idle. Run diagnostics below.</div>
             ) : (

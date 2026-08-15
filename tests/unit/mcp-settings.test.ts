@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 
 // Issue found in review: this file previously asserted against hand-copied
 // object literals it built itself, never importing or rendering the real
@@ -107,10 +107,14 @@ describe('MCP Client Integration Settings Hub Suite (Issue 41)', () => {
     // Real tool name from the mocked response, not the fabricated
     // collabpro_read_board/collabpro_write_board/collabpro_create_file
     // names the old hard-coded version always displayed regardless of
-    // what the real server implements.
-    await screen.findByText(/collabpro_list_files/);
-    expect(screen.queryByText(/collabpro_read_board/)).toBeNull();
-    expect(screen.queryByText(/collabpro_write_board/)).toBeNull();
+    // what the real server implements. Scoped to the diagnostics console
+    // specifically (not just "somewhere on the page") since the page also
+    // has a static Available Tools reference card listing every real tool
+    // name, collabpro_list_files included.
+    const consoleEl = screen.getByTestId('mcp-diagnostics-console');
+    await within(consoleEl).findByText(/collabpro_list_files/);
+    expect(within(consoleEl).queryByText(/collabpro_read_board/)).toBeNull();
+    expect(within(consoleEl).queryByText(/collabpro_write_board/)).toBeNull();
   });
 
   it('"Run Diagnostics" shows a real failure when the API call fails, not a fabricated success', async () => {
