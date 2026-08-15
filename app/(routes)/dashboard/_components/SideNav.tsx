@@ -18,7 +18,13 @@ function SideNav() {
   const [totalFiles,setTotalFiles]=useState<Number>();
   const {fileList_,setFileList_,fileScope}=useContext(FileListContext);
   useEffect(()=>{
-    activeTeam&&getFiles();
+    // Guard on the specific field the query needs (matches the pattern
+    // already used in Header.tsx/dashboard/page.tsx), not just "activeTeam
+    // is truthy" - files:getFiles is one of the server's team-gated paths
+    // (app/api/state-sync/route.ts), and a team object with _id still
+    // undefined mid-transition was firing it with teamId: undefined,
+    // producing a 400 "Missing team context".
+    activeTeam?._id && getFiles();
   },[activeTeam?._id, fileScope])
   const onFileCreate=(fileName:string, folder?: string)=>{
     console.log(fileName, folder)

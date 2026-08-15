@@ -527,11 +527,19 @@ function useAdaptiveInterval(defaultInterval = 4000, backoffInterval = 60000, in
 
 export function useQuery(queryReference: any, args?: any) {
   const queryPath = getPath(queryReference);
+  // The 'skip' sentinel is conventionally passed as `args` (every call site
+  // in this app does `condition ? {...} : 'skip' as any` as the SECOND
+  // parameter), not as the query reference itself - the guard below used to
+  // only check the latter, so every "guarded" query in the app fired
+  // anyway, with the literal string "skip" sent over the wire as its args
+  // payload. The server correctly rejected that (e.g. team-gated paths
+  // throw "Missing team context" trying to read .teamId off a string).
+  const isSkipped = !queryPath || queryPath === 'skip' || args === 'skip';
   const argsString = JSON.stringify(args || {});
   const intervalTime = useAdaptiveInterval(4000, 60000, 60000);
 
   const [data, setData] = useState<any>(() => {
-    if (!queryPath) return undefined;
+    if (isSkipped) return undefined;
     const cacheKey = `${queryPath}:${argsString}`;
     const cached = queryCache.get(cacheKey);
     if (cached !== undefined) return cached;
@@ -559,7 +567,7 @@ export function useQuery(queryReference: any, args?: any) {
 
   // Safely hydrate from localStorage cache after mount to prevent SSR hydration errors
   useEffect(() => {
-    if (!queryPath) return;
+    if (isSkipped) return;
     const cacheKey = `${queryPath}:${argsString}`;
     if (data === undefined && typeof window !== 'undefined') {
       try {
@@ -578,7 +586,7 @@ export function useQuery(queryReference: any, args?: any) {
   const isConnected = wsStatus === 'connected';
 
   useEffect(() => {
-    if (!queryPath || queryPath === 'skip') return;
+    if (isSkipped) return;
 
     const cacheKey = `${queryPath}:${argsString}`;
     let active = true;
