@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as Y from 'yjs';
 import { decodeLegacyCrdtState } from '@/lib/legacy-crdt-decode';
 import { migrateLegacyCrdtRows } from '@/scripts/migrate-legacy-crdt';
@@ -172,5 +172,109 @@ describe('migrateLegacyCrdtRows (issue #242 backfill)', () => {
     expect(summary.whiteboardsMigrated).toBe(1); // r1
     expect(summary.failed).toBe(0);
     expect(prismaMock.file.update).toHaveBeenCalledTimes(2); // r1, r4
+  });
+
+  // Regression test (CodeRabbit finding on PR #243): a row whose legacy blob
+  // is genuinely corrupted (bad Y.Doc update bytes) must NOT have its field
+  // overwritten with the empty fallback default — that would silently
+  // destroy the user's real content and still count as "migrated". A
+  // decode failure must be skipped and counted as `failed`, leaving the
+  // row's still-legacy-but-still-readable value untouched.
+  it('does not overwrite a field with the empty fallback when its legacy blob fails to decode — counts it as failed instead', async () => {
+    // yjs-shaped envelope (passes isLegacyYjsPayload) but `data` is not a
+    // valid Yjs update, so Y.applyUpdate throws.
+    const corruptDocument = JSON.stringify({ yjs: true, data: Buffer.from([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 255, 254, 253]).toString('base64') });
+    const rows = [
+      // Corrupted document, but a genuinely valid legacy whiteboard on the
+      // same row — proves the corrupted field is excluded from the update
+      // payload while the sibling valid field still migrates.
+      { id: 'row-corrupt-doc', document: corruptDocument, whiteboard: encodeLegacyFixture(legacyWhiteboard) },
+    ];
+    const prismaMock = makePrismaMock(rows);
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const summary = await migrateLegacyCrdtRows(prismaMock as any);
+
+    expect(prismaMock.file.update).toHaveBeenCalledTimes(1);
+    const call = prismaMock.file.update.mock.calls[0][0];
+    // The corrupted field must be entirely absent from the write, not
+    // present with an empty-fallback value.
+    expect(call.data).not.toHaveProperty('document');
+    expect(call.data).toHaveProperty('whiteboard');
+
+    expect(summary.failed).toBe(1);
+    expect(summary.documentsMigrated).toBe(0);
+    expect(summary.whiteboardsMigrated).toBe(1);
+    errSpy.mockRestore();
+  });
+
+  it('when EVERY field on a row fails to decode, does not call update at all (nothing to write)', async () => {
+    const corruptDocument = JSON.stringify({ yjs: true, data: Buffer.from([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 255, 254, 253]).toString('base64') });
+    const rows = [
+      { id: 'row-all-corrupt', document: corruptDocument, whiteboard: corruptDocument },
+    ];
+    const prismaMock = makePrismaMock(rows);
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const summary = await migrateLegacyCrdtRows(prismaMock as any);
+
+    expect(prismaMock.file.update).not.toHaveBeenCalled();
+    expect(summary.failed).toBe(2);
+    expect(summary.documentsMigrated).toBe(0);
+    expect(summary.whiteboardsMigrated).toBe(0);
+    errSpy.mockRestore();
+  });
+});
+
+describe('main() (CLI entrypoint exit code)', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    process.exitCode = undefined;
+  });
+
+  afterEach(() => {
+    process.exitCode = undefined;
+  });
+
+  it('sets process.exitCode = 1 when the run has any failed rows', async () => {
+    vi.doMock('@/lib/db', () => ({
+      prisma: {
+        file: {
+          findMany: vi.fn().mockResolvedValue([{ id: 'row-fails', document: encodeLegacyFixture(legacyDoc), whiteboard: '' }]),
+          update: vi.fn().mockRejectedValue(new Error('db write failed')),
+        },
+        $disconnect: vi.fn(),
+      },
+    }));
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const mod = await import('@/scripts/migrate-legacy-crdt');
+    await mod.main();
+
+    expect(process.exitCode).toBe(1);
+    errSpy.mockRestore();
+    logSpy.mockRestore();
+    vi.doUnmock('@/lib/db');
+  });
+
+  it('leaves process.exitCode unset when every row migrates cleanly', async () => {
+    vi.doMock('@/lib/db', () => ({
+      prisma: {
+        file: {
+          findMany: vi.fn().mockResolvedValue([{ id: 'row-ok', document: encodeLegacyFixture(legacyDoc), whiteboard: '' }]),
+          update: vi.fn().mockResolvedValue({}),
+        },
+        $disconnect: vi.fn(),
+      },
+    }));
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const mod = await import('@/scripts/migrate-legacy-crdt');
+    await mod.main();
+
+    expect(process.exitCode).toBeUndefined();
+    logSpy.mockRestore();
+    vi.doUnmock('@/lib/db');
   });
 });

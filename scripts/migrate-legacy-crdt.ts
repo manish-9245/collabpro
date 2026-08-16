@@ -1,5 +1,5 @@
 import { prisma } from '../lib/db';
-import { decodeLegacyCrdtState, isLegacyYjsPayload } from '../lib/legacy-crdt-decode';
+import { decodeLegacyCrdtStateStrict, isLegacyYjsPayload } from '../lib/legacy-crdt-decode';
 import { encodeState } from '../lib/state-encode';
 
 /**
@@ -38,11 +38,28 @@ export async function migrateLegacyCrdtRows(prismaClient: {
   for (const row of rows) {
     const data: { document?: string; whiteboard?: string } = {};
 
+    // Use the strict decoder (throws on failure) rather than the lenient
+    // decodeLegacyCrdtState used on the live read path: a corrupted legacy
+    // blob must NOT be written back as the empty fallback default — that
+    // would silently destroy the row's real content and still get counted
+    // as a successful migration. A field that fails to decode is simply
+    // left out of `data` (never written) and counted as `failed`; the row
+    // keeps its existing legacy value, still readable via decodeState.
     if (isLegacyField(row.document)) {
-      data.document = encodeState(decodeLegacyCrdtState(row.document, {}));
+      try {
+        data.document = encodeState(decodeLegacyCrdtStateStrict(row.document as string));
+      } catch (err) {
+        summary.failed++;
+        console.error(`[migrate-legacy-crdt] failed to decode document for row ${row.id}:`, err);
+      }
     }
     if (isLegacyField(row.whiteboard)) {
-      data.whiteboard = encodeState(decodeLegacyCrdtState(row.whiteboard, []));
+      try {
+        data.whiteboard = encodeState(decodeLegacyCrdtStateStrict(row.whiteboard as string));
+      } catch (err) {
+        summary.failed++;
+        console.error(`[migrate-legacy-crdt] failed to decode whiteboard for row ${row.id}:`, err);
+      }
     }
 
     if (Object.keys(data).length === 0) continue;
@@ -60,9 +77,15 @@ export async function migrateLegacyCrdtRows(prismaClient: {
   return summary;
 }
 
-async function main() {
+export async function main() {
   const summary = await migrateLegacyCrdtRows(prisma);
   console.log('[migrate-legacy-crdt] done:', summary);
+  // Make a failed run detectable from the process exit code, not just by
+  // someone reading the logged summary. process.exitCode (not process.exit())
+  // so the .finally(() => prisma.$disconnect()) below still runs.
+  if (summary.failed > 0) {
+    process.exitCode = 1;
+  }
 }
 
 // Only run when executed directly (`tsx scripts/migrate-legacy-crdt.ts`), not
