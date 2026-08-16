@@ -1,7 +1,7 @@
 "use client"
 
 import React from 'react'
-import { Layers, Zap, History, Users2, BrainCircuit, Server, Sparkles, ArrowRight, FolderOpen, Folder, FileText } from 'lucide-react'
+import { Layers, Zap, History, Users2, BrainCircuit, Server, Sparkles, ArrowRight } from 'lucide-react'
 import { CHANGELOG } from '@/lib/changelog'
 import { BackgroundBeams } from '@/components/ui/background-beams-custom'
 import { HoverEffect } from '@/components/ui/card-hover-effect'
@@ -65,27 +65,6 @@ function Hero() {
       {/* Subtle Premium Background Beams */}
       <BackgroundBeams className="opacity-30 mix-blend-multiply" />
 
-      {/* CSS Keyframe definition for animated mockup cursors */}
-      <style dangerouslySetInnerHTML={{__html: `
-        @keyframes cursor-path {
-          0% { transform: translate(0, 0); }
-          25% { transform: translate(-120px, -70px); }
-          50% { transform: translate(-220px, 15px); }
-          75% { transform: translate(-80px, -30px); }
-          100% { transform: translate(0, 0); }
-        }
-        .animate-cursor-mock {
-          animation: cursor-path 12s infinite ease-in-out;
-        }
-        @keyframes ai-card-breathe {
-          0%, 100% { opacity: 0.92; transform: translateY(0); }
-          50% { opacity: 1; transform: translateY(-4px); }
-        }
-        .animate-ai-card {
-          animation: ai-card-breathe 5s infinite ease-in-out;
-        }
-      `}} />
-
       {/* Top Floating Dynamic Release Badge */}
       <div className='flex items-baseline justify-center pt-24 pb-8 relative z-10'>
         <div className='inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-slate-200 bg-white shadow-sm shadow-blue-500/5 text-xs text-slate-600'>
@@ -127,143 +106,19 @@ function Hero() {
           </div>
         </div>
 
-        {/* Interactive Workspace Mockup Preview */}
-        <div className={`mt-16 mx-auto max-w-5xl rounded-2xl border ${theme.neonBorder} bg-white/80 shadow-2xl overflow-hidden relative group/mockup`}>
-          {/* Header Bar of the Mock Workspace */}
-          <div className="h-11 border-b border-slate-200/80 bg-slate-50/80 px-4 flex items-center justify-between">
-            <div className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded-full bg-rose-500/80" />
-              <span className="w-3 h-3 rounded-full bg-amber-500/80" />
-              <span className="w-3 h-3 rounded-full bg-emerald-500/80" />
-              <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase ml-3 hidden sm:inline-block">CollabPro - Simulated Workspace Sandbox</span>
-            </div>
-            <div className="flex items-center gap-2">
-              {/* MCP indicator */}
-              <span className="hidden sm:inline-flex items-center gap-1 text-[9px] font-semibold text-violet-600 bg-violet-50/50 px-2 py-0.5 rounded-full border border-violet-500/20">
-                <Server className="h-2.5 w-2.5" /> MCP Connected
-              </span>
-              {/* Active Collaborators - plain initials, no external avatar API
-                  (a hotlinked dicebear.com call in the marketing hero is the
-                  same class of fragility the real avatar picker had). */}
-              <div className="flex items-center gap-1.5">
-                <div className="flex -space-x-2">
-                  <div className="w-5 h-5 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 border border-slate-200 flex items-center justify-center text-[8px] font-bold text-white">A</div>
-                  <div className="w-5 h-5 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 border border-slate-200 flex items-center justify-center text-[8px] font-bold text-white">M</div>
-                  <div className="w-5 h-5 rounded-full bg-slate-600 border border-slate-200 flex items-center justify-center text-[8px] font-bold text-white">+2</div>
-                </div>
-                <span className="text-[9px] font-semibold text-emerald-600 bg-emerald-50/10 px-2 py-0.5 rounded-full border border-emerald-500/20 animate-pulse">Live Collaboration</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-12 h-[380px] bg-white">
-            {/* Sidebar Preview */}
-            <div className="col-span-3 border-r border-slate-200/80 p-3 bg-slate-50/50 hidden md:block select-none text-left">
-              <div>
-                <h4 className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-2">Team Navigation</h4>
-                <div className="space-y-1.5">
-                  <div className="flex items-center gap-1.5 text-xs text-blue-600 font-semibold bg-blue-50 px-2 py-1.5 rounded-lg border border-blue-100">
-                    <FolderOpen className="h-3.5 w-3.5 shrink-0" />
-                    <span className="truncate">Engineering Specs</span>
-                  </div>
-                  <div className="pl-4 space-y-1">
-                    <div className="flex items-center justify-between text-[11px] text-slate-700 py-1 px-1.5 rounded cursor-pointer bg-slate-100/50">
-                      <div className="flex items-center gap-1 min-w-0">
-                        <FileText className="h-3 w-3 text-slate-400 shrink-0" />
-                        <span className="truncate font-medium text-slate-600">system-architecture.md</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between text-[11px] text-slate-400 py-1 px-1.5 rounded hover:text-slate-600">
-                      <div className="flex items-center gap-1 min-w-0">
-                        <FileText className="h-3 w-3 text-slate-400 shrink-0" />
-                        <span className="truncate">api-endpoints.md</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800 px-2 py-1 rounded cursor-pointer">
-                    <Folder className="h-3.5 w-3.5 text-slate-300 shrink-0" />
-                    <span className="truncate">Product Designs</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800 px-2 py-1 rounded cursor-pointer">
-                    <Folder className="h-3.5 w-3.5 text-slate-300 shrink-0" />
-                    <span className="truncate">Marketing Assets</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Document Editor (Left side of split) */}
-            <div className="col-span-12 md:col-span-4 p-4 space-y-3 bg-slate-50/10 border-r border-slate-200/80 text-left overflow-hidden">
-              <div className="flex items-center gap-1.5 border-b border-slate-100 pb-2">
-                <FileText className="h-3.5 w-3.5 text-blue-500 shrink-0" />
-                <span className="text-[11px] font-bold text-slate-700 truncate">system-architecture.md</span>
-              </div>
-              <div className="font-mono text-[10px] text-slate-500 space-y-2 select-none overflow-y-auto max-h-[290px] pr-1 scrollbar-thin">
-                <p className="text-slate-400"># System Design Specs</p>
-                <p><span className="text-blue-600 font-semibold">## 1. Authentication</span></p>
-                <p className="leading-relaxed text-slate-500">Using secure, stateful session cookie authentication backed directly by PostgreSQL database engine.</p>
-                <p><span className="text-purple-600 font-semibold">## 2. Whiteboard Sync</span></p>
-                <p className="leading-relaxed text-slate-500">Dual-view editor with real-time database-driven state synchronization gateway between whiteboard canvas and rich Markdown documents.</p>
-                <p className="text-emerald-600 font-medium">// Autosaved snapshot v3.0</p>
-              </div>
-            </div>
-
-            {/* Whiteboard Canvas (Right side of split) */}
-            <div className="col-span-12 md:col-span-5 p-4 bg-slate-50/20 relative overflow-hidden select-none min-h-[200px]">
-              {/* Grid Background */}
-              <div className="absolute inset-0 bg-[linear-gradient(to_right,#f1f5f9_1px,transparent_1px),linear-gradient(to_bottom,#f1f5f9_1px,transparent_1px)] bg-[size:16px_16px] opacity-100" />
-              
-              <div className="absolute top-2 left-2 border border-slate-200 bg-white px-2 py-0.5 rounded text-[9px] text-slate-400 z-10 font-bold tracking-wider uppercase">
-                Canvas Mode
-              </div>
-
-              {/* Whiteboard content (Mock Architecture diagram) */}
-              <div className="absolute inset-0 flex items-center justify-center gap-6 p-6 z-0 scale-90 sm:scale-100">
-                <div className="w-24 h-14 rounded-xl border border-blue-200 bg-blue-50/50 flex flex-col items-center justify-center p-2 text-center shadow-lg shadow-blue-500/5">
-                  <span className="text-[10px] font-bold text-blue-600">Auth Service</span>
-                  <span className="text-[8px] text-slate-400">Session Cookie</span>
-                </div>
-                <div className="w-6 h-px bg-slate-300 relative flex items-center justify-end shrink-0">
-                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-ping absolute" />
-                </div>
-                <div className="w-24 h-14 rounded-xl border border-purple-200 bg-purple-50/50 flex flex-col items-center justify-center p-2 text-center shadow-lg shadow-purple-500/5">
-                  <span className="text-[10px] font-bold text-purple-600">Sync Engine</span>
-                  <span className="text-[8px] text-slate-400">Prisma + PG</span>
-                </div>
-              </div>
-
-              {/* Simulated Moving Collaborator Cursor */}
-              <div className="absolute bottom-12 right-12 flex flex-col gap-1 items-start animate-cursor-path pointer-events-none z-10 animate-cursor-mock">
-                <svg className="h-4 w-4 fill-indigo-500 text-indigo-500 drop-shadow" viewBox="0 0 24 24">
-                  <path d="M4.5 2.1l14.2 14.2-6.5.6-3.8 6.5L4.5 2.1z" />
-                </svg>
-                <div className="bg-indigo-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow">
-                  Alex (Architect)
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Floating AI Co-Pilot preview - mirrors the real workspace's
-              floating trigger/sidebar, showing the "actually edits your
-              file" behavior rather than just a chat transcript. Anchored
-              bottom-left (under the document panel) rather than bottom-right,
-              which is the canvas panel's own animated cursor's territory. */}
-          <div className="hidden sm:block absolute bottom-4 left-4 w-48 rounded-xl border border-violet-200/60 bg-white shadow-2xl shadow-violet-500/10 overflow-hidden z-20 animate-ai-card">
-            <div className="px-3 py-1.5 bg-gradient-to-r from-violet-600 to-indigo-600 flex items-center gap-1.5">
-              <Sparkles className="h-3 w-3 text-white" />
-              <span className="text-[9px] font-bold text-white uppercase tracking-wider">AI Co-Pilot</span>
-            </div>
-            <div className="p-2 space-y-1.5">
-              <div className="text-[9px] text-slate-500 bg-slate-50 rounded-lg px-2 py-1.5">
-                "Draft the auth section"
-              </div>
-              <div className="flex items-center gap-1 text-[9px] font-semibold text-violet-600 bg-violet-50 rounded-lg px-2 py-1.5">
-                <Zap className="h-2.5 w-2.5 shrink-0" /> Updated document
-              </div>
-            </div>
-          </div>
+        {/* Product teaser - real captured footage, not a simulated mockup */}
+        <div className={`mt-16 mx-auto max-w-5xl rounded-2xl border ${theme.neonBorder} bg-black shadow-2xl overflow-hidden relative`}>
+          <video
+            className="w-full h-auto block"
+            autoPlay
+            loop
+            muted
+            playsInline
+            preload="metadata"
+            aria-label="CollabPro product teaser"
+          >
+            <source src="/videos/collabpro-teaser.mp4" type="video/mp4" />
+          </video>
         </div>
 
         {/* Section Anchor for navigation smooth scrolling */}
