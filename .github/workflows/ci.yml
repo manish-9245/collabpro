@@ -50,6 +50,10 @@ jobs:
         with:
           name: nextjs-build-${{ github.run_id }}
           path: .next
+          # upload-artifact@v4 excludes dotfiles/dotdirs by default - .next
+          # is a dotdir, so without this the upload silently uploads zero
+          # files ("No files were found with the provided path: .next").
+          include-hidden-files: true
           retention-days: 1
 
   lint:
