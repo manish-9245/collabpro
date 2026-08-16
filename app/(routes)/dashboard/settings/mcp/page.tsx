@@ -22,7 +22,6 @@ import {
 import { toast } from 'sonner';
 import { MCP_TOOL_CATALOG } from '@/lib/mcp/tool-catalog';
 import CodeBlock from '@/components/ui/code-block';
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 
 export default function McpSettingsHub() {
   const { user }: any = useSessionAuth();
@@ -51,9 +50,10 @@ export default function McpSettingsHub() {
         const json = await res.json();
         const active = json.apiKeys || [];
         setApiKeys(active);
-        if (active.length > 0) {
-          setSelectedKey(active[0].key);
-        }
+        // Note: /api/api-keys (list) only ever returns `maskedKey`, never the
+        // raw secret - it's returned once, from the create endpoint, and
+        // never again. selectedKey stays at its 'YOUR_API_KEY_HERE'
+        // placeholder here; the user pastes their real key below.
       }
     } catch (err) {
       console.error(err);
@@ -236,18 +236,23 @@ export default function McpSettingsHub() {
                 No API keys yet — generate one in Profile settings first.
               </div>
             ) : (
-              <Select value={selectedKey} onValueChange={setSelectedKey}>
-                <SelectTrigger className="text-[10px] font-mono px-2.5 py-2">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {apiKeys.map((key) => (
-                    <SelectItem key={key.id} value={key.key} className="text-[10px] font-mono">
-                      {key.name} (***{key.key.substring(key.key.length - 8)})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <>
+                {/* The list endpoint only ever returns a masked value - the
+                    raw secret is shown once, at creation, and never again -
+                    so it can't be auto-filled here. This is a paste target,
+                    not a picker. */}
+                <input
+                  type="text"
+                  value={selectedKey}
+                  onChange={(e) => setSelectedKey(e.target.value)}
+                  placeholder="YOUR_API_KEY_HERE"
+                  className="w-full text-[10px] font-mono bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2.5 py-2 outline-none focus:border-[#6965db] text-slate-700 dark:text-slate-300"
+                />
+                <div className="mt-1.5 text-[9px] text-slate-400 dark:text-slate-500">
+                  Paste one of your keys' full value above. For reference, your keys:{' '}
+                  {apiKeys.map((key) => `${key.name} (${key.maskedKey})`).join(', ')}
+                </div>
+              </>
             )}
           </div>
 
