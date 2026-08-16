@@ -7,19 +7,15 @@ This file outlines the absolute guidelines, architecture shortcuts, and safety g
 ## ⛔ ZERO-TOLERANCE GUARDRAILS
 1. **NO DIRECT PUSHES TO MAIN:** Direct pushes to `main` are strictly blocked. You must commit and push all edits to a dedicated feature branch: `feature/issue-<number>`.
 2. **ZERO BUILD FAILURES:** You must run and verify a clean compilation (`npm run build`) before pushing. Exit Code must be **0**.
-3. **STRICT DB AGNOSTICISM:** Do not write engine-specific Prisma fields (e.g., PostgreSQL `@db.Uuid` or arrays `String[]`). All database models inside `prisma/schema.prisma` must remain relational-generic.
-4. **PIPELINE INTEGRITY VERIFICATION:** You must programmatically verify that both the GitHub Actions CI pipeline and the Railway production deployment pipeline are fully green, active, and successful post-push/post-merge. Execute the verification script to validate both systems: `npm run verify-pipelines`.
-5. **MANDATORY REVIEW OF AI BOT REVIEWS (Cubic Dev & CodeRabbit):** Before performing any merge to `main`, you must proactively fetch, review, and address comments from Cubic Dev (`cubic-dev-ai[bot]`) and CodeRabbit. Any valid security (P1/P2), concurrency, or transactional integrity issues must be fully fixed and pushed to the branch first.
+3. **PIPELINE INTEGRITY VERIFICATION:** You must programmatically verify that both the GitHub Actions CI pipeline and the Railway production deployment pipeline are fully green, active, and successful post-push/post-merge. Execute the verification script to validate both systems: `npm run verify-pipelines`.
+4. **MANDATORY REVIEW OF AI BOT REVIEWS (Cubic Dev & CodeRabbit):** Before performing any merge to `main`, you must proactively fetch, review, and address comments from Cubic Dev (`cubic-dev-ai[bot]`) and CodeRabbit. Any valid security (P1/P2), concurrency, or transactional integrity issues must be fully fixed and pushed to the branch first.
 
 ---
 
 ## 🏗️ WORKSPACE BLUEPRINT (DEVELOP QUICKER)
-* **Web Framework:** Next.js 14 App Router. Page routes reside inside `app/(routes)/`.
-* **Session Auth:** Natively handled locally in cookie sessions via `lib/session-auth/` backed by SQLite/PostgreSQL. No third-party Auth SaaS (e.g., Clerk, Kinde) is used.
-* **Database ORM:** Prisma Client.
-* **Dynamic Database Adapter:** 
-  - [`lib/db.ts`](file:///Users/manishtiwari/Documents/erasor_clone/lib/db.ts) instantiates the optimized PG adapter **only** if database scheme is postgresql. Otherwise, it defaults to a standard direct client.
-  - [`scripts/db-prep.js`](file:///Users/manishtiwari/Documents/erasor_clone/scripts/db-prep.js) runs automatically on `predev` and `prebuild` hooks to detect the provider from your active `DATABASE_URL` and rewrite `prisma/schema.prisma` on-the-fly.
+* **Web Framework:** Next.js 15 App Router. Page routes reside inside `app/(routes)/`.
+* **Session Auth:** Natively handled locally in cookie sessions via `lib/session-auth/`. No third-party Auth SaaS (e.g., Clerk, Kinde) is used.
+* **Database:** PostgreSQL only via Prisma Client (`lib/db.ts` refuses to boot against anything else — SQLite is not supported). Don't write database-agnostic Prisma fields on the assumption another engine might be swapped in; `prisma/schema.prisma`'s `datasource` is hardcoded to `postgresql`.
 
 ---
 
