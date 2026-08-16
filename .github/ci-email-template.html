@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
+    <meta name="supported-color-schemes" content="light dark">
+    <style>
+      @media only screen and (max-width: 480px) {
+        .responsive-table { width: 100% !important; }
+        .responsive-padding { padding: 16px !important; }
+        .responsive-stack { display: block !important; width: 100% !important; }
+        .responsive-gap { margin-bottom: 12px !important; }
+        .responsive-fs-14 { font-size: 14px !important; }
+      }
+    </style>
+  </head>
+  <body style="margin:0;padding:0;background-color:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+    <!-- Hidden preheader -->
+    <div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">
+      Build {{JOB_STATUS}} for {{GITHUB_REF_NAME}} by {{GITHUB_ACTOR}}
+    </div>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#f3f4f6;">
+      <tr>
+        <td align="center" style="padding:32px 16px;">
+          <!--[if mso]><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600"><tr><td><![endif]-->
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:600px;" class="responsive-table">
+            <tr>
+              <td style="background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
+                <!-- Header -->
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                  <tr>
+                    <td style="background:linear-gradient(135deg,#090d16,#111827);padding:32px;text-align:center;">
+                      <h1 style="margin:0;font-size:22px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;">Collab<span style="color:#3b82f6;">Pro</span></h1>
+                      <p style="margin:6px 0 0 0;font-size:12px;color:#60a5fa;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;">Continuous Integration & Build Compliance</p>
+                    </td>
+                  </tr>
+                </table>
+
+                <!-- Status -->
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                  <tr>
+                    <td style="padding:24px;text-align:center;border-bottom:1px solid #e5e7eb;">
+                      <span style="display:inline-block;background-color:{{STATUS_BG}};border:1px solid {{STATUS_BORDER}};color:{{STATUS_COLOR}};padding:4px 14px;border-radius:9999px;font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:0.05em;">{{JOB_STATUS}}</span>
+                    </td>
+                  </tr>
+                </table>
+
+                <!-- KPI Grid -->
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                  <tr>
+                    <td style="padding:24px 24px 0;" class="responsive-padding">
+                      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                        <tr>
+                          <td width="50%" style="vertical-align:top;padding-right:8px;" class="responsive-stack responsive-gap">
+                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;">
+                              <tr>
+                                <td style="padding:16px;">
+                                  <div style="font-size:10px;font-weight:800;color:#6b7280;text-transform:uppercase;letter-spacing:0.08em;margin:0;">Pipeline Status</div>
+                                  <div style="font-size:18px;font-weight:800;color:#111827;margin:8px 0 0 0;">{{JOB_STATUS}}</div>
+                                  <p style="font-size:11px;color:#6b7280;margin:6px 0 0 0;line-height:1.4;">Core Next.js build compilation checked & verified.</p>
+                                </td>
+                              </tr>
+                            </table>
+                          </td>
+                          <td width="50%" style="vertical-align:top;padding-left:8px;" class="responsive-stack">
+                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;">
+                              <tr>
+                                <td style="padding:16px;">
+                                  <div style="font-size:10px;font-weight:800;color:#6b7280;text-transform:uppercase;letter-spacing:0.08em;margin:0;">Commit Author</div>
+                                  <div style="font-size:14px;font-weight:700;color:#111827;margin:8px 0 0 0;font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{GITHUB_ACTOR}}</div>
+                                  <p style="font-size:11px;color:#6b7280;margin:6px 0 0 0;line-height:1.4;">Branch: <strong>{{GITHUB_REF_NAME}}</strong></p>
+                                </td>
+                              </tr>
+                            </table>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                </table>
+
+                <!-- Git Context -->
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                  <tr>
+                    <td style="padding:16px 24px;">
+                      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#fafafa;border:1px solid #e5e7eb;border-radius:8px;">
+                        <tr>
+                          <td style="padding:12px 16px;">
+                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="font-size:12px;">
+                              <tr>
+                                <td style="color:#6b7280;font-weight:700;padding:3px 0;text-transform:uppercase;letter-spacing:0.05em;width:50%;">Execution SHA</td>
+                                <td style="font-family:monospace;color:#111827;font-weight:700;padding:3px 0;text-align:right;">{{GITHUB_SHA}}</td>
+                              </tr>
+                              <tr>
+                                <td style="color:#6b7280;font-weight:700;padding:3px 0;text-transform:uppercase;letter-spacing:0.05em;">Playwright Audit</td>
+                                <td style="color:{{PLAYWRIGHT_COLOR}};font-weight:700;padding:3px 0;text-align:right;">{{PLAYWRIGHT_TEXT}}</td>
+                              </tr>
+                            </table>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                </table>
+
+                <!-- E2E Section -->
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                  <tr>
+                    <td style="padding:8px 24px;" class="responsive-padding">
+                      <div style="font-size:11px;font-weight:800;color:#4b5563;text-transform:uppercase;letter-spacing:0.15em;border-bottom:2px solid #f3f4f6;padding-bottom:8px;margin-bottom:16px;">E2E Playwright Walkthrough</div>
+                      <p style="font-size:13px;color:#4b5563;margin:0 0 16px 0;line-height:1.6;">
+                        Your E2E Playwright tour traversed registration, secure session authentication, team space selection, markdown checklist entry, and canvas drag testing.
+                      </p>
+                      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:linear-gradient(135deg,#090d16,#111827);border-radius:8px;border:1px solid #1f2937;">
+                        <tr>
+                          <td align="center" style="padding:32px;">
+                            <div style="font-size:28px;color:#ef4444;margin-bottom:8px;">&#9654;</div>
+                            <h3 style="margin:0 0 6px 0;font-size:15px;font-weight:800;color:#ffffff;">Walkthrough Film Uploaded</h3>
+                            <p style="margin:0 0 20px 0;font-size:12px;color:#9ca3af;">A native recording has been pushed to your YouTube dashboard as unlisted</p>
+                            {{VIDEO_SECTION_HTML}}
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                </table>
+
+                <!-- SonarCloud -->
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                  <tr>
+                    <td style="padding:20px 24px 8px;" class="responsive-padding">
+                      <div style="font-size:11px;font-weight:800;color:#4b5563;text-transform:uppercase;letter-spacing:0.15em;border-bottom:2px solid #f3f4f6;padding-bottom:8px;margin-bottom:16px;">SonarCloud Compliance</div>
+                      {{SONAR_INSIGHTS}}
+                    </td>
+                  </tr>
+                </table>
+
+                <!-- Snyk -->
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                  <tr>
+                    <td style="padding:20px 24px 8px;" class="responsive-padding">
+                      <div style="font-size:11px;font-weight:800;color:#4b5563;text-transform:uppercase;letter-spacing:0.15em;border-bottom:2px solid #f3f4f6;padding-bottom:8px;margin-bottom:16px;">Snyk Security Compliance</div>
+                      {{SNYK_INSIGHTS}}
+                    </td>
+                  </tr>
+                </table>
+
+                <!-- Footer -->
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                  <tr>
+                    <td style="background-color:#f9fafb;padding:32px;text-align:center;border-top:1px solid #e5e7eb;">
+                      <p style="margin:0 0 4px 0;font-size:11px;color:#6b7280;line-height:1.6;">
+                        This build notification was automatically dispatched from the CollabPro CI infrastructure.<br>
+                        Commit {{GITHUB_SHA}} | Branch: {{GITHUB_REF_NAME}}
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+          <!--[if mso]></td></tr></table><![endif]-->
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

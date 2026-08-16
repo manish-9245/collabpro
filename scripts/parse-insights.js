@@ -27,10 +27,44 @@ function fetchJson(url, headers = {}) {
   });
 }
 
+// The sonar-scanner (invoked by SonarSource/sonarcloud-github-action) writes
+// this file after every analysis with the compute-engine task id for that
+// specific submission. Polling it to completion and querying
+// qualitygates/project_status by analysisId (not by bare projectKey) is what
+// makes this "the current run's" result instead of whatever project-wide
+// status happened to be cached from some earlier, unrelated analysis.
+function readReportTask() {
+  const reportPath = path.join(process.cwd(), '.scannerwork', 'report-task.txt');
+  if (!fs.existsSync(reportPath)) return null;
+
+  const props = {};
+  for (const line of fs.readFileSync(reportPath, 'utf8').split('\n')) {
+    const idx = line.indexOf('=');
+    if (idx > 0) props[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+  }
+  return props.ceTaskId && props.serverUrl ? props : null;
+}
+
+async function resolveCurrentAnalysisId(sonarToken, authHeader) {
+  const task = readReportTask();
+  if (!task) return null;
+
+  const taskUrl = `${task.serverUrl}/api/ce/task?id=${task.ceTaskId}`;
+  const deadline = Date.now() + 60_000;
+
+  while (Date.now() < deadline) {
+    const { task: t } = await fetchJson(taskUrl, authHeader);
+    if (t?.status === 'SUCCESS') return t.analysisId;
+    if (t?.status === 'FAILED' || t?.status === 'CANCELED') return null;
+    await new Promise((r) => setTimeout(r, 3_000));
+  }
+  return null; // Timed out waiting for this run's analysis to finish processing.
+}
+
 async function getSonarInsights() {
   const projectKey = 'manish-9245_collabpro';
   const sonarToken = process.env.SONAR_TOKEN;
-  
+
   if (!sonarToken) {
     return `
       <div style="background-color: #fef2f2; border: 1px dashed #fca5a5; padding: 16px; border-radius: 8px; color: #991b1b; font-size: 13px;">
@@ -43,8 +77,13 @@ async function getSonarInsights() {
   try {
     // SonarCloud authentication uses basic auth: username is token, password is empty
     const authBase64 = Buffer.from(`${sonarToken}:`).toString('base64');
-    const url = `https://sonarcloud.io/api/qualitygates/project_status?projectKey=${projectKey}`;
-    const result = await fetchJson(url, { 'Authorization': `Basic ${authBase64}` });
+    const authHeader = { 'Authorization': `Basic ${authBase64}` };
+
+    const analysisId = await resolveCurrentAnalysisId(sonarToken, authHeader);
+    const url = analysisId
+      ? `https://sonarcloud.io/api/qualitygates/project_status?analysisId=${analysisId}`
+      : `https://sonarcloud.io/api/qualitygates/project_status?projectKey=${projectKey}`;
+    const result = await fetchJson(url, authHeader);
     
     const status = result.projectStatus?.status || 'UNKNOWN';
     const conditions = result.projectStatus?.conditions || [];
@@ -100,7 +139,9 @@ async function getSonarInsights() {
           <span style="background-color: ${badgeColor}; color: #ffffff; font-size: 11px; font-weight: 800; padding: 4px 12px; border-radius: 9999px; text-transform: uppercase; letter-spacing: 0.05em;">${statusText}</span>
         </div>
         <p style="font-size: 13px; color: #4b5563; margin: 0; line-height: 1.5;">
-          SonarCloud analysis successfully evaluated your project parameters dynamically on-the-fly.
+          ${analysisId
+            ? `Quality gate for this run's analysis (id ${analysisId}).`
+            : `Could not confirm this run's analysis finished processing in time — showing the project's current quality gate status instead.`}
         </p>
         ${conditionsHtml}
         <div style="margin-top: 16px;">

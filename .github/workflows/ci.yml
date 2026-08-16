@@ -45,6 +45,12 @@ jobs:
       - run: npm ci
       - run: npx prisma db push
       - run: npm run build
+      - name: 📦 Upload build output for reuse by the E2E job
+        uses: actions/upload-artifact@v4
+        with:
+          name: nextjs-build-${{ github.run_id }}
+          path: .next
+          retention-days: 1
 
   lint:
     runs-on: ubuntu-latest
@@ -88,9 +94,12 @@ jobs:
       - run: npm run test:coverage
 
   e2e:
-    name: E2E, Showcase Video & Notify
+    name: E2E Tests
     runs-on: ubuntu-latest
     needs: build
+    outputs:
+      playwright_outcome: ${{ steps.playwright_tests.outcome }}
+      video_id: ${{ steps.upload_youtube.outputs.video_id }}
     services:
       postgres:
         image: postgres:15
@@ -108,7 +117,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Full history for SonarCloud analysis
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
@@ -116,7 +124,15 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx prisma db push
-      - run: npm run build
+      # Reuse the build job's compiled output instead of rebuilding from
+      # scratch - `needs: build` used to only gate ordering while this job
+      # ran `npm run build` again itself, paying the full Next.js compile
+      # twice per run for no reason.
+      - name: 📦 Download build output from the build job
+        uses: actions/download-artifact@v4
+        with:
+          name: nextjs-build-${{ github.run_id }}
+          path: .next
       # 6. Setup Playwright browsers & dependencies
       - name: 🎭 Setup Playwright browsers
         run: npx playwright install --with-deps chromium
@@ -128,8 +144,6 @@ jobs:
         id: playwright_tests
         env:
           DATABASE_URL: postgresql://postgres:postgres_password@localhost:5432/collabpro
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SNYK_ORG_ID: ${{ secrets.SNYK_ORG_ID }}
         run: |
           shopt -s extglob
           npx playwright test tests/!(showcase).spec.ts
@@ -167,30 +181,82 @@ jobs:
           GITHUB_SHA: ${{ github.sha }}
         run: node scripts/upload-youtube.js
 
-      # Dispatch Asynchronous Security Scans & Quality Gate Webhook.
-      # Only fires for pushes to main so pull requests do not queue production scans.
-      - name: 🛡️ Dispatch Asynchronous Security Webhook
-        if: success() && github.event_name == 'push'
+  # Split out of the E2E job: none of this needs Postgres or Playwright - it's
+  # security scanning + reporting. Runs Snyk and SonarCloud directly against
+  # this exact commit (previously this job just fired a webhook at the
+  # production app, which queued an async `workflow_dispatch` of a separate
+  # security-scan.yml - a second GitHub Actions run, on its own schedule, that
+  # the email never actually waited for or read results from. The email's
+  # Snyk/Sonar sections were reading stale/placeholder data every single time
+  # as a result: parseSnykInsights() looked for a snyk_report.json that this
+  # job never produced, and getSonarInsights() queried SonarCloud's
+  # project-wide cached status with no link to this run's analysis at all).
+  # `if: always()` so this still runs and reports even when e2e itself failed.
+  notify:
+    name: Notify & Security Scan
+    runs-on: ubuntu-latest
+    needs: e2e
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # SonarCloud needs full history for accurate new-code analysis
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: 🛡️ Run Snyk Security Scan
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: |
-          curl -s -X POST \
-            -H "Authorization: Bearer ${{ secrets.NOTIFICATION_SECRET }}" \
-            -H "Content-Type: application/json" \
-            -d '{"commitSha":"${{ github.sha }}","branch":"${{ github.ref_name }}","repository":"${{ github.repository }}"}' \
-            https://collabpro.buildwithmanish.com/api/security-audit
+          npx snyk test --json --severity-threshold=high --org=${{ secrets.SNYK_ORG_ID }} > snyk_report.json || true
 
+      - name: 📡 Run SonarCloud Static Code Check
+        uses: SonarSource/sonarcloud-github-action@master
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
-      # 11.5. Parse Discovered Insights from Sonar and Snyk
+      # Parse Discovered Insights from Sonar and Snyk - reads snyk_report.json
+      # and .scannerwork/report-task.txt produced by the two steps above, both
+      # scoped to this exact run.
       - name: 🔍 Parse Discovered Scan Insights
         id: parse_insights
-        if: always()
         continue-on-error: true
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: node scripts/parse-insights.js
 
-      # 12. Send well-formatted testing summary email to user
+      # Render the CI summary email from .github/ci-email-template.html -
+      # the static markup lives in that file; this step only resolves the
+      # handful of dynamic values (job/step outcomes aren't visible inside a
+      # separately-loaded template file, so they're computed here and handed
+      # to the renderer as plain env vars).
+      - name: 🧩 Render CI Summary Email
+        id: render_email
+        env:
+          JOB_STATUS: ${{ needs.e2e.result }}
+          STATUS_BG: ${{ needs.e2e.result == 'success' && '#ecfdf5' || '#fef2f2' }}
+          STATUS_BORDER: ${{ needs.e2e.result == 'success' && '#a7f3d0' || '#fecaca' }}
+          STATUS_COLOR: ${{ needs.e2e.result == 'success' && '#047857' || '#b91c1c' }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_SHA: ${{ github.sha }}
+          PLAYWRIGHT_COLOR: ${{ needs.e2e.outputs.playwright_outcome == 'success' && '#047857' || '#b91c1c' }}
+          PLAYWRIGHT_TEXT: ${{ needs.e2e.outputs.playwright_outcome == 'success' && 'Passed' || 'Failed' }}
+          VIDEO_SECTION_HTML: >-
+            ${{ needs.e2e.outputs.video_id != '' && format('<!--[if mso]><table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" bgcolor="#dc2626" style="border-radius:6px;padding:10px 24px;"><a href="https://youtu.be/{0}" target="_blank" style="font-size:12px;font-weight:800;font-family:sans-serif;color:#ffffff;text-decoration:none;text-transform:uppercase;letter-spacing:0.06em;">Stream Walkthrough</a></td></tr></table><![endif]--><!--[if !mso]><!--><a href="https://youtu.be/{0}" target="_blank" style="display:inline-block;background-color:#dc2626;color:#ffffff;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;text-decoration:none;padding:10px 24px;border-radius:6px;">Stream Walkthrough</a><!--<![endif]-->', needs.e2e.outputs.video_id) || '<div style="color:#9ca3af;font-size:11px;font-weight:700;padding:12px 16px;border:1px dashed #374151;border-radius:6px;">Showcase recording is currently disabled in CI (set the ENABLE_SHOWCASE_VIDEO Actions variable to true to turn it back on).</div>' }}
+          SONAR_INSIGHTS: ${{ steps.parse_insights.outputs.sonar_insights }}
+          SNYK_INSIGHTS: ${{ steps.parse_insights.outputs.snyk_insights }}
+        run: node scripts/render-ci-email.js
+
+      # Send well-formatted testing summary email to user
       - name: ✉️ Send Testing Evidence Summary Email
-        if: always()
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
@@ -198,175 +264,7 @@ jobs:
           username: ${{ secrets.SMTP_USERNAME }}
           password: ${{ secrets.SMTP_PASSWORD }}
           secure: true
-          subject: "CollabPro CI: ${{ github.ref_name }} ${{ job.status }} — Run #${{ github.run_id }}"
+          subject: "CollabPro CI: ${{ github.ref_name }} ${{ needs.e2e.result }} — Run #${{ github.run_id }}"
           to: ${{ secrets.NOTIFICATION_EMAIL }}
           from: "CollabPro CI/CD <ci-reports@collabpro.com>"
-          html_body: |
-            <!DOCTYPE html>
-            <html lang="en">
-              <head>
-                <meta charset="utf-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <meta name="color-scheme" content="light dark">
-                <meta name="supported-color-schemes" content="light dark">
-                <style>
-                  @media only screen and (max-width: 480px) {
-                    .responsive-table { width: 100% !important; }
-                    .responsive-padding { padding: 16px !important; }
-                    .responsive-stack { display: block !important; width: 100% !important; }
-                    .responsive-gap { margin-bottom: 12px !important; }
-                    .responsive-fs-14 { font-size: 14px !important; }
-                  }
-                </style>
-              </head>
-              <body style="margin:0;padding:0;background-color:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
-                <!-- Hidden preheader -->
-                <div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">
-                  Build ${{ job.status }} for ${{ github.ref_name }} by ${{ github.actor }}
-                </div>
-                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#f3f4f6;">
-                  <tr>
-                    <td align="center" style="padding:32px 16px;">
-                      <!--[if mso]><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600"><tr><td><![endif]-->
-                      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:600px;" class="responsive-table">
-                        <tr>
-                          <td style="background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-                            <!-- Header -->
-                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-                              <tr>
-                                <td style="background:linear-gradient(135deg,#090d16,#111827);padding:32px;text-align:center;">
-                                  <h1 style="margin:0;font-size:22px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;">Collab<span style="color:#3b82f6;">Pro</span></h1>
-                                  <p style="margin:6px 0 0 0;font-size:12px;color:#60a5fa;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;">Continuous Integration & Build Compliance</p>
-                                </td>
-                              </tr>
-                            </table>
-
-                            <!-- Status -->
-                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-                              <tr>
-                                <td style="padding:24px;text-align:center;border-bottom:1px solid #e5e7eb;">
-                                  <span style="display:inline-block;background-color:${{ job.status == 'success' && '#ecfdf5' || '#fef2f2' }};border:1px solid ${{ job.status == 'success' && '#a7f3d0' || '#fecaca' }};color:${{ job.status == 'success' && '#047857' || '#b91c1c' }};padding:4px 14px;border-radius:9999px;font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:0.05em;">${{ job.status }}</span>
-                                </td>
-                              </tr>
-                            </table>
-
-                            <!-- KPI Grid -->
-                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-                              <tr>
-                                <td style="padding:24px 24px 0;" class="responsive-padding">
-                                  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-                                    <tr>
-                                      <td width="50%" style="vertical-align:top;padding-right:8px;" class="responsive-stack responsive-gap">
-                                        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;">
-                                          <tr>
-                                            <td style="padding:16px;">
-                                              <div style="font-size:10px;font-weight:800;color:#6b7280;text-transform:uppercase;letter-spacing:0.08em;margin:0;">Pipeline Status</div>
-                                              <div style="font-size:18px;font-weight:800;color:#111827;margin:8px 0 0 0;">${{ job.status }}</div>
-                                              <p style="font-size:11px;color:#6b7280;margin:6px 0 0 0;line-height:1.4;">Core Next.js build compilation checked & verified.</p>
-                                            </td>
-                                          </tr>
-                                        </table>
-                                      </td>
-                                      <td width="50%" style="vertical-align:top;padding-left:8px;" class="responsive-stack">
-                                        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;">
-                                          <tr>
-                                            <td style="padding:16px;">
-                                              <div style="font-size:10px;font-weight:800;color:#6b7280;text-transform:uppercase;letter-spacing:0.08em;margin:0;">Commit Author</div>
-                                              <div style="font-size:14px;font-weight:700;color:#111827;margin:8px 0 0 0;font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${{ github.actor }}</div>
-                                              <p style="font-size:11px;color:#6b7280;margin:6px 0 0 0;line-height:1.4;">Branch: <strong>${{ github.ref_name }}</strong></p>
-                                            </td>
-                                          </tr>
-                                        </table>
-                                      </td>
-                                    </tr>
-                                  </table>
-                                </td>
-                              </tr>
-                            </table>
-
-                            <!-- Git Context -->
-                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-                              <tr>
-                                <td style="padding:16px 24px;">
-                                  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#fafafa;border:1px solid #e5e7eb;border-radius:8px;">
-                                    <tr>
-                                      <td style="padding:12px 16px;">
-                                        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="font-size:12px;">
-                                          <tr>
-                                            <td style="color:#6b7280;font-weight:700;padding:3px 0;text-transform:uppercase;letter-spacing:0.05em;width:50%;">Execution SHA</td>
-                                            <td style="font-family:monospace;color:#111827;font-weight:700;padding:3px 0;text-align:right;">${{ github.sha }}</td>
-                                          </tr>
-                                          <tr>
-                                            <td style="color:#6b7280;font-weight:700;padding:3px 0;text-transform:uppercase;letter-spacing:0.05em;">Playwright Audit</td>
-                                            <td style="color:${{ steps.playwright_tests.outcome == 'success' && '#047857' || '#b91c1c' }};font-weight:700;padding:3px 0;text-align:right;">${{ steps.playwright_tests.outcome == 'success' && 'Passed' || 'Failed' }}</td>
-                                          </tr>
-                                        </table>
-                                      </td>
-                                    </tr>
-                                  </table>
-                                </td>
-                              </tr>
-                            </table>
-
-                            <!-- E2E Section -->
-                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-                              <tr>
-                                <td style="padding:8px 24px;" class="responsive-padding">
-                                  <div style="font-size:11px;font-weight:800;color:#4b5563;text-transform:uppercase;letter-spacing:0.15em;border-bottom:2px solid #f3f4f6;padding-bottom:8px;margin-bottom:16px;">E2E Playwright Walkthrough</div>
-                                  <p style="font-size:13px;color:#4b5563;margin:0 0 16px 0;line-height:1.6;">
-                                    Your E2E Playwright tour traversed registration, secure session authentication, team space selection, markdown checklist entry, and canvas drag testing.
-                                  </p>
-                                  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:linear-gradient(135deg,#090d16,#111827);border-radius:8px;border:1px solid #1f2937;">
-                                    <tr>
-                                      <td align="center" style="padding:32px;">
-                                        <div style="font-size:28px;color:#ef4444;margin-bottom:8px;">&#9654;</div>
-                                        <h3 style="margin:0 0 6px 0;font-size:15px;font-weight:800;color:#ffffff;">Walkthrough Film Uploaded</h3>
-                                        <p style="margin:0 0 20px 0;font-size:12px;color:#9ca3af;">A native recording has been pushed to your YouTube dashboard as unlisted</p>
-                                        ${{ steps.upload_youtube.outputs.video_id != '' && format('<!--[if mso]><table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" bgcolor="#dc2626" style="border-radius:6px;padding:10px 24px;"><a href="https://youtu.be/{0}" target="_blank" style="font-size:12px;font-weight:800;font-family:sans-serif;color:#ffffff;text-decoration:none;text-transform:uppercase;letter-spacing:0.06em;">Stream Walkthrough</a></td></tr></table><![endif]--><!--[if !mso]><!--><a href="https://youtu.be/{0}" target="_blank" style="display:inline-block;background-color:#dc2626;color:#ffffff;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;text-decoration:none;padding:10px 24px;border-radius:6px;">Stream Walkthrough</a><!--<![endif]-->', steps.upload_youtube.outputs.video_id) || '<div style="color:#9ca3af;font-size:11px;font-weight:700;padding:12px 16px;border:1px dashed #374151;border-radius:6px;">Showcase recording is currently disabled in CI (set the ENABLE_SHOWCASE_VIDEO Actions variable to true to turn it back on).</div>' }}
-                                      </td>
-                                    </tr>
-                                  </table>
-                                </td>
-                              </tr>
-                            </table>
-
-                            <!-- SonarCloud -->
-                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-                              <tr>
-                                <td style="padding:20px 24px 8px;" class="responsive-padding">
-                                  <div style="font-size:11px;font-weight:800;color:#4b5563;text-transform:uppercase;letter-spacing:0.15em;border-bottom:2px solid #f3f4f6;padding-bottom:8px;margin-bottom:16px;">SonarCloud Compliance</div>
-                                  ${{ steps.parse_insights.outputs.sonar_insights }}
-                                </td>
-                              </tr>
-                            </table>
-
-                            <!-- Snyk -->
-                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-                              <tr>
-                                <td style="padding:20px 24px 8px;" class="responsive-padding">
-                                  <div style="font-size:11px;font-weight:800;color:#4b5563;text-transform:uppercase;letter-spacing:0.15em;border-bottom:2px solid #f3f4f6;padding-bottom:8px;margin-bottom:16px;">Snyk Security Compliance</div>
-                                  ${{ steps.parse_insights.outputs.snyk_insights }}
-                                </td>
-                              </tr>
-                            </table>
-
-                            <!-- Footer -->
-                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-                              <tr>
-                                <td style="background-color:#f9fafb;padding:32px;text-align:center;border-top:1px solid #e5e7eb;">
-                                  <p style="margin:0 0 4px 0;font-size:11px;color:#6b7280;line-height:1.6;">
-                                    This build notification was automatically dispatched from the CollabPro CI infrastructure.<br>
-                                    Commit ${{ github.sha }} | Branch: ${{ github.ref_name }}
-                                  </p>
-                                </td>
-                              </tr>
-                            </table>
-                          </td>
-                        </tr>
-                      </table>
-                      <!--[if mso]></td></tr></table><![endif]-->
-                    </td>
-                  </tr>
-                </table>
-              </body>
-            </html>
+          html_body: ${{ steps.render_email.outputs.html }}
