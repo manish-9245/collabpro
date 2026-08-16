@@ -11,6 +11,7 @@
     "prepare": "node -e \"if (require('fs').existsSync('scripts/install-hooks.js')) require('./scripts/install-hooks.js')\"",
     "resolve-issue": "node scripts/resolve-issue.js",
     "ws:start": "tsx ws-server/server.ts",
+    "migrate:legacy-crdt": "tsx scripts/migrate-legacy-crdt.ts",
     "test:showcase": "playwright test tests/showcase.spec.ts",
     "test:showcase:ui": "playwright test tests/showcase.spec.ts --ui",
     "test:coverage": "vitest run --coverage",
