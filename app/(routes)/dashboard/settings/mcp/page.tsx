@@ -27,7 +27,11 @@ export default function McpSettingsHub() {
   const { user }: any = useSessionAuth();
   const [activeTab, setActiveTab] = useState<'remote' | 'vscode' | 'claude' | 'cursor' | 'windsurf' | 'custom'>('remote');
   const [apiKeys, setApiKeys] = useState<any[]>([]);
-  const [selectedKey, setSelectedKey] = useState<string>('YOUR_API_KEY_HERE');
+  // Starts empty (not the sentinel string) so the input shows a real
+  // placeholder instead of literal "YOUR_API_KEY_HERE" text that looks
+  // like a filled-in value - see effectiveKey below for where the
+  // sentinel is actually applied, for display/config purposes only.
+  const [selectedKey, setSelectedKey] = useState<string>('');
   const [loadingKeys, setLoadingKeys] = useState(false);
   const [copiedText, setCopiedText] = useState(false);
   const [copiedCmd, setCopiedCmd] = useState(false);
@@ -75,6 +79,10 @@ export default function McpSettingsHub() {
   const baseAppUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
   const mcpServerScriptPath = workspacePath ? `${workspacePath.replace(/\/$/, '')}/scripts/mcp-server.ts` : './scripts/mcp-server.ts';
   const remoteMcpUrl = `${baseAppUrl}/api/mcp`;
+  // Config snippets/copy targets show the sentinel as a fill-in-the-blank
+  // hint when nothing's been typed yet; the input itself stays genuinely
+  // empty (see selectedKey above).
+  const effectiveKey = selectedKey || 'YOUR_API_KEY_HERE';
 
   // tsx (not ts-node) is what this repo actually has installed
   // (package.json devDependencies) and is what scripts/mcp-server.ts is
@@ -87,7 +95,7 @@ export default function McpSettingsHub() {
         "command": "npx",
         "args": ["tsx", mcpServerScriptPath],
         "env": {
-          "COLLABPRO_API_KEY": selectedKey,
+          "COLLABPRO_API_KEY": effectiveKey,
           "COLLABPRO_BASE_URL": baseAppUrl
         }
       }
@@ -116,7 +124,7 @@ export default function McpSettingsHub() {
   }, null, 2);
 
   const cursorCommand = `npx tsx ${mcpServerScriptPath}`;
-  const cursorEnv = `COLLABPRO_API_KEY=${selectedKey}\nCOLLABPRO_BASE_URL=${baseAppUrl}`;
+  const cursorEnv = `COLLABPRO_API_KEY=${effectiveKey}\nCOLLABPRO_BASE_URL=${baseAppUrl}`;
 
   const CLIENTS: { id: typeof activeTab; label: string; icon: typeof Server; subtitle: string }[] = [
     { id: 'remote', label: 'Remote', icon: Server, subtitle: 'No install needed' },
@@ -137,7 +145,7 @@ export default function McpSettingsHub() {
   // and always reported a hard-coded success with tool names that don't
   // exist in the real implementation.
   const runDiagnostics = async () => {
-    if (selectedKey === 'YOUR_API_KEY_HERE') {
+    if (!selectedKey) {
       toast.warning("Please select or generate a valid CollabPro API key first.");
       return;
     }
@@ -340,10 +348,10 @@ export default function McpSettingsHub() {
                 <div>
                   <div className="text-[9px] font-black uppercase text-slate-400 tracking-wider mb-1.5">Authorization Header</div>
                   <div className="flex items-center justify-between gap-3 bg-slate-900 rounded-xl px-4 py-3">
-                    <code className="font-mono text-[11px] text-emerald-400 truncate select-all">{`Bearer ${selectedKey}`}</code>
+                    <code className="font-mono text-[11px] text-emerald-400 truncate select-all">{`Bearer ${effectiveKey}`}</code>
                     <button
                       type="button"
-                      onClick={() => copyToClipboard(`Bearer ${selectedKey}`, setCopiedText)}
+                      onClick={() => copyToClipboard(`Bearer ${effectiveKey}`, setCopiedText)}
                       className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[10px] font-bold cursor-pointer transition-colors"
                     >
                       {copiedText ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}

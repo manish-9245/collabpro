@@ -61,8 +61,11 @@ describe('MCP Client Integration Settings Hub Suite (Issue 41)', () => {
     // Reference text shows the masked value - never throws trying to derive
     // a display substring from a raw key the list endpoint doesn't return.
     await screen.findByText(/collabpro_pat_••••xyz123/);
+    // The input itself starts genuinely empty - the sentinel is a
+    // placeholder hint, not a real value someone could accidentally submit
+    // as their actual API key.
     const input = screen.getByPlaceholderText('YOUR_API_KEY_HERE') as HTMLInputElement;
-    expect(input.value).toBe('YOUR_API_KEY_HERE');
+    expect(input.value).toBe('');
   });
 
   it('defaults to the Remote (No Install) tab, showing the direct /api/mcp endpoint', async () => {
