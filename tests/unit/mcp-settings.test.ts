@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import React from 'react';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 
 // Issue found in review: this file previously asserted against hand-copied
 // object literals it built itself, never importing or rendering the real
@@ -8,6 +8,16 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 // generating a config with the wrong env var name (COLLABPRO_URL instead of
 // the COLLABPRO_BASE_URL the server actually reads). These tests render the
 // real component and assert on what it actually outputs.
+//
+// This file's own mocked /api/api-keys response used to include a `key`
+// field the real endpoint never returns (see app/api/api-keys/route.ts's GET
+// handler - it only ever selects id/name/maskedKey/scope/createdAt/expiresAt;
+// the raw secret is returned once, from POST, and never again). That fake
+// shape hid the exact same class of bug this comment already warns about:
+// production crashed with `Cannot read properties of undefined (reading
+// 'substring')` on this page for any user with a real API key, because the
+// component called `key.key.substring(...)` on a field that never existed.
+// The mock below now matches the real response shape.
 
 vi.mock('@/lib/session-auth/client', () => ({
   useSessionAuth: () => ({ user: { email: 'dev@collabpro.com', given_name: 'Dev' } }),
@@ -28,7 +38,7 @@ describe('MCP Client Integration Settings Hub Suite (Issue 41)', () => {
         return {
           ok: true,
           json: async () => ({
-            apiKeys: [{ id: 'key-1', name: 'My Key', key: 'collabpro_pat_abc123xyz' }],
+            apiKeys: [{ id: 'key-1', name: 'My Key', maskedKey: 'collabpro_pat_••••xyz123' }],
           }),
         };
       }
@@ -40,6 +50,22 @@ describe('MCP Client Integration Settings Hub Suite (Issue 41)', () => {
       }
       throw new Error(`Unexpected fetch to ${url}`);
     });
+  });
+
+  it('renders cleanly with a real (masked-only) API key response, without throwing', async () => {
+    const { default: McpSettingsHub } = await import('@/app/(routes)/dashboard/settings/mcp/page');
+    render(React.createElement(McpSettingsHub));
+
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledWith('/api/api-keys'));
+
+    // Reference text shows the masked value - never throws trying to derive
+    // a display substring from a raw key the list endpoint doesn't return.
+    await screen.findByText(/collabpro_pat_••••xyz123/);
+    // The input itself starts genuinely empty - the sentinel is a
+    // placeholder hint, not a real value someone could accidentally submit
+    // as their actual API key.
+    const input = screen.getByPlaceholderText('YOUR_API_KEY_HERE') as HTMLInputElement;
+    expect(input.value).toBe('');
   });
 
   it('defaults to the Remote (No Install) tab, showing the direct /api/mcp endpoint', async () => {
@@ -100,6 +126,12 @@ describe('MCP Client Integration Settings Hub Suite (Issue 41)', () => {
 
     await waitFor(() => expect(mockFetch).toHaveBeenCalledWith('/api/api-keys'));
 
+    // The list endpoint never returns a raw key, so nothing auto-fills the
+    // bearer token - the user pastes their real key into the input first.
+    fireEvent.change(screen.getByPlaceholderText('YOUR_API_KEY_HERE'), {
+      target: { value: 'collabpro_pat_abc123xyz' },
+    });
+
     screen.getByText('Run Diagnostics').click();
 
     // Regression: the SDK's Streamable HTTP transport 406s any request whose
@@ -132,7 +164,7 @@ describe('MCP Client Integration Settings Hub Suite (Issue 41)', () => {
       if (url === '/api/api-keys') {
         return {
           ok: true,
-          json: async () => ({ apiKeys: [{ id: 'key-1', name: 'My Key', key: 'collabpro_pat_abc123xyz' }] }),
+          json: async () => ({ apiKeys: [{ id: 'key-1', name: 'My Key', maskedKey: 'collabpro_pat_••••xyz123' }] }),
         };
       }
       if (url === '/api/mcp') {
@@ -149,6 +181,9 @@ describe('MCP Client Integration Settings Hub Suite (Issue 41)', () => {
     render(React.createElement(McpSettingsHub));
 
     await waitFor(() => expect(mockFetch).toHaveBeenCalledWith('/api/api-keys'));
+    fireEvent.change(screen.getByPlaceholderText('YOUR_API_KEY_HERE'), {
+      target: { value: 'collabpro_pat_abc123xyz' },
+    });
     screen.getByText('Run Diagnostics').click();
 
     await screen.findByText(/Forbidden/);
