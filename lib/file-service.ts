@@ -39,8 +39,9 @@ export function extractTextFromWhiteboard(whiteboard: string | null | undefined)
 /**
  * Extracts plain text from an Editor.js document (plain JSON; transparently
  * reads legacy pre-#188 Yjs-wrapped rows too via decodeState), for feeding
- * as LLM context. Deliberately limited to paragraph/header (`data.text`) and
- * list (`data.items`) block types - not a full Editor.js block-type parser.
+ * as LLM context. Covers paragraph/header (`data.text`), list/checklist
+ * (`data.items`), and table (`data.content` 2D cell array) - not a full
+ * Editor.js block-type parser.
  */
 export function extractTextFromDocument(document: string | null | undefined): string {
   if (!document) return "";
@@ -56,6 +57,15 @@ export function extractTextFromDocument(document: string | null | undefined): st
       } else if (Array.isArray(data.items)) {
         const items = data.items.filter((item: unknown) => typeof item === 'string');
         if (items.length) parts.push(items.join(' '));
+      } else if (block?.type === 'table' && Array.isArray(data.content)) {
+        const cells: string[] = [];
+        for (const row of data.content) {
+          if (!Array.isArray(row)) continue;
+          for (const cell of row) {
+            if (typeof cell === 'string' && cell.trim()) cells.push(cell.trim());
+          }
+        }
+        if (cells.length) parts.push(cells.join(' | '));
       }
     }
     return parts.join("\n");
