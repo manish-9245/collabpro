@@ -408,6 +408,71 @@ function Editor({
         };
     }, []);
 
+    // Paste canvas PNGs anywhere in the document.
+    //
+    // Why this exists: Excalidraw "Copy as PNG" writes a ClipboardItem
+    // (image/png) via navigator.clipboard.write. On paste that surfaces as
+    // clipboardData.types ["image/png"] with an EMPTY files list, which
+    // Editor.js core ignores (its file path only looks at files). So
+    // pasting into a paragraph silently drops the image. This interceptor
+    // catches image items the native path misses, uploads them through the
+    // same /api/upload endpoint the image tool uses, and inserts an image
+    // block. When real files ARE present we return early so the native
+    // image-tool onPaste stays the single writer (no double-insert).
+    useEffect(() => {
+        const handlePasteImage = async (e: Event) => {
+            const editor = ref.current;
+            if (!editor) return;
+            const clipboard = (e as ClipboardEvent).clipboardData;
+            if (!clipboard) return;
+            if (clipboard.files && clipboard.files.length > 0) return;
+            const items = clipboard.items ? Array.from(clipboard.items) : [];
+            const imageItem = items.find((item) => item.type.startsWith('image/'));
+            if (!imageItem) return;
+            const file = imageItem.getAsFile();
+            if (!file) return;
+            e.preventDefault();
+            try {
+                const formData = new FormData();
+                formData.append('image', file, file.name || 'pasted-image.png');
+                const res = await fetch('/api/upload', { method: 'POST', body: formData });
+                const json = await res.json().catch(() => null);
+                const url = json?.file?.url as string | undefined;
+                if (!res.ok || !json?.success || !url) {
+                    throw new Error(json?.message || `upload failed (${res.status})`);
+                }
+                let index: number | undefined;
+                try {
+                    const current = editor.blocks.getCurrentBlockIndex();
+                    if (typeof current === 'number' && current >= 0) index = current + 1;
+                } catch {
+                    index = undefined;
+                }
+                await editor.blocks.insert(
+                    'image',
+                    { file: { url }, caption: '', withBorder: false, withBackground: false, stretched: false },
+                    {},
+                    index,
+                    true
+                );
+                // Persistence happens via the existing onChange -> onSaveDocument path.
+            } catch (err) {
+                console.error('Pasted image upload failed:', err);
+                toast.error('Could not paste image. Try the image + button instead.');
+            }
+        };
+
+        const container = document.getElementById('editorjs');
+        if (container) {
+            container.addEventListener('paste', handlePasteImage);
+        }
+        return () => {
+            if (container) {
+                container.removeEventListener('paste', handlePasteImage);
+            }
+        };
+    }, []);
+
     // Keeps the overlay correctly placed for everything that ISN'T already
     // covered by an imperative syncOverlayToElement call at the point of
     // mutation (resize drag, width/align buttons): the initial position when
