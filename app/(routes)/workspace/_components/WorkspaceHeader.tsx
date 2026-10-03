@@ -222,6 +222,25 @@ function WorkspaceHeader({
           } else if (block.type === 'warning') {
             md += `> **Warning:** ${block.data.title || ''}\n`
             md += `> ${block.data.message || ''}\n\n`
+          } else if (block.type === 'table') {
+            const content = block.data?.content
+            if (Array.isArray(content) && content.length > 0) {
+              const escapeCell = (cell: unknown) =>
+                String(cell ?? '').replace(/\|/g, '\\|').replace(/\n/g, ' ')
+              const rows = content.filter((row: unknown) => Array.isArray(row)) as unknown[][]
+              if (rows.length > 0) {
+                const colCount = Math.max(...rows.map((row) => row.length))
+                const normalized = rows.map((row) =>
+                  Array.from({ length: colCount }, (_, i) => escapeCell(row[i]))
+                )
+                md += `| ${normalized[0].join(' | ')} |\n`
+                md += `| ${normalized[0].map(() => '---').join(' | ')} |\n`
+                for (let i = 1; i < normalized.length; i++) {
+                  md += `| ${normalized[i].join(' | ')} |\n`
+                }
+                md += `\n`
+              }
+            }
           }
         })
       }
@@ -287,6 +306,29 @@ function WorkspaceHeader({
             }
           } else if (block.type === 'warning') {
             html += `  <blockquote><strong>Warning:</strong> ${block.data.title || ''}<br>${block.data.message || ''}</blockquote>\n`
+          } else if (block.type === 'table') {
+            const content = block.data?.content
+            if (Array.isArray(content) && content.length > 0) {
+              const escapeHtml = (cell: unknown) =>
+                String(cell ?? '')
+                  .replace(/&/g, '&amp;')
+                  .replace(/</g, '&lt;')
+                  .replace(/>/g, '&gt;')
+              const rows = content.filter((row: unknown) => Array.isArray(row)) as unknown[][]
+              if (rows.length > 0) {
+                const withHeadings = block.data?.withHeadings !== false
+                html += `  <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; margin: 1em 0;">\n`
+                rows.forEach((row, rowIndex) => {
+                  html += `    <tr>\n`
+                  row.forEach((cell) => {
+                    const tag = withHeadings && rowIndex === 0 ? 'th' : 'td'
+                    html += `      <${tag}>${escapeHtml(cell)}</${tag}>\n`
+                  })
+                  html += `    </tr>\n`
+                })
+                html += `  </table>\n`
+              }
+            }
           }
         })
       }

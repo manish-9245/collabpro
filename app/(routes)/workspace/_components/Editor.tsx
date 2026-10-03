@@ -13,6 +13,8 @@ import Paragraph from '@editorjs/paragraph';
 import Warning from '@editorjs/warning';
 // @ts-ignore
 import ImageTool from '@editorjs/image';
+// @ts-ignore
+import Table from '@editorjs/table';
 import { api, useMutation } from '@/lib/state-sync/react';
 import { toast } from 'sonner';
 import { FILE } from '../../dashboard/_components/FileList';
@@ -651,6 +653,16 @@ function Editor({
                   },
                   paragraph: Paragraph,
                   warning: Warning,
+                  table: {
+                    // @ts-ignore - @editorjs/table constructor type mismatches EditorJS BlockToolConstructable; runtime shape is compatible
+                    class: Table,
+                    inlineToolbar: true,
+                    config: {
+                      rows: 2,
+                      cols: 3,
+                      withHeadings: true,
+                    },
+                  },
                   image: {
                     class: ImageTool as any,
                     config: {
