@@ -189,6 +189,150 @@ function WorkspaceHeader({
     }
   }
 
+  const toAbsoluteUrl = (url: string): string => {
+    if (!url) return url
+    if (/^https?:\/\//i.test(url) || url.startsWith('data:') || url.startsWith('blob:')) return url
+    if (url.startsWith('/') && typeof window !== 'undefined') return `${window.location.origin}${url}`
+    return url
+  }
+
+  const stripHtml = (html: string): string => {
+    if (!html) return ''
+    return String(html).replace(/<[^>]*>/g, '')
+  }
+
+  // Allowlist sanitizer for Editor.js inline markup. Document fields are
+  // stored HTML (contenteditable output) that may contain script-bearing
+  // tags/attributes from pasted content; the PDF path writes the export
+  // into a same-origin popup, so raw interpolation would execute stored
+  // payloads in the app origin. Escape everything, then restore only the
+  // inline tags Editor.js itself emits (b/i/u/s/code/mark + safe links).
+  const sanitizeInline = (dirty: unknown): string => {
+    let escaped = String(dirty ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+    escaped = escaped.replace(/&lt;(\/?)(b|strong|i|em|u|s|code|mark|br)(\s*\/?)&gt;/gi, '<$1$2>')
+    escaped = escaped.replace(/&lt;a\s+href=&quot;(.*?)&quot;\s*&gt;/gi, (_match, href: string) => {
+      const target = String(href)
+      if (/^(https?:\/\/|mailto:|#)/i.test(target)) return `<a href="${target}">`
+      return ''
+    })
+    escaped = escaped.replace(/&lt;\/a&gt;/gi, '</a>')
+    return escaped
+  }
+
+  const escapeMdText = (value: string): string =>
+    String(value ?? '')
+      .replace(/\\/g, '\\\\')
+      .replace(/\[/g, '\\[')
+      .replace(/\]/g, '\\]')
+      .replace(/\(/g, '\\(')
+      .replace(/\)/g, '\\)')
+
+  const escapeMdUrl = (value: string): string =>
+    String(value ?? '')
+      .replace(/\\/g, '%5C')
+      .replace(/ /g, '%20')
+      .replace(/\(/g, '%28')
+      .replace(/\)/g, '%29')
+      .replace(/</g, '%3C')
+      .replace(/>/g, '%3E')
+
+  const buildDocumentHTML = (data: any, docTitle: string): string => {
+    const escapeHtml = (value: unknown) =>
+      String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+    let body = ''
+    if (data.blocks && Array.isArray(data.blocks)) {
+      const imageWidths = data.imageWidths as Record<string, string> | undefined
+      data.blocks.forEach((block: any) => {
+        if (block.type === 'header') {
+          const tag = `h${block.data.level || 2}`
+          body += `  <${tag}>${sanitizeInline(block.data.text)}</${tag}>\n`
+        } else if (block.type === 'paragraph') {
+          body += `  <p>${sanitizeInline(block.data.text)}</p>\n`
+        } else if (block.type === 'image') {
+          const url = toAbsoluteUrl(block.data?.file?.url || '')
+          if (url) {
+            const caption = stripHtml(block.data?.caption || '')
+            const alt = escapeHtml(caption)
+            const width = (block?.id && imageWidths?.[block.id]) || undefined
+            const widthStyle = width ? ` style="width:${escapeHtml(width)};"` : ''
+            body += `  <figure>\n    <img src="${escapeHtml(url)}" alt="${alt}"${widthStyle} />\n`
+            if (caption) body += `    <figcaption>${escapeHtml(caption)}</figcaption>\n`
+            body += `  </figure>\n`
+          }
+        } else if (block.type === 'list') {
+          if (block.data.items && Array.isArray(block.data.items)) {
+            body += `  <ul>\n`
+            block.data.items.forEach((item: string) => {
+              body += `    <li>${sanitizeInline(item)}</li>\n`
+            })
+            body += `  </ul>\n`
+          }
+        } else if (block.type === 'checklist') {
+          if (block.data.items && Array.isArray(block.data.items)) {
+            body += `  <ul style="list-style-type: none; padding-left: 0;">\n`
+            block.data.items.forEach((item: any) => {
+              const checked = item.checked ? 'checked' : ''
+              body += `    <li><input type="checkbox" ${checked} disabled> ${sanitizeInline(item.text)}</li>\n`
+            })
+            body += `  </ul>\n`
+          }
+        } else if (block.type === 'warning') {
+          body += `  <blockquote><strong>Warning:</strong> ${sanitizeInline(block.data.title || '')}<br>${sanitizeInline(block.data.message || '')}</blockquote>\n`
+        } else if (block.type === 'table') {
+          const content = block.data?.content
+          if (Array.isArray(content) && content.length > 0) {
+            const rows = content.filter((row: unknown) => Array.isArray(row)) as unknown[][]
+            if (rows.length > 0) {
+              const withHeadings = block.data?.withHeadings !== false
+              body += `  <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; margin: 1em 0;">\n`
+              rows.forEach((row, rowIndex) => {
+                body += `    <tr>\n`
+                row.forEach((cell) => {
+                  const tag = withHeadings && rowIndex === 0 ? 'th' : 'td'
+                  body += `      <${tag}>${escapeHtml(cell)}</${tag}>\n`
+                })
+                body += `    </tr>\n`
+              })
+              body += `  </table>\n`
+            }
+          }
+        }
+      })
+    }
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>${escapeHtml(docTitle)}</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 40px auto; padding: 0 20px; color: #333; }
+    h1, h2, h3 { color: #111; margin-top: 1.5em; }
+    blockquote { border-left: 4px solid #ddd; padding-left: 15px; color: #666; margin-left: 0; }
+    ul { padding-left: 20px; }
+    li { margin-bottom: 5px; }
+    figure { margin: 1.5em 0; text-align: center; }
+    figure img { max-width: 100%; height: auto; border-radius: 4px; }
+    figcaption { font-size: 0.85em; color: #666; margin-top: 0.5em; }
+    table { border-collapse: collapse; margin: 1em 0; }
+    @media print {
+      body { margin: 0; max-width: 100%; }
+      figure { break-inside: avoid; }
+      table { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <h1>${escapeHtml(docTitle)}</h1>\n${body}</body>\n</html>`
+  }
+
   const exportAsMarkdown = () => {
     if (!fileData?.document) {
       toast.error('No document content to export')
@@ -204,6 +348,12 @@ function WorkspaceHeader({
             md += `${hashes} ${block.data.text}\n\n`
           } else if (block.type === 'paragraph') {
             md += `${block.data.text}\n\n`
+          } else if (block.type === 'image') {
+            const url = toAbsoluteUrl(block.data?.file?.url || '')
+            if (url) {
+              const caption = escapeMdText(stripHtml(block.data?.caption || 'image'))
+              md += `![${caption}](${escapeMdUrl(url)})\n\n`
+            }
           } else if (block.type === 'list') {
             if (block.data.items && Array.isArray(block.data.items)) {
               block.data.items.forEach((item: string) => {
@@ -265,74 +415,7 @@ function WorkspaceHeader({
     }
     try {
       const data = JSON.parse(fileData.document)
-      let html = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>${fileName || 'Untitled Document'}</title>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 40px auto; padding: 0 20px; color: #333; }
-    h1, h2, h3 { color: #111; margin-top: 1.5em; }
-    blockquote { border-left: 4px solid #ddd; padding-left: 15px; color: #666; margin-left: 0; }
-    ul { padding-left: 20px; }
-    li { margin-bottom: 5px; }
-  </style>
-</head>
-<body>
-  <h1>${fileName || 'Untitled Document'}</h1>\n`
-      if (data.blocks && Array.isArray(data.blocks)) {
-        data.blocks.forEach((block: any) => {
-          if (block.type === 'header') {
-            const tag = `h${block.data.level || 2}`
-            html += `  <${tag}>${block.data.text}</${tag}>\n`
-          } else if (block.type === 'paragraph') {
-            html += `  <p>${block.data.text}</p>\n`
-          } else if (block.type === 'list') {
-            if (block.data.items && Array.isArray(block.data.items)) {
-              html += `  <ul>\n`
-              block.data.items.forEach((item: string) => {
-                html += `    <li>${item}</li>\n`
-              })
-              html += `  </ul>\n`
-            }
-          } else if (block.type === 'checklist') {
-            if (block.data.items && Array.isArray(block.data.items)) {
-              html += `  <ul style="list-style-type: none; padding-left: 0;">\n`
-              block.data.items.forEach((item: any) => {
-                const checked = item.checked ? 'checked' : ''
-                html += `    <li><input type="checkbox" ${checked} disabled> ${item.text}</li>\n`
-              })
-              html += `  </ul>\n`
-            }
-          } else if (block.type === 'warning') {
-            html += `  <blockquote><strong>Warning:</strong> ${block.data.title || ''}<br>${block.data.message || ''}</blockquote>\n`
-          } else if (block.type === 'table') {
-            const content = block.data?.content
-            if (Array.isArray(content) && content.length > 0) {
-              const escapeHtml = (cell: unknown) =>
-                String(cell ?? '')
-                  .replace(/&/g, '&amp;')
-                  .replace(/</g, '&lt;')
-                  .replace(/>/g, '&gt;')
-              const rows = content.filter((row: unknown) => Array.isArray(row)) as unknown[][]
-              if (rows.length > 0) {
-                const withHeadings = block.data?.withHeadings !== false
-                html += `  <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; margin: 1em 0;">\n`
-                rows.forEach((row, rowIndex) => {
-                  html += `    <tr>\n`
-                  row.forEach((cell) => {
-                    const tag = withHeadings && rowIndex === 0 ? 'th' : 'td'
-                    html += `      <${tag}>${escapeHtml(cell)}</${tag}>\n`
-                  })
-                  html += `    </tr>\n`
-                })
-                html += `  </table>\n`
-              }
-            }
-          }
-        })
-      }
-      html += `</body>\n</html>`
+      const html = buildDocumentHTML(data, fileName || 'Untitled Document')
       const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
@@ -344,6 +427,45 @@ function WorkspaceHeader({
     } catch (e) {
       console.error(e)
       toast.error('Failed to export as HTML')
+    }
+  }
+
+  const exportAsPDF = () => {
+    if (!fileData?.document) {
+      toast.error('No document content to export')
+      return
+    }
+    try {
+      const data = JSON.parse(fileData.document)
+      const html = buildDocumentHTML(data, fileName || 'Untitled Document')
+      const printWindow = window.open('', '_blank', 'width=900,height=700')
+      if (!printWindow) {
+        toast.error('Popup blocked — allow popups to export PDF')
+        return
+      }
+      printWindow.document.write(html)
+      printWindow.document.close()
+      printWindow.focus()
+      // Wait for remote images to load so they print instead of blank boxes.
+      const images = Array.from(printWindow.document.images)
+      const loaded = Promise.all(
+        images.map((img) =>
+          img.complete && img.naturalWidth > 0
+            ? Promise.resolve()
+            : new Promise<void>((resolve) => {
+                img.onload = () => resolve()
+                img.onerror = () => resolve()
+                setTimeout(() => resolve(), 5000)
+              })
+        )
+      )
+      loaded.then(() => {
+        printWindow.print()
+      })
+      toast.success('Opening print dialog — choose "Save as PDF"!')
+    } catch (e) {
+      console.error(e)
+      toast.error('Failed to export as PDF')
     }
   }
 
@@ -613,6 +735,9 @@ function WorkspaceHeader({
             </DropdownMenuItem>
             <DropdownMenuItem onClick={exportAsHTML} className="cursor-pointer gap-2 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">
               <FileText className="h-4 w-4 text-green-500" /> Export as HTML (.html)
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={exportAsPDF} className="cursor-pointer gap-2 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">
+              <FileText className="h-4 w-4 text-red-500" /> Export as PDF (print)
             </DropdownMenuItem>
             
             <DropdownMenuSeparator className="bg-slate-100 dark:bg-slate-800" />
