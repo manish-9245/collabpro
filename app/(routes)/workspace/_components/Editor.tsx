@@ -408,6 +408,114 @@ function Editor({
         };
     }, []);
 
+    // Paste canvas PNGs anywhere in the document.
+    //
+    // Why this exists: Excalidraw "Copy as PNG" writes a ClipboardItem
+    // (image/png) via navigator.clipboard.write. On paste that surfaces as
+    // clipboardData.types ["image/png"] with an EMPTY files list, which
+    // Editor.js core ignores (its file path only looks at files). So
+    // pasting into a paragraph silently drops the image. This interceptor
+    // catches the image-only case the native path misses, uploads through
+    // the same /api/upload endpoint the image tool uses, and inserts an
+    // image block. Text-bearing pastes and real files stay with core's
+    // single writer (no double-insert).
+    useEffect(() => {
+        let cancelled = false;
+        const pending = new Set<AbortController>();
+
+        const readText = (clipboard: DataTransfer, type: string): string => {
+            try {
+                return clipboard.getData(type);
+            } catch {
+                return '';
+            }
+        };
+
+        const handlePasteImage = async (e: Event) => {
+            const editorAtPaste = ref.current;
+            if (!editorAtPaste) return;
+            const clipboard = (e as ClipboardEvent).clipboardData;
+            if (!clipboard) return;
+            if (clipboard.files && clipboard.files.length > 0) return;
+            // Image-only gate: if the clipboard also carries text, let core
+            // handle the paste so we don't end up with both an uploaded
+            // image and a separate text block.
+            if (readText(clipboard, 'text/plain').trim() !== '') return;
+            if (readText(clipboard, 'text/html').trim() !== '') return;
+            const items = clipboard.items ? Array.from(clipboard.items) : [];
+            const imageItem = items.find((item) => item.type.startsWith('image/'));
+            if (!imageItem) return;
+            const file = imageItem.getAsFile();
+            if (!file) return;
+            // Capture the caret block synchronously: reading the index after
+            // the upload would follow a caret the user may have moved.
+            let index: number | undefined;
+            try {
+                const current = editorAtPaste.blocks.getCurrentBlockIndex();
+                if (typeof current === 'number' && current >= 0) index = current + 1;
+            } catch {
+                index = undefined;
+            }
+            // Capture-phase listener (see addEventListener below) runs before
+            // core's bubble-phase paste handler, so stopping propagation here
+            // keeps core from also inserting the payload as text.
+            e.preventDefault();
+            e.stopPropagation();
+            if (typeof (e as Event).stopImmediatePropagation === 'function') {
+                (e as Event).stopImmediatePropagation();
+            }
+            const controller = new AbortController();
+            pending.add(controller);
+            try {
+                const formData = new FormData();
+                formData.append('image', file, file.name || 'pasted-image.png');
+                const res = await fetch('/api/upload', { method: 'POST', body: formData, signal: controller.signal });
+                const json = await res.json().catch(() => null);
+                const url = json?.file?.url as string | undefined;
+                if (!res.ok || !json?.success || !url) {
+                    throw new Error(json?.message || `upload failed (${res.status})`);
+                }
+                // Unmount/file-switch guard: never insert into a document
+                // that is no longer the paste target.
+                if (cancelled) return;
+                if (ref.current !== editorAtPaste) return;
+                await editorAtPaste.blocks.insert(
+                    'image',
+                    { file: { url }, caption: '', withBorder: false, withBackground: false, stretched: false },
+                    {},
+                    index,
+                    true
+                );
+                // Persistence happens via the existing onChange -> onSaveDocument path.
+            } catch (err) {
+                if (controller.signal.aborted || cancelled) return;
+                console.error('Pasted image upload failed:', err);
+                toast.error('Could not paste image. Try the image + button instead.');
+            } finally {
+                pending.delete(controller);
+            }
+        };
+
+        const container = document.getElementById('editorjs');
+        if (container) {
+            container.addEventListener('paste', handlePasteImage, true);
+        }
+        return () => {
+            cancelled = true;
+            pending.forEach((controller) => {
+                try {
+                    controller.abort();
+                } catch {
+                    // ignore abort errors during teardown
+                }
+            });
+            pending.clear();
+            if (container) {
+                container.removeEventListener('paste', handlePasteImage, true);
+            }
+        };
+    }, [fileId]);
+
     // Keeps the overlay correctly placed for everything that ISN'T already
     // covered by an imperative syncOverlayToElement call at the point of
     // mutation (resize drag, width/align buttons): the initial position when
