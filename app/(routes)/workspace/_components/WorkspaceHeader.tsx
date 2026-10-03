@@ -201,6 +201,45 @@ function WorkspaceHeader({
     return String(html).replace(/<[^>]*>/g, '')
   }
 
+  // Allowlist sanitizer for Editor.js inline markup. Document fields are
+  // stored HTML (contenteditable output) that may contain script-bearing
+  // tags/attributes from pasted content; the PDF path writes the export
+  // into a same-origin popup, so raw interpolation would execute stored
+  // payloads in the app origin. Escape everything, then restore only the
+  // inline tags Editor.js itself emits (b/i/u/s/code/mark + safe links).
+  const sanitizeInline = (dirty: unknown): string => {
+    let escaped = String(dirty ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+    escaped = escaped.replace(/&lt;(\/?)(b|strong|i|em|u|s|code|mark|br)(\s*\/?)&gt;/gi, '<$1$2>')
+    escaped = escaped.replace(/&lt;a\s+href=&quot;(.*?)&quot;\s*&gt;/gi, (_match, href: string) => {
+      const target = String(href)
+      if (/^(https?:\/\/|mailto:|#)/i.test(target)) return `<a href="${target}">`
+      return ''
+    })
+    escaped = escaped.replace(/&lt;\/a&gt;/gi, '</a>')
+    return escaped
+  }
+
+  const escapeMdText = (value: string): string =>
+    String(value ?? '')
+      .replace(/\\/g, '\\\\')
+      .replace(/\[/g, '\\[')
+      .replace(/\]/g, '\\]')
+      .replace(/\(/g, '\\(')
+      .replace(/\)/g, '\\)')
+
+  const escapeMdUrl = (value: string): string =>
+    String(value ?? '')
+      .replace(/\\/g, '%5C')
+      .replace(/ /g, '%20')
+      .replace(/\(/g, '%28')
+      .replace(/\)/g, '%29')
+      .replace(/</g, '%3C')
+      .replace(/>/g, '%3E')
+
   const buildDocumentHTML = (data: any, docTitle: string): string => {
     const escapeHtml = (value: unknown) =>
       String(value ?? '')
@@ -214,16 +253,17 @@ function WorkspaceHeader({
       data.blocks.forEach((block: any) => {
         if (block.type === 'header') {
           const tag = `h${block.data.level || 2}`
-          body += `  <${tag}>${block.data.text}</${tag}>\n`
+          body += `  <${tag}>${sanitizeInline(block.data.text)}</${tag}>\n`
         } else if (block.type === 'paragraph') {
-          body += `  <p>${block.data.text}</p>\n`
+          body += `  <p>${sanitizeInline(block.data.text)}</p>\n`
         } else if (block.type === 'image') {
           const url = toAbsoluteUrl(block.data?.file?.url || '')
           if (url) {
             const caption = stripHtml(block.data?.caption || '')
+            const alt = escapeHtml(caption)
             const width = (block?.id && imageWidths?.[block.id]) || undefined
             const widthStyle = width ? ` style="width:${escapeHtml(width)};"` : ''
-            body += `  <figure>\n    <img src="${escapeHtml(url)}"${widthStyle} />\n`
+            body += `  <figure>\n    <img src="${escapeHtml(url)}" alt="${alt}"${widthStyle} />\n`
             if (caption) body += `    <figcaption>${escapeHtml(caption)}</figcaption>\n`
             body += `  </figure>\n`
           }
@@ -231,7 +271,7 @@ function WorkspaceHeader({
           if (block.data.items && Array.isArray(block.data.items)) {
             body += `  <ul>\n`
             block.data.items.forEach((item: string) => {
-              body += `    <li>${item}</li>\n`
+              body += `    <li>${sanitizeInline(item)}</li>\n`
             })
             body += `  </ul>\n`
           }
@@ -240,12 +280,12 @@ function WorkspaceHeader({
             body += `  <ul style="list-style-type: none; padding-left: 0;">\n`
             block.data.items.forEach((item: any) => {
               const checked = item.checked ? 'checked' : ''
-              body += `    <li><input type="checkbox" ${checked} disabled> ${item.text}</li>\n`
+              body += `    <li><input type="checkbox" ${checked} disabled> ${sanitizeInline(item.text)}</li>\n`
             })
             body += `  </ul>\n`
           }
         } else if (block.type === 'warning') {
-          body += `  <blockquote><strong>Warning:</strong> ${block.data.title || ''}<br>${block.data.message || ''}</blockquote>\n`
+          body += `  <blockquote><strong>Warning:</strong> ${sanitizeInline(block.data.title || '')}<br>${sanitizeInline(block.data.message || '')}</blockquote>\n`
         } else if (block.type === 'table') {
           const content = block.data?.content
           if (Array.isArray(content) && content.length > 0) {
@@ -271,7 +311,7 @@ function WorkspaceHeader({
 <html>
 <head>
   <meta charset="utf-8">
-  <title>${docTitle}</title>
+  <title>${escapeHtml(docTitle)}</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 40px auto; padding: 0 20px; color: #333; }
     h1, h2, h3 { color: #111; margin-top: 1.5em; }
@@ -290,7 +330,7 @@ function WorkspaceHeader({
   </style>
 </head>
 <body>
-  <h1>${docTitle}</h1>\n${body}</body>\n</html>`
+  <h1>${escapeHtml(docTitle)}</h1>\n${body}</body>\n</html>`
   }
 
   const exportAsMarkdown = () => {
@@ -309,10 +349,10 @@ function WorkspaceHeader({
           } else if (block.type === 'paragraph') {
             md += `${block.data.text}\n\n`
           } else if (block.type === 'image') {
-            const url = block.data?.file?.url || ''
+            const url = toAbsoluteUrl(block.data?.file?.url || '')
             if (url) {
-              const caption = stripHtml(block.data?.caption || 'image')
-              md += `![${caption}](${url})\n\n`
+              const caption = escapeMdText(stripHtml(block.data?.caption || 'image'))
+              md += `![${caption}](${escapeMdUrl(url)})\n\n`
             }
           } else if (block.type === 'list') {
             if (block.data.items && Array.isArray(block.data.items)) {
