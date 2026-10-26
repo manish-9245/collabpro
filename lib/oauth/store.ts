@@ -149,7 +149,7 @@ async function refreshTokensTx(
 ): Promise<IssuedTokens | OAuthError> {
   const hashedRefresh = sha256Hex(input.refreshToken);
   const row = await prisma.oAuthToken.findUnique({ where: { hashedRefresh } });
-  if (!row || row.clientId !== input.clientId) return { error: 'invalid_grant', description: 'Refresh token is invalid' };
+  if (row?.clientId !== input.clientId) return { error: 'invalid_grant', description: 'Refresh token is invalid' };
   if (row.revokedAt || row.refreshExpiresAt <= new Date()) return { error: 'invalid_grant', description: 'Refresh token is expired or revoked' };
 
   // Atomic claim of the rotation. A token that was already rotated long ago

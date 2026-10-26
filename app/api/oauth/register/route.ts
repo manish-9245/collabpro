@@ -1,9 +1,8 @@
 import { prisma } from '@/lib/db';
 import { checkRateLimit, getClientIp, LIMITS } from '@/lib/rate-limiter';
-import { isAllowedRedirectUri } from '@/lib/oauth/core';
+import { isAllowedRedirectUri, MAX_PARAM } from '@/lib/oauth/core';
 import { MAX_REDIRECT_URIS, registerClient } from '@/lib/oauth/store';
 import { hasMediaType, NO_STORE_HEADERS, readBodyCapped } from '@/lib/oauth/http';
-import { MAX_PARAM } from '@/lib/oauth/core';
 
 function err(error: string, description: string, status = 400): Response {
   return Response.json({ error, error_description: description }, { status, headers: NO_STORE_HEADERS });

@@ -47,24 +47,35 @@ const PALETTE = [
   { stroke: '#0f766e', bg: '#ccfbf1' },
 ];
 
-export function validateSpec(spec: DiagramSpec): string[] {
+function validateNodes(nodes: SpecNode[]): { issues: string[]; ids: Set<string> } {
   const issues: string[] = [];
-  if (spec.nodes.length === 0) issues.push('At least one node is required.');
-  if (spec.nodes.length > MAX_SPEC_NODES) issues.push(`Too many nodes (${spec.nodes.length}); max ${MAX_SPEC_NODES}.`);
-  if ((spec.edges?.length ?? 0) > MAX_SPEC_EDGES) issues.push(`Too many edges; max ${MAX_SPEC_EDGES}.`);
   const ids = new Set<string>();
-  for (const n of spec.nodes) {
+  for (const n of nodes) {
     if (ids.has(n.id)) issues.push(`Duplicate node id "${n.id}".`);
     ids.add(n.id);
     if (n.label.length > MAX_NODE_LABEL) issues.push(`Node "${n.id}": label is ${n.label.length} characters; max ${MAX_NODE_LABEL} so it fits its box.`);
   }
-  for (const e of spec.edges ?? []) {
+  return { issues, ids };
+}
+
+function validateEdges(edges: SpecEdge[], ids: Set<string>): string[] {
+  const issues: string[] = [];
+  for (const e of edges) {
     if ((e.label?.length ?? 0) > MAX_EDGE_LABEL) issues.push(`Edge "${e.from}" -> "${e.to}": label is longer than ${MAX_EDGE_LABEL} characters.`);
     if (!ids.has(e.from)) issues.push(`Edge references unknown node "${e.from}".`);
     if (!ids.has(e.to)) issues.push(`Edge references unknown node "${e.to}".`);
     if (e.from === e.to) issues.push(`Edge "${e.from}" -> "${e.to}" is a self-loop; not supported.`);
   }
   return issues;
+}
+
+export function validateSpec(spec: DiagramSpec): string[] {
+  const issues: string[] = [];
+  if (spec.nodes.length === 0) issues.push('At least one node is required.');
+  if (spec.nodes.length > MAX_SPEC_NODES) issues.push(`Too many nodes (${spec.nodes.length}); max ${MAX_SPEC_NODES}.`);
+  if ((spec.edges?.length ?? 0) > MAX_SPEC_EDGES) issues.push(`Too many edges; max ${MAX_SPEC_EDGES}.`);
+  const nodes = validateNodes(spec.nodes);
+  return [...issues, ...nodes.issues, ...validateEdges(spec.edges ?? [], nodes.ids)];
 }
 
 /** Default box size from the label; icon nodes pass their own measured size. */

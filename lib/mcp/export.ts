@@ -64,13 +64,20 @@ const rows = (value: unknown): unknown[][] => (Array.isArray(value) ? (value as 
 const level = (value: unknown) => Math.min(6, Math.max(1, Number(value) || 2));
 const imageUrl = (d: Record<string, unknown>): string => str((d.file as { url?: unknown } | undefined)?.url);
 
+const bullet = (style: unknown, index: number): string => (style === 'ordered' ? `${index + 1}.` : '-');
+const checkbox = (item: Item): string => (isChecked(item) ? '[x]' : '[ ]');
+const htmlCheckbox = (item: Item): string => (isChecked(item) ? '&#9745;' : '&#9744;');
+const cell = (c: unknown): string => `<td>${esc(plain(c))}</td>`;
+const tableRow = (r: unknown[]): string => `<tr>${r.map(cell).join('')}</tr>`;
+const figure = (d: Record<string, unknown>): string => `<figure><img src="${esc(imageUrl(d))}" alt="${esc(plain(d.caption))}"/></figure>`;
+
 function blockToMarkdown(b: Block): string[] {
   const d = b.data ?? {};
   switch (b.type) {
     case 'header': return [`${'#'.repeat(level(d.level))} ${plain(d.text)}`, ''];
     case 'paragraph': return [plain(d.text), ''];
-    case 'list': return [...list(d.items).map((it, i) => `${d.style === 'ordered' ? `${i + 1}.` : '-'} ${itemText(it)}`), ''];
-    case 'checklist': return [...list(d.items).map((it) => `- [${isChecked(it) ? 'x' : ' '}] ${itemText(it)}`), ''];
+    case 'list': return [...list(d.items).map((it, i) => `${bullet(d.style, i)} ${itemText(it)}`), ''];
+    case 'checklist': return [...list(d.items).map((it) => `- ${checkbox(it)} ${itemText(it)}`), ''];
     case 'table': return [...tableMarkdown(rows(d.content)), ''];
     case 'image': return imageUrl(d) ? [`![${plain(d.caption)}](${imageUrl(d)})`, ''] : [];
     case 'warning': return [`> **${plain(d.title)}** ${plain(d.message)}`, ''];
@@ -98,9 +105,9 @@ function blockToHtml(b: Block): string {
     case 'header': { const l = level(d.level); return `<h${l}>${esc(plain(d.text))}</h${l}>`; }
     case 'paragraph': return `<p>${esc(plain(d.text))}</p>`;
     case 'list': return listHtml(d);
-    case 'checklist': return `<ul>${list(d.items).map((it) => `<li>${isChecked(it) ? '&#9745;' : '&#9744;'} ${esc(itemText(it))}</li>`).join('')}</ul>`;
-    case 'table': return `<table>${rows(d.content).map((r) => `<tr>${r.map((c) => `<td>${esc(plain(c))}</td>`).join('')}</tr>`).join('')}</table>`;
-    case 'image': return /^https?:\/\//.test(imageUrl(d)) ? `<figure><img src="${esc(imageUrl(d))}" alt="${esc(plain(d.caption))}"/></figure>` : '';
+    case 'checklist': return `<ul>${list(d.items).map((it) => `<li>${htmlCheckbox(it)} ${esc(itemText(it))}</li>`).join('')}</ul>`;
+    case 'table': return `<table>${rows(d.content).map(tableRow).join('')}</table>`;
+    case 'image': return /^https?:\/\//.test(imageUrl(d)) ? figure(d) : '';
     case 'warning': return `<blockquote><strong>${esc(plain(d.title))}</strong> ${esc(plain(d.message))}</blockquote>`;
     default: return typeof d.text === 'string' ? `<p>${esc(plain(d.text))}</p>` : '';
   }

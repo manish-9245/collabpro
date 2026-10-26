@@ -34,6 +34,20 @@ export function isReadOnlyOperation(path: string): boolean {
   return /^(get|search)/.test(action || '');
 }
 
+async function verifyOAuthBearer(token: string, isWriteOperation: boolean | undefined, allowed: boolean): Promise<ApiKeyVerificationResult> {
+  if (!allowed || process.env.OAUTH_DISABLED === 'true') {
+    return { isValid: false, userEmail: null, scope: null, error: 'OAuth tokens are not accepted on this endpoint', statusCode: 401 };
+  }
+  const oauth = await verifyOAuthAccessToken(prisma, token);
+  if (!oauth) {
+    return { isValid: false, userEmail: null, scope: null, error: 'Invalid or expired access token', statusCode: 401 };
+  }
+  if (isWriteOperation && oauth.scope === 'read-only') {
+    return { isValid: false, userEmail: oauth.userEmail, scope: oauth.scope, error: 'Forbidden: token has read-only access scope', statusCode: 403 };
+  }
+  return { isValid: true, userEmail: oauth.userEmail, scope: oauth.scope, apiKeyId: `oauth:${oauth.familyId}`, oauthClientId: oauth.clientId };
+}
+
 /**
  * Verify an authorization header containing a CollabPro PAT and return verification details
  */
@@ -69,17 +83,7 @@ export async function verifyApiKey(
   // that opt in (app/api/mcp/route.ts) accept them, so a connector token can
   // never authenticate state-sync or any other API-key-gated route.
   if (token.startsWith(ACCESS_TOKEN_PREFIX)) {
-    if (!options.allowOAuth || process.env.OAUTH_DISABLED === 'true') {
-      return { isValid: false, userEmail: null, scope: null, error: 'OAuth tokens are not accepted on this endpoint', statusCode: 401 };
-    }
-    const oauth = await verifyOAuthAccessToken(prisma, token);
-    if (!oauth) {
-      return { isValid: false, userEmail: null, scope: null, error: 'Invalid or expired access token', statusCode: 401 };
-    }
-    if (isWriteOperation && oauth.scope === 'read-only') {
-      return { isValid: false, userEmail: oauth.userEmail, scope: oauth.scope, error: 'Forbidden: token has read-only access scope', statusCode: 403 };
-    }
-    return { isValid: true, userEmail: oauth.userEmail, scope: oauth.scope, apiKeyId: `oauth:${oauth.familyId}`, oauthClientId: oauth.clientId };
+    return verifyOAuthBearer(token, isWriteOperation, options.allowOAuth === true);
   }
 
   if (!token.startsWith('collabpro_pat_')) {
