@@ -61,14 +61,12 @@ export function parseForm(body: string): URLSearchParams | null {
 
 /**
  * Defense in depth for cookie-authenticated state changes: the browser-set Origin must be our own origin.
- * After a cross-site redirect chain (claude.ai -> authorize -> login -> consent) browsers send `Origin: null`
- * on the form POST, so a missing/"null" Origin falls back to Sec-Fetch-Site, then to the Referer.
+ * /oauth/* pages are served with `Referrer-Policy: no-referrer` (next.config.mjs), which makes browsers send
+ * `Origin: null` on the consent form POST, so a "null" Origin falls back to Sec-Fetch-Site (set by the browser,
+ * not forgeable by pages). No Referer fallback: no-referrer means none is sent.
  */
 export function isSameOrigin(request: Request): boolean {
-  const base = getBaseUrl(request);
   const origin = request.headers.get('origin');
-  if (origin && origin !== 'null') return origin === base;
-  if (request.headers.get('sec-fetch-site') === 'same-origin') return true;
-  const referer = request.headers.get('referer');
-  return !!referer && (referer === base || referer.startsWith(`${base}/`));
+  if (origin && origin !== 'null') return origin === getBaseUrl(request);
+  return request.headers.get('sec-fetch-site') === 'same-origin';
 }
