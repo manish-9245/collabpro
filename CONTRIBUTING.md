@@ -9,7 +9,7 @@ Thanks for taking the time to contribute! This document describes the workflow t
 3. **Make your change.**
    - Run `npx tsc --noEmit` and `npx vitest run` locally before pushing.
    - A `pre-push` git hook (installed automatically via `npm install`, see `scripts/install-hooks.js`) runs `npm run lint` and `npm run build` and blocks the push if either fails — don't bypass it with `--no-verify`.
-4. **Open a pull request.** CI runs `build`, `lint`, `test`, `embed-diagrams`, a Snyk security scan, an E2E/showcase run, and two AI reviewers (CodeRabbit, cubic). All checks must pass before merge.
+4. **Open a pull request.** CI runs `build`, `lint`, `test`, a Snyk security scan, an E2E/showcase run, and two AI reviewers (CodeRabbit, cubic). All checks must pass before merge.
 5. **Merge.** Once CI is green and review feedback (if any) has been addressed, merge with "Create a merge commit" and delete the branch.
 
 ## Local setup
