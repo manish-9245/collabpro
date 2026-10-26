@@ -196,6 +196,11 @@ test.describe('Group B QA Suite - GrahakAI', () => {
     await page.waitForURL(/.*workspace/, { timeout: 20000 });
     await page.waitForLoadState('networkidle');
 
+    // The workspace opens in Document-only view by design (the canvas only
+    // initializes once Split View or Canvas is opened). This test needs both
+    // the editor and the canvas, so ask for Split View.
+    await page.locator('button:has-text("Split View")').click();
+
     // Verify Excalidraw whiteboarding canvas and EditorJS doc editor are successfully rendered
     console.log('Checking for Excalidraw canvas and EditorJS...');
     const canvas = page.locator('.excalidraw__canvas').first();

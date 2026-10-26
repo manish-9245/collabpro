@@ -4,6 +4,29 @@ All official releases and user impacts are documented here in chronological orde
 
 ---
 
+## [Unreleased]
+### User Impact: Claude Connector & MCP
+- **Connect Claude with a sign-in, not an API key**: `/api/mcp` is now an OAuth 2.1 protected resource (discovery metadata, Dynamic Client Registration, PKCE S256, refresh-token rotation with replay detection). Add `<your-app-url>/api/mcp` as a custom connector in claude.ai. Write access is opt-in on the consent screen; manage and revoke under **Settings → MCP → Connected apps**. API keys keep working.
+- **Draw diagrams without coordinates**: new `collabpro_apply_diagram_spec` takes nodes/edges/groups and lays them out server-side (overlap-free, bound arrows). `collabpro_place_icon` turns a phrase like "aws lambda" into an icon ref.
+- **More tools (8 → 13)**: `collabpro_list_teams`, `collabpro_search`, `collabpro_export_file`, `collabpro_place_icon`, `collabpro_apply_diagram_spec`. Optional `collabpro_create_diagram` appears only when a team has its own AI provider configured and uses that team's key.
+- **Safer concurrent edits**: `get_file` returns `documentVersion`/`whiteboardVersion`; writes accept `baseVersion` and reject if the file changed. All tools return typed `structuredContent`.
+- **Operator controls**: `MCP_DISABLED`, `MCP_READ_ONLY`, `MCP_DISABLED_TOOLS`, `OAUTH_DISABLED` kill switches; runbook, threat model and load-test script added. Claude plugin bundle in `plugins/collabpro/`.
+- **Stricter sign-in security**: a replayed authorization code revokes the tokens it issued, concurrent refreshes no longer risk logging you out, and the consent screen warns when an app runs on your own computer. Details: `docs/mcp-threat-model.md`.
+- **Security**: post-login redirect now only accepts same-site paths (closes an open redirect); the OAuth consent page cannot be framed.
+
+### User Impact: New Capabilities
+- **Export Includes Images, Plus PDF**: Markdown and HTML exports now carry document images (absolute URLs, captions, saved widths); a new print-to-PDF export sanitizes rich text before rendering.
+- **Paste Canvas PNGs Anywhere**: Excalidraw "Copy as PNG" now pastes into the document at any position.
+- **Document Tables Render**: `@editorjs/table` is registered, so tables no longer disappear.
+- **Landing Page Teaser Video** in the hero.
+
+### User Impact: Fixes
+- Standard S3/VPC canvas icon URLs repaired and the standard set expanded.
+- `/dashboard/settings/mcp` no longer crashes for users with an existing API key.
+- Help Center now says the MCP server has 13 core tools (it said 6; plus an optional AI diagram tool when a team has a provider).
+
+---
+
 ## [4.0.0] - 2026-08-16
 ### User Impact: New Capabilities
 - **MCP Automation Platform, Rebuilt on the Official SDK**: Migrated the AI-agent integration onto `@modelcontextprotocol/sdk` behind a real, spec-compliant Streamable HTTP server at `/api/mcp` (plus a stdio bridge for Claude Desktop/Cursor/Windsurf). Grew from a handful of ad-hoc tools to **8 schema-validated tools** — list, get, and create files; update a document or whiteboard; search, list, and place icons from 200+ community Excalidraw libraries — all access-scoped to the caller's teams and going through the same compare-and-swap writers as every other write path in the app.

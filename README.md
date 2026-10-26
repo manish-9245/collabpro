@@ -18,6 +18,8 @@ CollabPro is **self-contained with zero required third-party SaaS dependencies**
 ### 📝 1. Rich Collaborative Document Editor
 - **Editor.js Blocks**: Responsive block-based document editing featuring custom paragraphs, checklists, headers, and bullet lists.
 - **Bi-directional Split Screen**: Work simultaneously with a live documents panel on the left and a system design canvas on the right.
+- **Tables, Images & Canvas Pastes**: Tables render as real blocks, and a canvas "Copy as PNG" pastes straight into the document.
+- **Export**: Markdown and HTML (images included, with absolute URLs) plus print-to-PDF from the workspace header.
 - **Syncing & Cache**: State auto-saves dynamically, with a shared client-side query cache to prevent redundant fetches and network races.
 
 ### 📐 2. Infinite Collaborative Canvas
@@ -45,11 +47,13 @@ CollabPro is **self-contained with zero required third-party SaaS dependencies**
 
 ### 🤖 6. MCP Automation Tools
 - **Spec-compliant remote server**: `/api/mcp` is a real Streamable HTTP MCP server built on the official `@modelcontextprotocol/sdk` — any supporting client (including VS Code natively, via the bundled `.vscode/mcp.json`) connects directly with just a URL and API key, no local install.
+- **One-click Claude connector**: add `<your-app-url>/api/mcp` as a custom connector in claude.ai and sign in with OAuth 2.1 (PKCE, dynamic client registration, refresh rotation) — no API key. Write access is opt-in at the consent screen and revocable under Settings → MCP → Connected apps. See [`docs/mcp-integration.md`](docs/mcp-integration.md#option-c--claude-claudeai--desktop--mobile-custom-connector).
 - **stdio bridge for legacy clients**: `scripts/mcp-server.ts` bridges local stdio clients (Claude Desktop, Cursor, Windsurf) to the same server.
-- **8 tools**: list/get/create files, update a document or whiteboard, and search/list/place icons from 200+ community Excalidraw libraries (`collabpro_list_files`, `collabpro_get_file`, `collabpro_create_file`, `collabpro_update_document`, `collabpro_update_whiteboard`, `collabpro_search_icon_libraries`, `collabpro_list_library_items`, `collabpro_get_library_icon`) — schema-validated and access-scoped to the caller's teams, writes going through the same compare-and-swap writers as every other write path in the app.
+- **13 tools**: list teams/files, full-text search, get/create files, update a document or whiteboard, export (svg/markdown/html/text), place icons from 200+ community Excalidraw libraries, and `collabpro_apply_diagram_spec` — describe nodes and edges and the server lays out the diagram (no coordinates needed). An optional `collabpro_create_diagram` (plain English → diagram) appears only when a team has configured its own AI provider. Schema-validated, typed `structuredContent` results, access-scoped to the caller's teams, writes through the same compare-and-swap writers as everywhere else, with opt-in `baseVersion` conflict detection.
 - **Built for building a diagram across many calls, not just one**: `collabpro_update_whiteboard` merges onto the existing board by id by default (a later call never discards an earlier one's work) — full-replace is an explicit opt-in, not the default. Icons are placed by a short-lived `ref` from `collabpro_get_library_icon`, not by re-passing their full element geometry on every call.
 - **Enforced diagram quality**: overlapping shapes, non-finite coordinates, text with no visible color, and zero-length arrows are all rejected server-side (not just a suggestion in a tool description) — same rules for every calling AI. A `collabpro_diagram_guidelines` MCP **prompt** covers the rest (color/spacing/typography/section-header placement/real arrow bindings), sourced from the community `.excalidrawlib` libraries.
 - **Rate limited, audited, observable**: per-API-key rate limiting, an audit-log entry for every write/auth-failure, and structured request logging — see [`docs/mcp-integration.md`](docs/mcp-integration.md#reliability-limits-and-audit).
+- **Operations & security**: kill switches, runbook and threat model in [`docs/runbooks/mcp.md`](docs/runbooks/mcp.md) and [`docs/mcp-threat-model.md`](docs/mcp-threat-model.md).
 - **Full setup guide, tool/prompt reference, and troubleshooting**: [`docs/mcp-integration.md`](docs/mcp-integration.md).
 
 ### 🧠 7. Multi-Provider AI Co-Pilot

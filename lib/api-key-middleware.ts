@@ -1,11 +1,15 @@
 import { prisma } from '@/lib/db';
 import { createHash } from 'crypto';
+import { ACCESS_TOKEN_PREFIX } from '@/lib/oauth/core';
+import { verifyOAuthAccessToken } from '@/lib/oauth/store';
 
 export interface ApiKeyVerificationResult {
   isValid: boolean;
   userEmail: string | null;
   scope: string | null;
   apiKeyId?: string | null;
+  /** Set when the caller authenticated with an OAuth access token (Claude connector). */
+  oauthClientId?: string;
   error?: string;
   statusCode?: number;
 }
@@ -30,12 +34,27 @@ export function isReadOnlyOperation(path: string): boolean {
   return /^(get|search)/.test(action || '');
 }
 
+async function verifyOAuthBearer(token: string, isWriteOperation: boolean | undefined, allowed: boolean): Promise<ApiKeyVerificationResult> {
+  if (!allowed || process.env.OAUTH_DISABLED === 'true') {
+    return { isValid: false, userEmail: null, scope: null, error: 'OAuth tokens are not accepted on this endpoint', statusCode: 401 };
+  }
+  const oauth = await verifyOAuthAccessToken(prisma, token);
+  if (!oauth) {
+    return { isValid: false, userEmail: null, scope: null, error: 'Invalid or expired access token', statusCode: 401 };
+  }
+  if (isWriteOperation && oauth.scope === 'read-only') {
+    return { isValid: false, userEmail: oauth.userEmail, scope: oauth.scope, error: 'Forbidden: token has read-only access scope', statusCode: 403 };
+  }
+  return { isValid: true, userEmail: oauth.userEmail, scope: oauth.scope, apiKeyId: `oauth:${oauth.familyId}`, oauthClientId: oauth.clientId };
+}
+
 /**
  * Verify an authorization header containing a CollabPro PAT and return verification details
  */
 export async function verifyApiKey(
   authorizationHeader: string | null,
-  isWriteOperation?: boolean
+  isWriteOperation?: boolean,
+  options: { allowOAuth?: boolean } = {}
 ): Promise<ApiKeyVerificationResult> {
   if (!authorizationHeader) {
     return {
@@ -59,6 +78,14 @@ export async function verifyApiKey(
   }
 
   const token = parts[1].trim();
+
+  // OAuth access tokens are audience-bound to the MCP endpoint: only callers
+  // that opt in (app/api/mcp/route.ts) accept them, so a connector token can
+  // never authenticate state-sync or any other API-key-gated route.
+  if (token.startsWith(ACCESS_TOKEN_PREFIX)) {
+    return verifyOAuthBearer(token, isWriteOperation, options.allowOAuth === true);
+  }
+
   if (!token.startsWith('collabpro_pat_')) {
     return {
       isValid: false,

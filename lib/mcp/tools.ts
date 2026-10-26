@@ -1,13 +1,17 @@
 import { z } from 'zod';
 import type { PrismaClient } from '@prisma/client';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { casUpdateDocument, casUpdateWhiteboard } from '@/lib/cas-writes';
+import { casUpdateDocument, casUpdateWhiteboard, CasConflictError } from '@/lib/cas-writes';
 import { invalidateCachedFile } from '@/lib/redis-cache';
 import { logAuditEvent } from '@/lib/audit';
 import { parseJsonIfString, asEditorDocument, asWhiteboardPayload, asJsonString } from '@/lib/state-sync-helpers';
-import { extractTextFromWhiteboard } from '@/lib/file-service';
+import { extractTextFromDocument, extractTextFromWhiteboard } from '@/lib/file-service';
 import { searchIconLibraries, listLibraryItems, getLibraryIcon } from '@/lib/mcp/icon-libraries';
 import { storeIconPlacement, takeIconPlacement } from '@/lib/mcp/icon-placement-cache';
+import { createHash, randomBytes } from 'node:crypto';
+import { exportFile } from '@/lib/mcp/export';
+import { buildElements, defaultSize, layoutDiagram, MAX_EDGE_LABEL, MAX_NODE_LABEL, validateSpec, type DiagramSpec, type SpecElement } from '@/lib/mcp/diagram-spec';
+import { parseWhiteboardElements } from '@/lib/whiteboard-svg';
 
 /**
  * Canonical MCP tool registry - the single source of truth for every tool
@@ -31,6 +35,18 @@ export interface McpToolContext {
   // Caller IP, threaded through purely for audit log entries on write tools -
   // this module never makes access decisions based on it.
   ip?: string;
+  /** Set when the caller authenticated via OAuth (a Claude connector) rather than an API key. */
+  oauthClientId?: string;
+  /** Public origin, used to hand back clickable file URLs. */
+  baseUrl?: string;
+  /** True when some team the user belongs to has an AI provider configured; gates whether collabpro_create_diagram is offered at all. */
+  aiAvailable?: boolean;
+  /**
+   * Returns a spec generator bound to ONE team's own provider key (undefined if
+   * that team has none). The AI tool calls it with the team the diagram goes
+   * into, so a user in teams A and B can never spend A's key on B's file.
+   */
+  generatorForTeam?: (teamId: string) => Promise<((instruction: string) => Promise<DiagramSpec>) | undefined>;
 }
 
 // Same "creator OR member" union every other access check in this app uses
@@ -63,8 +79,74 @@ async function getAuthorizedFile(ctx: McpToolContext, fileId: string) {
   return file;
 }
 
+// Every success result carries both a text block (what older clients render)
+// and structuredContent (typed, validated against the tool's outputSchema).
+// The JSON round-trip drops Dates etc. so the payload is always plain JSON.
 function textResult(data: unknown) {
-  return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
+  const plain: unknown = JSON.parse(JSON.stringify(data ?? null));
+  const structured = plain && typeof plain === 'object' && !Array.isArray(plain) ? (plain as Record<string, unknown>) : { items: plain };
+  return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }], structuredContent: structured };
+}
+
+// Short content hash of one file field. get_file hands it out as a version and
+// write tools accept it back as baseVersion, so an agent can detect that a
+// human edited the file after it read it (optimistic concurrency, opt-in).
+function fieldVersion(value: string | null | undefined): string {
+  return createHash('sha256').update(value ?? '').digest('hex').slice(0, 16);
+}
+
+const baseVersionParam = z.string().optional()
+  .describe('Optional. The documentVersion/whiteboardVersion from collabpro_get_file. If the file changed since, the write is rejected instead of overwriting someone else\'s edit.');
+
+function fileUrl(ctx: McpToolContext, fileId: string): string | undefined {
+  return ctx.baseUrl ? `${ctx.baseUrl}/workspace/${fileId}` : undefined;
+}
+
+function resourceLink(url: string | undefined, name: string) {
+  return url ? [{ type: 'resource_link' as const, uri: url, name, mimeType: 'text/html' }] : [];
+}
+
+const MAX_BOARD_ELEMENTS = 500;
+
+/** Runs a CAS write; a stale `expectedRaw` surfaces as the same `Conflict` tool error as the up-front version check. */
+async function conflictAware<T>(run: () => Promise<T>): Promise<{ ok: true; value: T } | { ok: false; error: ReturnType<typeof errorResult> }> {
+  try {
+    return { ok: true, value: await run() };
+  } catch (err) {
+    if (err instanceof CasConflictError) {
+      return { ok: false, error: errorResult(`${err.message} Re-read it with collabpro_get_file and merge your change.`) };
+    }
+    throw err;
+  }
+}
+
+/** Element count the board would have AFTER a merge: existing live ids, minus deletions, plus new ids. */
+function mergedElementCount(existingWhiteboard: string, updated: unknown[], deleted: unknown[]): number {
+  const ids = new Set<string>();
+  for (const el of parseWhiteboardElements(existingWhiteboard) as { id?: unknown; isDeleted?: boolean }[]) {
+    if (typeof el.id === 'string' && !el.isDeleted) ids.add(el.id);
+  }
+  for (const id of deleted) if (typeof id === 'string') ids.delete(id);
+  for (const el of updated) {
+    const id = (el as { id?: unknown } | null)?.id;
+    if (typeof id === 'string') ids.add(id);
+  }
+  return ids.size;
+}
+
+async function reportProgress(
+  extra: { _meta?: { progressToken?: string | number }; sendNotification?: (n: any) => Promise<void> } | undefined,
+  progress: number,
+  total: number,
+  message: string
+) {
+  const token = extra?._meta?.progressToken;
+  if (token === undefined || !extra?.sendNotification) return;
+  try {
+    await extra.sendNotification({ method: 'notifications/progress', params: { progressToken: token, progress, total, message } });
+  } catch {
+    // Progress is best-effort; never fail the tool over it.
+  }
 }
 
 function errorResult(message: string) {
@@ -189,6 +271,7 @@ export function registerCollabProTools(server: McpServer, ctx: McpToolContext) {
         cursor: z.string().optional().describe('Opaque cursor from a previous call\'s nextCursor, to fetch the next page.'),
       },
       annotations: { title: 'List Files', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      outputSchema: { files: z.array(z.record(z.string(), z.unknown())), nextCursor: z.string().nullable() },
     },
     async (args) => {
       const allowedTeamIds = await getAllowedTeamIds(ctx);
@@ -234,13 +317,14 @@ export function registerCollabProTools(server: McpServer, ctx: McpToolContext) {
         fileId: z.string().describe('The absolute file UUID to fetch.'),
       },
       annotations: { title: 'Get File', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      outputSchema: { id: z.string(), fileName: z.string(), teamId: z.string(), documentVersion: z.string(), whiteboardVersion: z.string(), fileUrl: z.string().optional() },
     },
     async ({ fileId }) => {
       const file = await getAuthorizedFile(ctx, fileId);
       if (!file) {
         return errorResult('File not found or access denied');
       }
-      return textResult(file);
+      return textResult({ ...file, documentVersion: fieldVersion(file.document), whiteboardVersion: fieldVersion(file.whiteboard), fileUrl: fileUrl(ctx, file.id) });
     }
   );
 
@@ -258,6 +342,7 @@ export function registerCollabProTools(server: McpServer, ctx: McpToolContext) {
         folder: z.string().optional().describe('Optional folder path to file this under, e.g. "Design/Mockups".'),
       },
       annotations: { title: 'Create File', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+      outputSchema: { created: z.boolean(), file: z.record(z.string(), z.unknown()), fileUrl: z.string().optional() },
     },
     async ({ fileName, teamId, document, whiteboard, folder }) => {
       if (ctx.scope === 'read-only') {
@@ -287,9 +372,9 @@ export function registerCollabProTools(server: McpServer, ctx: McpToolContext) {
         },
       });
 
-      void logAuditEvent(teamId, ctx.userEmail, 'mcp:create_file', { fileId: file.id }, ctx.ip);
+      void logAuditEvent(teamId, ctx.userEmail, 'mcp:create_file', { fileId: file.id, oauthClientId: ctx.oauthClientId }, ctx.ip);
 
-      return textResult({ created: true, file });
+      return { ...textResult({ created: true, file, fileUrl: fileUrl(ctx, file.id) }), content: [{ type: 'text' as const, text: JSON.stringify({ created: true, file }, null, 2) }, ...resourceLink(fileUrl(ctx, file.id), file.fileName)] };
     }
   );
 
@@ -301,10 +386,12 @@ export function registerCollabProTools(server: McpServer, ctx: McpToolContext) {
         fileId: z.string().describe('The file ID to modify.'),
         document: z.union([z.string(), z.record(z.string(), z.unknown())])
           .describe('Editor.js structured payload (object), or a JSON string of the same shape.'),
+        baseVersion: baseVersionParam,
       },
       annotations: { title: 'Update Document', readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+      outputSchema: { updated: z.boolean(), document: z.unknown(), documentVersion: z.string() },
     },
-    async ({ fileId, document }) => {
+    async ({ fileId, document, baseVersion }) => {
       if (ctx.scope === 'read-only') {
         return errorResult('Forbidden: API key has read-only access scope');
       }
@@ -312,20 +399,27 @@ export function registerCollabProTools(server: McpServer, ctx: McpToolContext) {
       if (!file) {
         return errorResult('File not found or access denied');
       }
+      if (baseVersion && baseVersion !== fieldVersion(file.document)) {
+        return errorResult('Conflict: the document changed since you read it. Re-read it with collabpro_get_file and merge your change.');
+      }
 
       // Reuses the same compare-and-swap writer every other write path in
       // this app goes through (HTTP state-sync, the WS gateway), instead of
       // a raw prisma.file.update() with no conflict protection.
-      const savedDocument = await casUpdateDocument(ctx.prisma, fileId, document, {
+      const written = await conflictAware(() => casUpdateDocument(ctx.prisma, fileId, document, {
         onPersisted: (persistedId) => invalidateCachedFile(persistedId),
-      });
+        // Re-checked inside the CAS loop, so an edit landing after the check above still conflicts.
+        ...(baseVersion ? { expectedRaw: file.document ?? '' } : {}),
+      }));
+      if (!written.ok) return written.error;
+      const savedDocument = written.value;
 
       // An agentic caller overwriting content unattended is worth auditing
       // the same way other security-relevant actions in this app are,
       // unlike a routine human edit through the editor UI.
-      void logAuditEvent(file.teamId, ctx.userEmail, 'mcp:update_document', { fileId }, ctx.ip);
+      void logAuditEvent(file.teamId, ctx.userEmail, 'mcp:update_document', { fileId, oauthClientId: ctx.oauthClientId }, ctx.ip);
 
-      return textResult({ updated: true, document: savedDocument });
+      return textResult({ updated: true, document: savedDocument, documentVersion: fieldVersion(JSON.stringify(savedDocument)) });
     }
   );
 
@@ -341,12 +435,14 @@ export function registerCollabProTools(server: McpServer, ctx: McpToolContext) {
           .describe('"ref" values from prior collabpro_get_library_icon calls, to place those icons without re-passing their full element geometry. Merged in alongside "whiteboard". Each ref is single-use and expires after 30 minutes.'),
         deleted: z.array(z.string()).optional()
           .describe('Element ids to remove from the board. Only applies in the default merge mode - ignored if "replaceAll" is true, since a full replace already implies removing anything not included.'),
+        baseVersion: baseVersionParam,
         replaceAll: z.boolean().optional()
           .describe('If true, "whiteboard" REPLACES the entire board - matches how the human editor autosaves its full canvas state. DESTRUCTIVE: anything already on the board that "whiteboard" doesn\'t include is discarded. Default false (merge) is almost always what you want; only set this for a deliberate full regenerate.'),
       },
       annotations: { title: 'Update Whiteboard', readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+      outputSchema: { updated: z.boolean(), whiteboard: z.unknown(), whiteboardVersion: z.string() },
     },
-    async ({ fileId, whiteboard, iconRefs, deleted, replaceAll }) => {
+    async ({ fileId, whiteboard, iconRefs, deleted, replaceAll, baseVersion }) => {
       if (ctx.scope === 'read-only') {
         return errorResult('Forbidden: API key has read-only access scope');
       }
@@ -359,6 +455,9 @@ export function registerCollabProTools(server: McpServer, ctx: McpToolContext) {
       const file = await getAuthorizedFile(ctx, fileId);
       if (!file) {
         return errorResult('File not found or access denied');
+      }
+      if (baseVersion && baseVersion !== fieldVersion(file.whiteboard)) {
+        return errorResult('Conflict: the whiteboard changed since you read it. Re-read it with collabpro_get_file and merge your change.');
       }
 
       const resolvedIconElements: Record<string, unknown>[] = [];
@@ -430,17 +529,29 @@ export function registerCollabProTools(server: McpServer, ctx: McpToolContext) {
       if (layoutIssues.length > 0) {
         return errorResult(`Whiteboard rejected - fix these layout issues and retry:\n- ${layoutIssues.join('\n- ')}`);
       }
+      // validateWhiteboardGeometry only sees the incoming elements; in merge
+      // mode the board's final size is existing + new, which must also fit.
+      if (!replaceAll) {
+        const delta = payloadForWrite as { updated: unknown[]; deleted: unknown[] };
+        const finalCount = mergedElementCount(file.whiteboard, delta.updated, delta.deleted);
+        if (finalCount > MAX_BOARD_ELEMENTS) {
+          return errorResult(`Whiteboard would have ${finalCount} elements after this merge - max ${MAX_BOARD_ELEMENTS}. Delete some elements first.`);
+        }
+      }
 
       // casUpdateWhiteboard returns the final whiteboard as a JSON string
       // (unlike casUpdateDocument, which returns a plain object) - parse it
       // back before embedding, or it double-encodes as an escaped string.
-      const savedWhiteboardString = await casUpdateWhiteboard(ctx.prisma, fileId, payloadForWrite, {
+      const written = await conflictAware(() => casUpdateWhiteboard(ctx.prisma, fileId, payloadForWrite, {
         onPersisted: (persistedId) => invalidateCachedFile(persistedId),
-      });
+        ...(baseVersion ? { expectedRaw: file.whiteboard ?? '' } : {}),
+      }));
+      if (!written.ok) return written.error;
+      const savedWhiteboardString = written.value;
 
-      void logAuditEvent(file.teamId, ctx.userEmail, 'mcp:update_whiteboard', { fileId }, ctx.ip);
+      void logAuditEvent(file.teamId, ctx.userEmail, 'mcp:update_whiteboard', { fileId, oauthClientId: ctx.oauthClientId }, ctx.ip);
 
-      return textResult({ updated: true, whiteboard: JSON.parse(savedWhiteboardString) });
+      return textResult({ updated: true, whiteboard: JSON.parse(savedWhiteboardString), whiteboardVersion: fieldVersion(savedWhiteboardString) });
     }
   );
 
@@ -452,6 +563,7 @@ export function registerCollabProTools(server: McpServer, ctx: McpToolContext) {
         query: z.string().min(1).describe('Keyword to match against library names/descriptions/item names, e.g. "aws", "azure", "network".'),
       },
       annotations: { title: 'Search Icon Libraries', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      outputSchema: { results: z.array(z.record(z.string(), z.unknown())) },
     },
     async ({ query }) => {
       try {
@@ -471,6 +583,7 @@ export function registerCollabProTools(server: McpServer, ctx: McpToolContext) {
         librarySource: z.string().describe('Library file, e.g. "childishgirl/aws-architecture-icons.excalidrawlib" - from collabpro_search_icon_libraries\'s "source" field.'),
       },
       annotations: { title: 'List Library Items', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      outputSchema: { librarySource: z.string(), count: z.number(), items: z.array(z.record(z.string(), z.unknown())) },
     },
     async ({ librarySource }) => {
       try {
@@ -495,10 +608,11 @@ export function registerCollabProTools(server: McpServer, ctx: McpToolContext) {
         idPrefix: z.string().optional().describe('Prefix for namespacing this icon\'s element/group IDs. Defaults to a random prefix; set your own for a stable, predictable ID.'),
       },
       annotations: { title: 'Get Library Icon', readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+      outputSchema: { name: z.string(), ref: z.string(), width: z.number(), height: z.number(), elementCount: z.number(), note: z.string() },
     },
     async ({ librarySource, item, x, y, scale, idPrefix }) => {
       try {
-        const prefix = idPrefix || `icon${Math.random().toString(36).slice(2, 8)}`;
+        const prefix = idPrefix || `icon${randomBytes(4).toString('hex')}`;
         const { name, elements, width, height } = await getLibraryIcon(librarySource, item, x, y, prefix, scale);
         const ref = storeIconPlacement(name, elements);
         return textResult({
@@ -510,4 +624,293 @@ export function registerCollabProTools(server: McpServer, ctx: McpToolContext) {
       }
     }
   );
+  server.registerTool(
+    'collabpro_list_teams',
+    {
+      description: 'List the teams you can access (id, name). Use a returned id as teamId for collabpro_create_file / collabpro_list_files / collabpro_search instead of guessing.',
+      inputSchema: {},
+      annotations: { title: 'List Teams', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      outputSchema: { teams: z.array(z.object({ id: z.string(), teamName: z.string(), description: z.string() })) },
+    },
+    async () => {
+      const ids = await getAllowedTeamIds(ctx);
+      const teams = ids.length
+        ? await ctx.prisma.team.findMany({ where: { id: { in: ids } }, select: { id: true, teamName: true, description: true } })
+        : [];
+      return textResult({ teams });
+    }
+  );
+
+  server.registerTool(
+    'collabpro_search',
+    {
+      description: 'Full-text search across file names, document text and whiteboard labels in your teams. Returns matching files with a short snippet; call collabpro_get_file on the one you want. Case-insensitive substring match.',
+      inputSchema: {
+        query: z.string().min(2).max(200).describe('Text to look for.'),
+        teamId: z.string().optional().describe('Restrict to one team (see collabpro_list_teams).'),
+        limit: z.number().int().min(1).max(50).default(20).describe('Max results (1-50, default 20).'),
+      },
+      annotations: { title: 'Search Files', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      outputSchema: { results: z.array(z.object({ id: z.string(), fileName: z.string(), teamId: z.string(), folder: z.string().nullable(), snippet: z.string() })) },
+    },
+    async ({ query, teamId, limit }) => {
+      const allowed = await getAllowedTeamIds(ctx);
+      const contains = { contains: query, mode: 'insensitive' as const };
+      const rows = await ctx.prisma.file.findMany({
+        where: {
+          teamId: teamId && allowed.includes(teamId) ? teamId : { in: allowed },
+          archive: false,
+          OR: [{ fileName: contains }, { whiteboardText: contains }, { document: contains }],
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, fileName: true, teamId: true, folder: true, whiteboardText: true, document: true },
+        take: limit,
+      });
+      const needle = query.toLowerCase();
+      const results = rows.map((f) => {
+        const text = `${extractTextFromDocument(f.document)}\n${f.whiteboardText}`;
+        const at = text.toLowerCase().indexOf(needle);
+        const snippet = at < 0 ? '' : text.slice(Math.max(0, at - 60), at + needle.length + 100).replace(/\s+/g, ' ').trim();
+        return { id: f.id, fileName: f.fileName, teamId: f.teamId, folder: f.folder ?? null, snippet };
+      });
+      return textResult({ results });
+    }
+  );
+
+  server.registerTool(
+    'collabpro_export_file',
+    {
+      description: 'Export a file as text: "svg" (the whiteboard rendered as SVG), "markdown" or "html" (the document), or "text" (plain document text). Output is capped at ~100k characters ("truncated": true if cut). For PNG or PDF use the Export menu in the CollabPro workspace.',
+      inputSchema: {
+        fileId: z.string().describe('The file to export.'),
+        format: z.enum(['svg', 'markdown', 'html', 'text']).default('markdown').describe('Output format.'),
+      },
+      annotations: { title: 'Export File', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      outputSchema: { format: z.string(), mimeType: z.string(), truncated: z.boolean(), content: z.string() },
+    },
+    async ({ fileId, format }) => {
+      const file = await getAuthorizedFile(ctx, fileId);
+      if (!file) return errorResult('File not found or access denied');
+      const out = exportFile(file, format);
+      return textResult({ format, mimeType: out.mimeType, truncated: out.truncated, content: out.content });
+    }
+  );
+
+  server.registerTool(
+    'collabpro_place_icon',
+    {
+      description: 'One-step icon placement: describe the icon in words (e.g. "aws lambda", "kubernetes pod", "postgres"). Searches the community Excalidraw libraries, picks the best-named vector icon, and returns a "ref" for collabpro_update_whiteboard\'s iconRefs (single-use, 30 min) plus its width/height footprint at (x, y). Replaces the search -> list -> get sequence; those tools remain for browsing.',
+      inputSchema: {
+        query: z.string().min(2).max(100).describe('What the icon depicts, e.g. "aws s3".'),
+        x: z.number().describe('Target x (icon top-left).'),
+        y: z.number().describe('Target y (icon top-left).'),
+        scale: z.number().positive().max(10).default(1).describe('Uniform scale factor.'),
+      },
+      annotations: { title: 'Place Icon', readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+      outputSchema: { name: z.string(), librarySource: z.string(), ref: z.string(), width: z.number(), height: z.number(), elementCount: z.number() },
+    },
+    async ({ query, x, y, scale }) => {
+      try {
+        const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
+        const libs = new Map<string, true>();
+        for (const t of tokens) {
+          for (const lib of (await searchIconLibraries(t)).slice(0, 3)) libs.set(lib.source, true);
+          if (libs.size >= 3) break;
+        }
+        const candidates = await Promise.all(
+          [...libs.keys()].slice(0, 3).map(async (source) => {
+            try { return { source, items: await listLibraryItems(source) }; } catch { return { source, items: [] }; }
+          })
+        );
+        let best: { source: string; index: number; name: string; score: number; size: number } | null = null;
+        for (const { source, items } of candidates) {
+          for (const it of items) {
+            if (it.hasImage) continue;
+            const name = it.name.toLowerCase();
+            const score = tokens.filter((t) => name.includes(t)).length;
+            if (score === 0) continue;
+            if (!best || score > best.score || (score === best.score && it.elementCount < best.size)) {
+              best = { source, index: it.index, name: it.name, score, size: it.elementCount };
+            }
+          }
+        }
+        if (!best) return errorResult(`No vector icon matched "${query}". Try a shorter query, or browse with collabpro_search_icon_libraries.`);
+        const prefix = `icon${randomBytes(4).toString('hex')}`;
+        const icon = await getLibraryIcon(best.source, String(best.index), x, y, prefix, scale);
+        const ref = storeIconPlacement(icon.name, icon.elements);
+        return textResult({ name: icon.name, librarySource: best.source, ref, width: icon.width, height: icon.height, elementCount: icon.elements.length });
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err));
+      }
+    }
+  );
+
+  // Shared by apply_diagram_spec and the optional AI tools: validates a graph
+  // spec, lays it out, resolves icon nodes, geometry-checks and writes it.
+  async function applySpecToFile(
+    file: NonNullable<Awaited<ReturnType<typeof getAuthorizedFile>>>,
+    spec: DiagramSpec,
+    replaceAll: boolean,
+    baseVersion: string | undefined,
+  ) {
+    if (baseVersion && baseVersion !== fieldVersion(file.whiteboard)) {
+      return errorResult('Conflict: the whiteboard changed since you read it. Re-read it with collabpro_get_file and retry.');
+    }
+    const specIssues = validateSpec(spec);
+    if (specIssues.length > 0) return errorResult(`Invalid diagram spec:\n- ${specIssues.join('\n- ')}`);
+
+    // Measure icon nodes at the origin first (the library fetch is cached),
+    // so layout leaves room for their real footprint.
+    const sizes = new Map<string, { w: number; h: number }>();
+    const iconNodes = spec.nodes.filter((n) => n.icon);
+    if (iconNodes.length > 20) return errorResult('At most 20 icon nodes per call.');
+    try {
+      await Promise.all(iconNodes.map(async (n) => {
+        const m = await getLibraryIcon(n.icon!.librarySource, n.icon!.item, 0, 0, `m-${n.id}`, 1);
+        sizes.set(n.id, { w: Math.max(m.width, 40), h: Math.max(m.height, 40) });
+      }));
+    } catch (err) {
+      return errorResult(err instanceof Error ? err.message : String(err));
+    }
+    for (const n of spec.nodes) if (!sizes.has(n.id)) sizes.set(n.id, defaultSize(n.label));
+
+    // Merge mode drops the new diagram below whatever is already on the board.
+    let originY = 0;
+    if (!replaceAll) {
+      const existing = parseWhiteboardElements(file.whiteboard) as { y?: number; height?: number; isDeleted?: boolean }[];
+      const bottoms = existing.filter((e) => !e.isDeleted).map((e) => (e.y ?? 0) + (e.height ?? 0));
+      if (bottoms.length) originY = Math.max(...bottoms) + 80;
+    }
+    const boxes = layoutDiagram(spec, sizes);
+    for (const b of boxes.values()) b.y += originY;
+    // Excalidraw ids are board-wide: a per-call prefix keeps this diagram from
+    // colliding with (and silently overwriting) anything already on the board.
+    const idPrefix = `d${randomBytes(3).toString('hex')}-`;
+
+    const iconElements = new Map<string, SpecElement[]>();
+    try {
+      await Promise.all(iconNodes.map(async (n) => {
+        const b = boxes.get(n.id)!;
+        const placed = await getLibraryIcon(n.icon!.librarySource, n.icon!.item, b.x, b.y, `${idPrefix}${n.id}-`, 1);
+        iconElements.set(n.id, placed.elements);
+      }));
+    } catch (err) {
+      return errorResult(err instanceof Error ? err.message : String(err));
+    }
+
+    const elements = buildElements(spec, boxes, iconElements, idPrefix);
+    const issues = validateWhiteboardGeometry(elements);
+    if (issues.length > 0) return errorResult(`Generated diagram failed layout checks:\n- ${issues.join('\n- ')}`);
+    if (!replaceAll) {
+      const finalCount = mergedElementCount(file.whiteboard, elements, []);
+      if (finalCount > MAX_BOARD_ELEMENTS) return errorResult(`Whiteboard would have ${finalCount} elements after this diagram - max ${MAX_BOARD_ELEMENTS}. Use replaceAll or delete some elements first.`);
+    }
+
+    const payload = replaceAll ? elements : { isDelta: true, updated: elements, deleted: [] };
+    const written = await conflictAware(() => casUpdateWhiteboard(ctx.prisma, file.id, payload, {
+      onPersisted: (id) => invalidateCachedFile(id),
+      ...(baseVersion ? { expectedRaw: file.whiteboard ?? '' } : {}),
+    }));
+    if (!written.ok) return written.error;
+    const saved = written.value;
+    void logAuditEvent(file.teamId, ctx.userEmail, 'mcp:apply_diagram_spec', { fileId: file.id, nodes: spec.nodes.length, oauthClientId: ctx.oauthClientId }, ctx.ip);
+    const url = fileUrl(ctx, file.id);
+    return {
+      ...textResult({ updated: true, elementCount: elements.length, whiteboardVersion: fieldVersion(saved), fileUrl: url }),
+      content: [{ type: 'text' as const, text: `Diagram written: ${spec.nodes.length} nodes, ${(spec.edges ?? []).length} edges.` }, ...resourceLink(url, file.fileName)],
+    };
+  }
+
+  const specNodeSchema = z.object({
+    id: z.string().min(1).max(60).describe('Unique id, referenced by edges.'),
+    label: z.string().min(1).max(MAX_NODE_LABEL).describe(`Text shown on the node (max ${MAX_NODE_LABEL} characters so it fits its box).`),
+    group: z.string().max(60).optional().describe('Nodes with the same group share a color.'),
+    icon: z.object({ librarySource: z.string(), item: z.string() }).optional()
+      .describe('Render a library icon instead of a box (librarySource/item from collabpro_search_icon_libraries / list_library_items).'),
+  });
+  const specEdgeSchema = z.object({ from: z.string(), to: z.string(), label: z.string().max(MAX_EDGE_LABEL).optional() });
+  const specOutput = { updated: z.boolean(), elementCount: z.number(), whiteboardVersion: z.string(), fileUrl: z.string().optional() };
+
+  server.registerTool(
+    'collabpro_apply_diagram_spec',
+    {
+      description: 'PREFERRED way to draw a diagram. Describe the graph - nodes, edges, optional groups/icons - and the server lays it out (layered, no overlaps), draws labeled boxes and bound arrows, and saves it. You never compute coordinates. By default the diagram is added below existing content; set replaceAll to start from a blank board. Use collabpro_update_whiteboard only for hand-placed drawing.',
+      inputSchema: {
+        fileId: z.string().describe('Target file.'),
+        nodes: z.array(specNodeSchema).min(1).max(60),
+        edges: z.array(specEdgeSchema).max(120).optional(),
+        direction: z.enum(['right', 'down']).default('right').describe('Flow direction.'),
+        replaceAll: z.boolean().default(false).describe('DESTRUCTIVE: replace the whole board instead of adding below existing content.'),
+        baseVersion: baseVersionParam,
+      },
+      annotations: { title: 'Apply Diagram Spec', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+      outputSchema: specOutput,
+    },
+    async ({ fileId, nodes, edges, direction, replaceAll, baseVersion }) => {
+      if (ctx.scope === 'read-only') return errorResult('Forbidden: API key has read-only access scope');
+      const file = await getAuthorizedFile(ctx, fileId);
+      if (!file) return errorResult('File not found or access denied');
+      return applySpecToFile(file, { nodes, edges, direction }, replaceAll, baseVersion);
+    }
+  );
+
+  // Optional server-side AI. Offered only when some team of the user has a
+  // provider; every call then uses the provider of the team the diagram is
+  // created in, and spends THAT team's key - never ours, never another team's.
+  if (ctx.aiAvailable && ctx.generatorForTeam) {
+    const generatorForTeam = ctx.generatorForTeam;
+    server.registerTool(
+      'collabpro_create_diagram',
+      {
+        description: 'Create a diagram from a plain-English description using the AI provider configured by the team the diagram goes into (costs that provider\'s tokens; errors if that team has none). Pass fileId to draw into an existing file, or teamId + fileName to create one. Equivalent to describing the graph yourself via collabpro_apply_diagram_spec - prefer that if you can, it is free.',
+        inputSchema: {
+          text: z.string().min(5).max(4000).describe('What to diagram, e.g. "checkout flow across web, API, payments and database".'),
+          fileId: z.string().optional(),
+          teamId: z.string().optional().describe('Required with fileName when creating a new file.'),
+          fileName: z.string().optional(),
+        },
+        annotations: { title: 'Create Diagram (AI)', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+        outputSchema: specOutput,
+      },
+      async ({ text, fileId, teamId, fileName }, extra) => {
+        if (ctx.scope === 'read-only') return errorResult('Forbidden: API key has read-only access scope');
+        const existing = fileId ? await getAuthorizedFile(ctx, fileId) : null;
+        if (fileId && !existing) return errorResult('File not found or access denied');
+        const targetTeamId = existing?.teamId ?? teamId;
+        if (!existing && (!teamId || !fileName)) return errorResult('Provide fileId, or teamId and fileName to create a new file.');
+        if (!targetTeamId || !(await getAllowedTeamIds(ctx)).includes(targetTeamId)) return errorResult('Team not found or access denied');
+
+        const generate = await generatorForTeam(targetTeamId);
+        if (!generate) return errorResult('This team has no AI provider configured (a team owner can add one in Settings -> AI). Use collabpro_apply_diagram_spec instead.');
+
+        await reportProgress(extra, 1, 3, 'Generating diagram spec');
+        let spec: DiagramSpec;
+        try {
+          spec = await generate(text);
+        } catch (err) {
+          return errorResult(`AI generation failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        // Validate BEFORE creating anything, so a bad model answer never leaves an orphan file.
+        const specIssues = validateSpec(spec);
+        if (specIssues.length > 0) return errorResult(`The model returned an unusable diagram:\n- ${specIssues.join('\n- ')}`);
+
+        await reportProgress(extra, 2, 3, 'Laying out and saving');
+        const created = existing ? null : await ctx.prisma.file.create({
+          data: { fileName: fileName!, teamId: targetTeamId, createdBy: ctx.userEmail, document: '', whiteboard: '', whiteboardText: '' },
+        });
+        const target = existing ?? created!;
+        const result = await applySpecToFile(target, spec, false, undefined);
+        if (created) {
+          if ('isError' in result && result.isError) {
+            // Don't leave an empty file behind if the write failed.
+            await ctx.prisma.file.deleteMany({ where: { id: created.id, createdBy: ctx.userEmail } }).catch(() => undefined);
+          } else {
+            void logAuditEvent(targetTeamId, ctx.userEmail, 'mcp:create_file', { fileId: created.id, oauthClientId: ctx.oauthClientId }, ctx.ip);
+          }
+        }
+        await reportProgress(extra, 3, 3, 'Done');
+        return result;
+      }
+    );
+  }
 }

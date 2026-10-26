@@ -1,0 +1,7 @@
+{
+  "name": "collabpro",
+  "version": "1.0.0",
+  "description": "Work with CollabPro documents and system-design whiteboards from Claude: search, read, draw diagrams from a plain description, and export.",
+  "author": { "name": "CollabPro" },
+  "license": "MIT"
+}

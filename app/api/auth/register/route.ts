@@ -69,6 +69,7 @@ export async function POST(request: Request) {
       image: user.image,
     }), {
       httpOnly: true,
+      sameSite: 'lax',
       secure: process.env.NODE_ENV === 'production',
       maxAge: 60 * 60 * 24, // 24 hours
       path: '/',

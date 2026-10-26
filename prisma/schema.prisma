@@ -24,6 +24,8 @@ model User {
   presences   FilePresence[]
   notifications Notification[]
   apiKeys     ApiKey[]
+  oauthCodes  OAuthCode[]
+  oauthTokens OAuthToken[]
   ownedTeams  Team[]         @relation("TeamOwner")
   teamMembers TeamMember[]   @relation("TeamMembers")
   filePresences FilePresence[] @relation("FilePresences")
@@ -297,4 +299,60 @@ model UploadedFile {
   mimeType  String
   payload   String   @default("")
   createdAt DateTime @default(now())
+}
+
+// OAuth 2.1 authorization server for remote MCP clients (Claude connectors).
+// Public clients only (PKCE, no client secret). Every secret value is stored
+// as a SHA-256 hash; raw values exist only in the HTTP response that issues
+// them.
+model OAuthClient {
+  id           String       @id @default(uuid())
+  clientId     String       @unique
+  clientName   String
+  redirectUris String[]
+  createdAt    DateTime     @default(now())
+  codes        OAuthCode[]
+  tokens       OAuthToken[]
+}
+
+model OAuthCode {
+  id            String      @id @default(uuid())
+  hashedCode    String      @unique
+  clientId      String
+  userEmail     String
+  codeChallenge String
+  redirectUri   String
+  scope         String
+  expiresAt     DateTime
+  usedAt        DateTime?
+  createdAt     DateTime    @default(now())
+  client        OAuthClient @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  user          User        @relation(fields: [userEmail], references: [email], onDelete: Cascade)
+
+  @@index([expiresAt])
+}
+
+// One row per issued access/refresh pair. Refresh rotation inserts a new row
+// in the same familyId and stamps rotatedAt on the old one; presenting an
+// already-rotated refresh token revokes the whole family (theft signal).
+model OAuthToken {
+  id               String      @id @default(uuid())
+  familyId         String
+  hashedAccess     String      @unique
+  hashedRefresh    String      @unique
+  clientId         String
+  userEmail        String
+  scope            String
+  accessExpiresAt  DateTime
+  refreshExpiresAt DateTime
+  rotatedAt        DateTime?
+  revokedAt        DateTime?
+  lastUsedAt       DateTime?
+  createdAt        DateTime    @default(now())
+  client           OAuthClient @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  user             User        @relation(fields: [userEmail], references: [email], onDelete: Cascade)
+
+  @@index([familyId])
+  @@index([userEmail])
+  @@index([refreshExpiresAt])
 }

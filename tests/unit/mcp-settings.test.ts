@@ -42,6 +42,9 @@ describe('MCP Client Integration Settings Hub Suite (Issue 41)', () => {
           }),
         };
       }
+      if (url === '/api/oauth/grants') {
+        return { ok: true, json: async () => ({ grants: [] }) };
+      }
       if (url === '/api/mcp') {
         return {
           ok: true,
@@ -57,6 +60,9 @@ describe('MCP Client Integration Settings Hub Suite (Issue 41)', () => {
     render(React.createElement(McpSettingsHub));
 
     await waitFor(() => expect(mockFetch).toHaveBeenCalledWith('/api/api-keys'));
+    // The default (Claude.ai connector) tab is keyless; the key UI belongs to the API-key tabs.
+    expect(screen.queryByPlaceholderText('YOUR_API_KEY_HERE')).toBeNull();
+    screen.getByText('Remote').click();
 
     // Reference text shows the masked value - never throws trying to derive
     // a display substring from a raw key the list endpoint doesn't return.
@@ -64,19 +70,36 @@ describe('MCP Client Integration Settings Hub Suite (Issue 41)', () => {
     // The input itself starts genuinely empty - the sentinel is a
     // placeholder hint, not a real value someone could accidentally submit
     // as their actual API key.
-    const input = screen.getByPlaceholderText('YOUR_API_KEY_HERE') as HTMLInputElement;
+    const input = (await screen.findByPlaceholderText('YOUR_API_KEY_HERE')) as HTMLInputElement;
     expect(input.value).toBe('');
   });
 
-  it('defaults to the Remote (No Install) tab, showing the direct /api/mcp endpoint', async () => {
+  it('defaults to the Claude.ai connector tab (OAuth sign-in, no API key) showing the /api/mcp URL', async () => {
     const { default: McpSettingsHub } = await import('@/app/(routes)/dashboard/settings/mcp/page');
     render(React.createElement(McpSettingsHub));
 
     await waitFor(() => expect(mockFetch).toHaveBeenCalledWith('/api/api-keys'));
 
+    await screen.findByText('Connector URL');
+    const urlBlock = await screen.findByText(/^https?:\/\/.*\/api\/mcp$/);
+    expect(urlBlock.textContent).toContain('/api/mcp');
+    // Connected apps list is loaded alongside.
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledWith('/api/oauth/grants'));
+  });
+
+  it('still offers the Remote (No Install) tab with the Authorization header', async () => {
+    const { default: McpSettingsHub } = await import('@/app/(routes)/dashboard/settings/mcp/page');
+    render(React.createElement(McpSettingsHub));
+
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledWith('/api/api-keys'));
+    screen.getByText('Remote').click();
+
     await screen.findByText('Server URL');
     const urlBlock = await screen.findByText(/^https?:\/\/.*\/api\/mcp$/);
     expect(urlBlock.textContent).toContain('/api/mcp');
+    // The header the client must send, exactly as it will render.
+    expect(await screen.findByText('Authorization Header')).toBeTruthy();
+    expect(await screen.findByText('Bearer YOUR_API_KEY_HERE')).toBeTruthy();
   });
 
   it('generates a Claude Desktop config using COLLABPRO_BASE_URL and npx tsx (not ts-node, which is not an installed dependency)', async () => {
@@ -125,10 +148,11 @@ describe('MCP Client Integration Settings Hub Suite (Issue 41)', () => {
     render(React.createElement(McpSettingsHub));
 
     await waitFor(() => expect(mockFetch).toHaveBeenCalledWith('/api/api-keys'));
+    screen.getByText('Remote').click(); // diagnostics + key input live on the API-key tabs
 
     // The list endpoint never returns a raw key, so nothing auto-fills the
     // bearer token - the user pastes their real key into the input first.
-    fireEvent.change(screen.getByPlaceholderText('YOUR_API_KEY_HERE'), {
+    fireEvent.change(await screen.findByPlaceholderText('YOUR_API_KEY_HERE'), {
       target: { value: 'collabpro_pat_abc123xyz' },
     });
 
@@ -181,7 +205,8 @@ describe('MCP Client Integration Settings Hub Suite (Issue 41)', () => {
     render(React.createElement(McpSettingsHub));
 
     await waitFor(() => expect(mockFetch).toHaveBeenCalledWith('/api/api-keys'));
-    fireEvent.change(screen.getByPlaceholderText('YOUR_API_KEY_HERE'), {
+    screen.getByText('Remote').click(); // diagnostics + key input live on the API-key tabs
+    fireEvent.change(await screen.findByPlaceholderText('YOUR_API_KEY_HERE'), {
       target: { value: 'collabpro_pat_abc123xyz' },
     });
     screen.getByText('Run Diagnostics').click();
