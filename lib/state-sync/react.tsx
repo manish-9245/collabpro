@@ -147,7 +147,8 @@ export class StateSyncWSClient {
     if (fileId === this.activeRoom) return;
     const previous = this.activeRoom;
     this.activeRoom = fileId;
-    const open = this.ws?.readyState === WebSocket.OPEN;
+    // Read WebSocket.OPEN only when a socket exists: runtimes without the global must still reach connect()'s fallback.
+    const open = this.ws ? this.ws.readyState === WebSocket.OPEN : false;
     // The gateway tracks room membership per connection, so a room we are done
     // with must be left explicitly or its cursor/presence events keep arriving.
     if (previous && open) this.ws!.send(JSON.stringify({ type: 'leave', fileId: previous }));
