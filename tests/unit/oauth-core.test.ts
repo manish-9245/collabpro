@@ -2,7 +2,8 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { createHash } from 'crypto';
 import {
   CLAUDE_CALLBACK, consentToken, isAllowedRedirectUri, isValidCodeChallenge, normalizeScope,
-  redirectUriMatches, toApiScope, verifyConsentToken, verifyPkceS256, getBaseUrl,
+  redirectUriMatches, toApiScope, verifyConsentToken, verifyPkceS256, getBaseUrl, baseUrlFrom, resourceMatches,
+  sanitizeClientName, isLoopbackRedirect, CONSENT_TOKEN_TTL_MS,
 } from '@/lib/oauth/core';
 
 beforeAll(() => {
@@ -83,5 +84,61 @@ describe('getBaseUrl', () => {
     process.env.APP_URL = 'https://override.example.com/';
     expect(getBaseUrl(req)).toBe('https://override.example.com');
     delete process.env.APP_URL;
+  });
+});
+
+
+describe('consent token lifetime', () => {
+  const f = { userEmail: 'a@b.co', clientId: 'c1', redirectUri: CLAUDE_CALLBACK, codeChallenge: challenge, state: 's', scope: 'mcp:read' };
+  it('expires after 10 minutes and rejects tokens from the future', () => {
+    const now = 1_700_000_000_000;
+    const t = consentToken(f, now);
+    expect(verifyConsentToken(t, f, now + CONSENT_TOKEN_TTL_MS - 1)).toBe(true);
+    expect(verifyConsentToken(t, f, now + CONSENT_TOKEN_TTL_MS + 1)).toBe(false);
+    expect(verifyConsentToken(consentToken(f, now + 3_600_000), f, now)).toBe(false);
+  });
+  it('rejects a token whose timestamp was tampered with', () => {
+    const now = Date.now();
+    const [, mac] = consentToken(f, now).split('.');
+    expect(verifyConsentToken(`${now + 1}.${mac}`, f, now + 2)).toBe(false);
+    expect(verifyConsentToken('nodot', f)).toBe(false);
+    expect(verifyConsentToken('abc.def', f)).toBe(false);
+  });
+});
+
+describe('base URL trust', () => {
+  beforeAll(() => { delete process.env.APP_URL; delete process.env.OAUTH_ISSUER; });
+  it('flags header-derived origins as unpinned and APP_URL as pinned', () => {
+    expect(baseUrlFrom('app.example.com', 'https', 'http://internal/x')).toEqual({ url: 'https://app.example.com', pinned: false });
+    process.env.APP_URL = 'https://pinned.example.com';
+    expect(baseUrlFrom('evil.com', 'https', 'http://internal/x')).toEqual({ url: 'https://pinned.example.com', pinned: true });
+    delete process.env.APP_URL;
+  });
+  it('ignores malformed forwarded hosts/protos instead of reflecting them', () => {
+    expect(baseUrlFrom('evil.com/path?x=<script>', 'https', 'http://internal:3000/x').url).toBe('http://internal:3000');
+    expect(baseUrlFrom('ok.example.com', 'javascript', 'http://internal:3000/x').url).toBe('http://internal:3000');
+  });
+});
+
+describe('RFC 8707 resource', () => {
+  it('accepts absent or exact (with optional trailing slash), rejects others', () => {
+    expect(resourceMatches(undefined, 'https://a.co')).toBe(true);
+    expect(resourceMatches('https://a.co/api/mcp', 'https://a.co')).toBe(true);
+    expect(resourceMatches('https://a.co/api/mcp/', 'https://a.co')).toBe(true);
+    expect(resourceMatches('https://b.co/api/mcp', 'https://a.co')).toBe(false);
+    expect(resourceMatches('https://a.co/other', 'https://a.co')).toBe(false);
+  });
+});
+
+describe('client-supplied display data', () => {
+  it('sanitizes control and bidi characters and caps length', () => {
+    expect(sanitizeClientName('Cla\u202Eude\u0000')).toBe('Claude');
+    expect(sanitizeClientName('x'.repeat(200))).toHaveLength(60);
+    expect(sanitizeClientName('   ')).toBe('MCP client');
+    expect(sanitizeClientName(undefined)).toBe('MCP client');
+  });
+  it('detects loopback redirects (shown with a warning on the consent page)', () => {
+    expect(isLoopbackRedirect('http://localhost:3118/callback')).toBe(true);
+    expect(isLoopbackRedirect(CLAUDE_CALLBACK)).toBe(false);
   });
 });

@@ -1,5 +1,5 @@
 import type { PrismaClient } from '@prisma/client';
-import { isValidCodeChallenge, normalizeScope, redirectUriMatches } from '@/lib/oauth/core';
+import { isValidCodeChallenge, MAX_PARAM, normalizeScope, redirectUriMatches, resourceMatches } from '@/lib/oauth/core';
 import { getClient } from '@/lib/oauth/store';
 
 export interface ValidAuthorizeRequest {
@@ -19,7 +19,13 @@ export interface ValidAuthorizeRequest {
 export async function validateAuthorizeRequest(
   prisma: PrismaClient,
   params: Record<string, string | undefined>,
+  baseUrl: string,
 ): Promise<ValidAuthorizeRequest | { error: string }> {
+  if (
+    (params.client_id?.length ?? 0) > MAX_PARAM.clientId || (params.redirect_uri?.length ?? 0) > MAX_PARAM.redirectUri ||
+    (params.state?.length ?? 0) > MAX_PARAM.state || (params.scope?.length ?? 0) > MAX_PARAM.scope ||
+    (params.resource?.length ?? 0) > MAX_PARAM.resource
+  ) return { error: 'A request parameter is too long.' };
   if (params.response_type !== 'code') return { error: 'response_type must be "code".' };
   if (!params.client_id) return { error: 'Missing client_id.' };
   const client = await getClient(prisma, params.client_id);
@@ -30,6 +36,7 @@ export async function validateAuthorizeRequest(
   if (params.code_challenge_method !== 'S256' || !params.code_challenge || !isValidCodeChallenge(params.code_challenge)) {
     return { error: 'PKCE with code_challenge_method=S256 is required.' };
   }
+  if (!resourceMatches(params.resource, baseUrl)) return { error: 'The requested resource is not served by this server (invalid_target).' };
   return {
     clientId: client.clientId,
     clientName: client.clientName,

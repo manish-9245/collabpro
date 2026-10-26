@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createHash } from 'crypto';
 import type { PrismaClient } from '@prisma/client';
-import { exchangeAuthCode, issueAuthCode, refreshTokens, verifyOAuthAccessToken, revokeGrant, listGrants, cleanupExpired } from '@/lib/oauth/store';
+import { exchangeAuthCode, issueAuthCode, refreshTokens, verifyOAuthAccessToken, revokeGrant, revokeByToken, registerClient, listGrants, cleanupExpired, MAX_OAUTH_CLIENTS } from '@/lib/oauth/store';
 import { sha256Hex } from '@/lib/oauth/core';
 
 type Row = Record<string, any>;
@@ -82,6 +82,41 @@ describe('authorization code exchange', () => {
   });
 });
 
+describe('authorization code reuse (RFC 6749 4.1.2 / RFC 9700)', () => {
+  it('re-presenting a used code revokes the tokens it produced', async () => {
+    const db = makeDb();
+    const code = await issue(db.prisma);
+    const args = { code, clientId: 'c1', redirectUri, codeVerifier: verifier };
+    const t = await exchangeAuthCode(db.prisma, args);
+    if ('error' in t) throw new Error('unexpected');
+    expect(await verifyOAuthAccessToken(db.prisma, t.accessToken)).not.toBeNull();
+    expect(await exchangeAuthCode(db.prisma, args)).toMatchObject({ error: 'invalid_grant' });
+    expect(await verifyOAuthAccessToken(db.prisma, t.accessToken)).toBeNull();
+    expect(await refreshTokens(db.prisma, { refreshToken: t.refreshToken, clientId: 'c1' })).toMatchObject({ error: 'invalid_grant' });
+  });
+});
+
+describe('RFC 7009 revocation + registration cap', () => {
+  it('revokes the family via access or refresh token, only for the owning client, silently ignoring unknowns', async () => {
+    const db = makeDb();
+    const code = await issue(db.prisma);
+    const t = await exchangeAuthCode(db.prisma, { code, clientId: 'c1', redirectUri, codeVerifier: verifier });
+    if ('error' in t) throw new Error('unexpected');
+    await revokeByToken(db.prisma, 'someone-else', t.accessToken);
+    expect(await verifyOAuthAccessToken(db.prisma, t.accessToken)).not.toBeNull();
+    await revokeByToken(db.prisma, 'c1', 'collabpro_ort_unknown');
+    await revokeByToken(db.prisma, 'c1', t.refreshToken);
+    expect(await verifyOAuthAccessToken(db.prisma, t.accessToken)).toBeNull();
+  });
+  it('registerClient sanitizes names and refuses past the cap', async () => {
+    const created: any[] = [];
+    const prisma = { oAuthClient: { count: async () => created.length >= 1 ? MAX_OAUTH_CLIENTS : 0, create: async ({ data }: any) => { created.push(data); return data; } } } as unknown as PrismaClient;
+    const c = await registerClient(prisma, { clientName: 'Cla\u202Eude\u0000 ', redirectUris: ['https://claude.ai/api/mcp/auth_callback'] });
+    expect(c?.clientName).toBe('Claude');
+    expect(await registerClient(prisma, { clientName: 'x', redirectUris: [] })).toBeNull();
+  });
+});
+
 describe('access tokens', () => {
   it('verify, map scope, and reject expired/revoked/unknown', async () => {
     const db = makeDb();
@@ -130,9 +165,19 @@ describe('refresh rotation and reuse detection', () => {
     const { db, t } = await start();
     const r = await refreshTokens(db.prisma, { refreshToken: t.refreshToken, clientId: 'c1' });
     if ('error' in r) throw new Error('unexpected');
+    db.tokens[0].rotatedAt = new Date(Date.now() - 60_000); // well past the concurrency leeway
     expect(await refreshTokens(db.prisma, { refreshToken: t.refreshToken, clientId: 'c1' })).toMatchObject({ error: 'invalid_grant' });
     expect(await verifyOAuthAccessToken(db.prisma, r.accessToken)).toBeNull();
     expect(await refreshTokens(db.prisma, { refreshToken: r.refreshToken, clientId: 'c1' })).toMatchObject({ error: 'invalid_grant' });
+  });
+
+  it('a concurrent/immediate retry of a just-rotated token is refused WITHOUT revoking the grant', async () => {
+    const { db, t } = await start();
+    const r = await refreshTokens(db.prisma, { refreshToken: t.refreshToken, clientId: 'c1' });
+    if ('error' in r) throw new Error('unexpected');
+    expect(await refreshTokens(db.prisma, { refreshToken: t.refreshToken, clientId: 'c1' })).toMatchObject({ error: 'invalid_grant' });
+    expect(await verifyOAuthAccessToken(db.prisma, r.accessToken)).not.toBeNull();
+    expect(await refreshTokens(db.prisma, { refreshToken: r.refreshToken, clientId: 'c1' })).not.toHaveProperty('error');
   });
 
   it('rejects the wrong client, unknown tokens, and expired tokens', async () => {

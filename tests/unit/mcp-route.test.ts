@@ -43,7 +43,7 @@ vi.mock('@/lib/redis-cache', () => ({
 vi.mock('@/lib/rate-limiter', () => ({
   checkRateLimit: vi.fn().mockResolvedValue({ allowed: true, remaining: 119, resetAt: Date.now() + 60_000, firstBlock: false }),
   getClientIp: () => '203.0.113.1',
-  LIMITS: { MCP: { windowMs: 60_000, maxAttempts: 120 } },
+  LIMITS: { MCP: { windowMs: 60_000, maxAttempts: 120 }, MCP_AUTH_FAIL: { windowMs: 60_000, maxAttempts: 600 }, MCP_AUTH_FAIL_AUDIT: { windowMs: 60_000, maxAttempts: 1 } },
 }));
 
 vi.mock('@/lib/audit', () => ({
@@ -837,8 +837,43 @@ describe('Model Context Protocol (MCP) HTTP Endpoint', () => {
       statusCode: 401,
     });
 
-    await mcpPOST(mcpRequest({ jsonrpc: '2.0', method: 'tools/list', id: 70 }));
+    const req = new Request('http://localhost/api/mcp', {
+      method: 'POST',
+      headers: { ...mcpHeaders, Authorization: 'Bearer collabpro_pat_bad' },
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'tools/list', id: 70 }),
+    });
+    await mcpPOST(req);
     expect(logAuditEvent).toHaveBeenCalledWith(null, 'unknown', 'mcp:auth:failure', { reason: 'Invalid API key or token has been revoked' }, '203.0.113.1');
+  });
+
+  it('does NOT audit credential-less requests (OAuth discovery probes) - no audit-log flooding', async () => {
+    vi.mocked(verifyApiKey).mockResolvedValueOnce({ isValid: false, userEmail: null, scope: null, error: 'Authorization header missing', statusCode: 401 });
+    const res = await mcpPOST(mcpRequest({ jsonrpc: '2.0', method: 'initialize', id: 71 }));
+    expect(res.status).toBe(401);
+    expect(logAuditEvent).not.toHaveBeenCalled();
+    expect(checkRateLimit).not.toHaveBeenCalled();
+  });
+
+  it('audits at most one failure per IP per window (the audit slot is a 1/min limiter)', async () => {
+    vi.mocked(verifyApiKey).mockResolvedValue({ isValid: false, userEmail: null, scope: null, error: 'expired', statusCode: 401 });
+    vi.mocked(checkRateLimit)
+      .mockResolvedValueOnce({ allowed: true, remaining: 599, resetAt: Date.now() + 60_000, firstBlock: false }) // flood limiter
+      .mockResolvedValueOnce({ allowed: false, remaining: 0, resetAt: Date.now() + 60_000, firstBlock: false }); // audit slot already used
+    const req = new Request('http://localhost/api/mcp', { method: 'POST', headers: { ...mcpHeaders, Authorization: 'Bearer collabpro_oat_expired' }, body: '{}' });
+    const res = await mcpPOST(req);
+    expect(res.status).toBe(401); // an expired token is a normal 401, not a 429
+    expect(logAuditEvent).not.toHaveBeenCalled();
+  });
+
+  it('throttles repeated bad credentials per IP and audits the block once', async () => {
+    vi.mocked(verifyApiKey).mockResolvedValue({ isValid: false, userEmail: null, scope: null, error: 'bad', statusCode: 401 });
+    vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: false, remaining: 0, resetAt: Date.now() + 30_000, firstBlock: true });
+    const req = new Request('http://localhost/api/mcp', { method: 'POST', headers: { ...mcpHeaders, Authorization: 'Bearer x' }, body: '{}' });
+    const res = await mcpPOST(req);
+    expect(res.status).toBe(429);
+    expect(res.headers.get('Retry-After')).toBeTruthy();
+    expect(logAuditEvent).toHaveBeenCalledWith(null, 'unknown', 'mcp:auth:rate_limited', {}, '203.0.113.1');
+    expect(logAuditEvent).not.toHaveBeenCalledWith(null, 'unknown', 'mcp:auth:failure', expect.anything(), expect.anything());
   });
 
   it('logs an audit event when collabpro_update_document persists a write', async () => {

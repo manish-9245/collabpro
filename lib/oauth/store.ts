@@ -1,7 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import {
   ACCESS_TOKEN_PREFIX, ACCESS_TOKEN_TTL_MS, AUTH_CODE_TTL_MS, REFRESH_TOKEN_PREFIX, REFRESH_TOKEN_TTL_MS,
-  randomId, randomToken, sha256Hex, verifyPkceS256, redirectUriMatches, toApiScope,
+  randomId, randomToken, sha256Hex, verifyPkceS256, redirectUriMatches, sanitizeClientName, toApiScope,
 } from '@/lib/oauth/core';
 
 /**
@@ -17,18 +17,22 @@ export interface IssuedTokens {
   scope: string;
 }
 
-const MAX_CLIENT_NAME = 100;
 const MAX_REDIRECT_URIS = 5;
+/** Concurrent refreshes (two requests racing on the same token) must not look like theft. */
+const REFRESH_REUSE_LEEWAY_MS = 10_000;
+/** Hard ceiling on stored dynamic clients so open registration cannot fill the table. */
+export const MAX_OAUTH_CLIENTS = 20_000;
 
 export async function registerClient(
   prisma: PrismaClient,
   input: { clientName: string; redirectUris: string[] },
 ) {
+  if ((await prisma.oAuthClient.count()) >= MAX_OAUTH_CLIENTS) return null;
   const clientId = `collabpro_client_${randomId()}`;
   const client = await prisma.oAuthClient.create({
     data: {
       clientId,
-      clientName: input.clientName.slice(0, MAX_CLIENT_NAME) || 'MCP client',
+      clientName: sanitizeClientName(input.clientName),
       redirectUris: input.redirectUris.slice(0, MAX_REDIRECT_URIS),
     },
   });
@@ -91,7 +95,15 @@ export async function exchangeAuthCode(
     where: { hashedCode, usedAt: null, expiresAt: { gt: new Date() } },
     data: { usedAt: new Date() },
   });
-  if (claimed.count !== 1) return { error: 'invalid_grant', description: 'Authorization code is invalid, expired, or already used' };
+  if (claimed.count !== 1) {
+    // RFC 6749 4.1.2 / RFC 9700: a code presented again means it may have been
+    // stolen - revoke every token that was minted from it.
+    const seen = await prisma.oAuthCode.findUnique({ where: { hashedCode } });
+    if (seen?.usedAt) {
+      await prisma.oAuthToken.updateMany({ where: { familyId: seen.id, revokedAt: null }, data: { revokedAt: new Date() } });
+    }
+    return { error: 'invalid_grant', description: 'Authorization code is invalid, expired, or already used' };
+  }
 
   const row = await prisma.oAuthCode.findUnique({ where: { hashedCode } });
   if (!row) return { error: 'invalid_grant', description: 'Authorization code is invalid' };
@@ -99,7 +111,9 @@ export async function exchangeAuthCode(
   if (row.redirectUri !== input.redirectUri) return { error: 'invalid_grant', description: 'redirect_uri does not match the authorization request' };
   if (!verifyPkceS256(input.codeVerifier, row.codeChallenge)) return { error: 'invalid_grant', description: 'PKCE verification failed' };
 
-  return mintTokens(prisma, { familyId: randomId(), clientId: row.clientId, userEmail: row.userEmail, scope: row.scope });
+  // The token family is keyed by the code's id, which is what lets a replayed
+  // code find and revoke the tokens it produced.
+  return mintTokens(prisma, { familyId: row.id, clientId: row.clientId, userEmail: row.userEmail, scope: row.scope });
 }
 
 export async function refreshTokens(
@@ -111,15 +125,19 @@ export async function refreshTokens(
   if (!row || row.clientId !== input.clientId) return { error: 'invalid_grant', description: 'Refresh token is invalid' };
   if (row.revokedAt || row.refreshExpiresAt <= new Date()) return { error: 'invalid_grant', description: 'Refresh token is expired or revoked' };
 
-  // Atomic claim of the rotation; losing the race (or presenting an already
-  // rotated token) is treated as replay and burns the whole family.
-  const claimed = row.rotatedAt
-    ? { count: 0 }
-    : await prisma.oAuthToken.updateMany({ where: { id: row.id, rotatedAt: null, revokedAt: null }, data: { rotatedAt: new Date() } });
-  if (claimed.count !== 1) {
-    await prisma.oAuthToken.updateMany({ where: { familyId: row.familyId, revokedAt: null }, data: { revokedAt: new Date() } });
-    return { error: 'invalid_grant', description: 'Refresh token was already used; the grant has been revoked' };
+  // Atomic claim of the rotation. A token that was already rotated long ago
+  // is replay (theft signal): burn the whole family. One rotated moments ago,
+  // or a lost race on the claim itself, is a legitimate concurrent refresh:
+  // refuse it but leave the grant alone.
+  if (row.rotatedAt) {
+    if (Date.now() - row.rotatedAt.getTime() > REFRESH_REUSE_LEEWAY_MS) {
+      await prisma.oAuthToken.updateMany({ where: { familyId: row.familyId, revokedAt: null }, data: { revokedAt: new Date() } });
+      return { error: 'invalid_grant', description: 'Refresh token was already used; the grant has been revoked' };
+    }
+    return { error: 'invalid_grant', description: 'Refresh token was just used; retry with the newer token' };
   }
+  const claimed = await prisma.oAuthToken.updateMany({ where: { id: row.id, rotatedAt: null, revokedAt: null }, data: { rotatedAt: new Date() } });
+  if (claimed.count !== 1) return { error: 'invalid_grant', description: 'Refresh token was just used; retry with the newer token' };
   return mintTokens(prisma, { familyId: row.familyId, clientId: row.clientId, userEmail: row.userEmail, scope: row.scope });
 }
 
@@ -160,6 +178,19 @@ export async function listGrants(prisma: PrismaClient, userEmail: string) {
     connectedAt: r.createdAt,
     lastUsedAt: r.lastUsedAt,
   }));
+}
+
+/**
+ * RFC 7009 revocation. Matches either token type for the given client and
+ * revokes the whole family; unknown tokens are silently ignored (the endpoint
+ * always answers 200 so it cannot be used to probe for valid tokens).
+ */
+export async function revokeByToken(prisma: PrismaClient, clientId: string, token: string): Promise<void> {
+  const hashed = sha256Hex(token);
+  const row = await prisma.oAuthToken.findUnique({ where: { hashedAccess: hashed } })
+    ?? await prisma.oAuthToken.findUnique({ where: { hashedRefresh: hashed } });
+  if (!row || row.clientId !== clientId) return;
+  await prisma.oAuthToken.updateMany({ where: { familyId: row.familyId, revokedAt: null }, data: { revokedAt: new Date() } });
 }
 
 export async function revokeGrant(prisma: PrismaClient, userEmail: string, clientId: string): Promise<number> {

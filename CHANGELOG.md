@@ -11,6 +11,7 @@ All official releases and user impacts are documented here in chronological orde
 - **More tools (8 → 13)**: `collabpro_list_teams`, `collabpro_search`, `collabpro_export_file`, `collabpro_place_icon`, `collabpro_apply_diagram_spec`. Optional `collabpro_create_diagram` appears only when a team has its own AI provider configured and uses that team's key.
 - **Safer concurrent edits**: `get_file` returns `documentVersion`/`whiteboardVersion`; writes accept `baseVersion` and reject if the file changed. All tools return typed `structuredContent`.
 - **Operator controls**: `MCP_DISABLED`, `MCP_READ_ONLY`, `MCP_DISABLED_TOOLS`, `OAUTH_DISABLED` kill switches; runbook, threat model and load-test script added. Claude plugin bundle in `plugins/collabpro/`.
+- **OAuth hardened to current best practice**: authorization-code reuse revokes issued tokens, refresh-token leeway for concurrent refreshes, RFC 8707 `resource` and RFC 9207 `iss`, RFC 7009 revocation endpoint, 10-minute consent tokens, strict input caps / content types / duplicate-parameter rejection, no-store discovery unless `APP_URL` is set, loopback-client warning on the consent page, `SameSite=Lax` session cookie, and `/api/mcp` no longer writes an audit row for credential-less discovery probes.
 - **Security**: post-login redirect now only accepts same-site paths (closes an open redirect); the OAuth consent page cannot be framed.
 
 ### User Impact: New Capabilities

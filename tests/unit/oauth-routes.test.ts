@@ -10,6 +10,7 @@ const store = vi.hoisted(() => ({
   getClient: vi.fn(),
   listGrants: vi.fn(),
   revokeGrant: vi.fn(),
+  revokeByToken: vi.fn(),
 }));
 vi.mock('@/lib/oauth/store', () => ({ ...store, redirectUriMatches: (reg: string[], r: string) => reg.includes(r) }));
 vi.mock('@/lib/db', () => ({ prisma: {} }));
@@ -25,6 +26,8 @@ vi.mock('@/lib/session-auth/server', () => ({ getServerSession: () => ({ getUser
 import { POST as register } from '@/app/api/oauth/register/route';
 import { POST as token } from '@/app/api/oauth/token/route';
 import { POST as authorize } from '@/app/api/oauth/authorize/route';
+import { POST as revoke } from '@/app/api/oauth/revoke/route';
+import { DELETE as deleteGrant } from '@/app/api/oauth/grants/route';
 import { GET as prm } from '@/app/.well-known/oauth-protected-resource/[[...path]]/route';
 import { GET as asm } from '@/app/.well-known/oauth-authorization-server/route';
 import { consentToken, CLAUDE_CALLBACK } from '@/lib/oauth/core';
@@ -113,7 +116,7 @@ describe('POST /api/oauth/authorize (consent)', () => {
   const base = { client_id: 'c1', redirect_uri: CLAUDE_CALLBACK, code_challenge: challenge, state: 'st', scope: 'mcp:read mcp:write' };
   const tokenFor = (email: string, scope = base.scope) =>
     consentToken({ userEmail: email, clientId: base.client_id, redirectUri: base.redirect_uri, codeChallenge: base.code_challenge, state: base.state, scope });
-  const submit = (extra: Record<string, string>, headers: Record<string, string> = {}) =>
+  const submit = (extra: Record<string, string>, headers: Record<string, string> = { Origin: 'https://app.example.com' }) =>
     authorize(formReq('https://app.example.com/api/oauth/authorize', { ...base, ...extra }, headers));
 
   beforeEach(() => {
@@ -133,6 +136,18 @@ describe('POST /api/oauth/authorize (consent)', () => {
     session.user = { email: 'victim@x.co' };
     expect((await submit({ decision: 'allow', consent_token: tokenFor('attacker@x.co') })).status).toBe(403);
   });
+  it('rejects posts with no Origin and no same-origin Sec-Fetch-Site; accepts the latter', async () => {
+    session.user = { email: 'u@x.co' };
+    const t = tokenFor('u@x.co');
+    expect((await submit({ decision: 'allow', consent_token: t }, {})).status).toBe(403);
+    expect((await submit({ decision: 'allow', consent_token: t }, { 'Sec-Fetch-Site': 'cross-site' })).status).toBe(403);
+    expect((await submit({ decision: 'allow', consent_token: t }, { 'Sec-Fetch-Site': 'same-origin' })).status).toBe(303);
+  });
+  it('rejects a consent token older than 10 minutes', async () => {
+    session.user = { email: 'u@x.co' };
+    const old = consentToken({ userEmail: 'u@x.co', clientId: base.client_id, redirectUri: base.redirect_uri, codeChallenge: base.code_challenge, state: base.state, scope: base.scope }, Date.now() - 11 * 60 * 1000);
+    expect((await submit({ decision: 'allow', consent_token: old })).status).toBe(403);
+  });
   it('rejects cross-origin posts', async () => {
     session.user = { email: 'u@x.co' };
     const res = await submit({ decision: 'allow', consent_token: tokenFor('u@x.co') }, { Origin: 'https://evil.example.com', Host: 'app.example.com' });
@@ -142,7 +157,7 @@ describe('POST /api/oauth/authorize (consent)', () => {
     session.user = { email: 'u@x.co' };
     const res = await submit({ decision: 'allow', consent_token: tokenFor('u@x.co') });
     expect(res.status).toBe(303);
-    expect(res.headers.get('Location')).toBe(`${CLAUDE_CALLBACK}?code=CODE&state=st`);
+    expect(res.headers.get('Location')).toBe(`${CLAUDE_CALLBACK}?code=CODE&state=st&iss=https%3A%2F%2Fapp.example.com`);
     expect(store.issueAuthCode).toHaveBeenCalledWith({}, expect.objectContaining({ scope: 'mcp:read' }));
   });
   it('grants write when ticked', async () => {
@@ -153,7 +168,7 @@ describe('POST /api/oauth/authorize (consent)', () => {
   it('redirects access_denied on deny without issuing a code', async () => {
     session.user = { email: 'u@x.co' };
     const res = await submit({ decision: 'deny', consent_token: tokenFor('u@x.co') });
-    expect(res.headers.get('Location')).toBe(`${CLAUDE_CALLBACK}?error=access_denied&state=st`);
+    expect(res.headers.get('Location')).toBe(`${CLAUDE_CALLBACK}?error=access_denied&state=st&iss=https%3A%2F%2Fapp.example.com`);
     expect(store.issueAuthCode).not.toHaveBeenCalled();
   });
   it('refuses an unregistered redirect_uri even with a valid token', async () => {
@@ -163,5 +178,88 @@ describe('POST /api/oauth/authorize (consent)', () => {
     const res = await submit({ decision: 'allow', redirect_uri: evil, consent_token: t });
     expect(res.status).toBe(400);
     expect(store.issueAuthCode).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('token endpoint input hardening', () => {
+  const url = 'https://x.co/api/oauth/token';
+  it('requires form content-type', async () => {
+    const res = await token(new Request(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }));
+    expect(res.status).toBe(400);
+  });
+  it('rejects repeated parameters (RFC 6749 3.2)', async () => {
+    const res = await token(new Request(url, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'grant_type=refresh_token&client_id=c1&refresh_token=a&refresh_token=b' }));
+    expect(res.status).toBe(400);
+    expect(store.refreshTokens).not.toHaveBeenCalled();
+  });
+  it('rejects oversized bodies', async () => {
+    const res = await token(formReq(url, { grant_type: 'refresh_token', client_id: 'c1', refresh_token: 'x'.repeat(9000) }));
+    expect(res.status).toBe(413);
+  });
+  it('enforces RFC 8707 resource: wrong audience -> invalid_target, right one passes', async () => {
+    const bad = await token(formReq(url, { grant_type: 'refresh_token', client_id: 'c1', refresh_token: 'r', resource: 'https://other.example.com/api/mcp' }));
+    expect(await bad.json()).toMatchObject({ error: 'invalid_target' });
+    store.refreshTokens.mockResolvedValue({ accessToken: 'a', refreshToken: 'r2', expiresIn: 1, scope: 'mcp:read' });
+    const good = await token(formReq(url, { grant_type: 'refresh_token', client_id: 'c1', refresh_token: 'r', resource: 'https://x.co/api/mcp' }));
+    expect(good.status).toBe(200);
+  });
+});
+
+describe('register endpoint input hardening', () => {
+  it('requires a JSON content-type and caps body size', async () => {
+    expect((await register(new Request('https://x.co/', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: '{}' }))).status).toBe(400);
+    expect((await register(json('https://x.co/', { redirect_uris: [CLAUDE_CALLBACK], client_name: 'x'.repeat(9000) }))).status).toBe(413);
+  });
+  it('answers 503 when the client table is full', async () => {
+    store.registerClient.mockResolvedValue(null);
+    expect((await register(json('https://x.co/', { redirect_uris: [CLAUDE_CALLBACK] }))).status).toBe(503);
+  });
+});
+
+describe('metadata caching (cache-poisoning defense)', () => {
+  it('is no-store when the origin is derived from forwarded headers', () => {
+    delete process.env.APP_URL;
+    const res = asm(new Request('http://internal/x', { headers: { 'x-forwarded-host': 'evil.example.com', 'x-forwarded-proto': 'https' } }));
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
+  });
+  it('is publicly cacheable only when APP_URL pins the origin, and then ignores forged headers', async () => {
+    process.env.APP_URL = 'https://app.example.com';
+    const res = asm(new Request('http://internal/x', { headers: { 'x-forwarded-host': 'evil.example.com' } }));
+    expect(res.headers.get('Cache-Control')).toBe('public, max-age=300');
+    expect((await res.json()).issuer).toBe('https://app.example.com');
+    delete process.env.APP_URL;
+  });
+  it('advertises revocation and RFC 9207 iss support', async () => {
+    const body = await asm(new Request('https://app.example.com/x')).json();
+    expect(body.revocation_endpoint).toBe('https://app.example.com/api/oauth/revoke');
+    expect(body.authorization_response_iss_parameter_supported).toBe(true);
+  });
+});
+
+
+describe('POST /api/oauth/revoke (RFC 7009)', () => {
+  const url = 'https://x.co/api/oauth/revoke';
+  it('always answers 200 for a well-formed request and revokes via the store', async () => {
+    const res = await revoke(formReq(url, { token: 'collabpro_ort_whatever', client_id: 'c1' }));
+    expect(res.status).toBe(200);
+    expect(store.revokeByToken).toHaveBeenCalledWith({}, 'c1', 'collabpro_ort_whatever');
+  });
+  it('rejects missing params and wrong content-type', async () => {
+    expect((await revoke(formReq(url, { client_id: 'c1' }))).status).toBe(400);
+    expect((await revoke(new Request(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }))).status).toBe(400);
+  });
+});
+
+describe('DELETE /api/oauth/grants', () => {
+  const url = 'https://app.example.com/api/oauth/grants?clientId=c1';
+  it('requires a session, a same-origin request, and revokes only for that user', async () => {
+    expect((await deleteGrant(new Request(url, { method: 'DELETE', headers: { Origin: 'https://app.example.com' } }))).status).toBe(401);
+    session.user = { email: 'u@x.co' };
+    expect((await deleteGrant(new Request(url, { method: 'DELETE', headers: { Origin: 'https://evil.example.com' } }))).status).toBe(403);
+    store.revokeGrant.mockResolvedValue(2);
+    const ok = await deleteGrant(new Request(url, { method: 'DELETE', headers: { Origin: 'https://app.example.com' } }));
+    expect(ok.status).toBe(200);
+    expect(store.revokeGrant).toHaveBeenCalledWith({}, 'u@x.co', 'c1');
   });
 });

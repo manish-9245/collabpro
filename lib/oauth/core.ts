@@ -115,40 +115,110 @@ export interface ConsentFields {
   scope: string;
 }
 
+export const CONSENT_TOKEN_TTL_MS = 10 * 60 * 1000;
+
 function sessionSecret(): string {
   const secret = process.env.SESSION_SECRET;
   if (!secret) throw new Error('SESSION_SECRET is required');
   return secret;
 }
 
-/**
- * Stateless CSRF token for the consent form: an HMAC over every field the
- * POST will act on, keyed by the server secret and bound to the signed-in
- * user. A cross-site POST cannot compute it, and a token minted for one
- * request cannot be replayed to authorize a different client/redirect/scope.
- */
-export function consentToken(fields: ConsentFields): string {
+function consentMac(fields: ConsentFields, issuedAt: number): string {
   const payload = JSON.stringify([
-    'consent-v1', fields.userEmail, fields.clientId, fields.redirectUri, fields.codeChallenge, fields.state, fields.scope,
+    'consent-v2', issuedAt, fields.userEmail, fields.clientId, fields.redirectUri, fields.codeChallenge, fields.state, fields.scope,
   ]);
   return createHmac('sha256', sessionSecret()).update(payload).digest('base64url');
 }
 
-export function verifyConsentToken(token: string, fields: ConsentFields): boolean {
-  const expected = Buffer.from(consentToken(fields));
-  const actual = Buffer.from(token);
+/**
+ * Stateless CSRF token for the consent form: `<issuedAt>.<HMAC>` over every
+ * field the POST acts on, keyed by the server secret, bound to the signed-in
+ * user and valid for 10 minutes. A cross-site POST cannot compute it, a token
+ * minted for one request cannot authorize a different client/redirect/scope,
+ * and a leaked token goes stale.
+ */
+export function consentToken(fields: ConsentFields, now: number = Date.now()): string {
+  return `${now}.${consentMac(fields, now)}`;
+}
+
+export function verifyConsentToken(token: string, fields: ConsentFields, now: number = Date.now()): boolean {
+  const dot = token.indexOf('.');
+  if (dot < 1) return false;
+  const issuedAt = Number(token.slice(0, dot));
+  if (!Number.isSafeInteger(issuedAt) || issuedAt > now + 60_000 || now - issuedAt > CONSENT_TOKEN_TTL_MS) return false;
+  const expected = Buffer.from(consentMac(fields, issuedAt));
+  const actual = Buffer.from(token.slice(dot + 1));
   return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
-/** Public origin used in metadata documents. Honors an explicit env override and proxy headers (Railway). */
-export function getBaseUrl(request: Request): string {
-  const configured = process.env.APP_URL || process.env.OAUTH_ISSUER;
-  if (configured) return configured.replace(/\/$/, '');
-  const url = new URL(request.url);
-  const host = request.headers.get('x-forwarded-host') || url.host;
-  const proto = request.headers.get('x-forwarded-proto')?.split(',')[0].trim() || url.protocol.replace(':', '');
-  return `${proto}://${host}`;
+export const MCP_RESOURCE_PATH = '/api/mcp';
+
+export interface BaseUrlInfo {
+  url: string;
+  /** True when pinned by APP_URL/OAUTH_ISSUER (trusted); false when derived from request headers. */
+  pinned: boolean;
 }
+
+/**
+ * Public origin used in metadata documents. APP_URL/OAUTH_ISSUER pins it. When
+ * derived from X-Forwarded-* headers it is attacker-influenceable, so callers
+ * must not let a shared cache store anything built from it (see metadataHeaders).
+ */
+export function baseUrlFrom(host: string | null, proto: string | null, fallbackUrl: string): BaseUrlInfo {
+  const configured = process.env.APP_URL || process.env.OAUTH_ISSUER;
+  if (configured) return { url: configured.replace(/\/$/, ''), pinned: true };
+  const u = new URL(fallbackUrl);
+  const h = host || u.host;
+  const p = proto?.split(',')[0].trim() || u.protocol.replace(':', '');
+  // Reject anything that is not a plain host[:port] over http(s).
+  if (!/^[a-z0-9.\-:[\]]+$/i.test(h) || !/^https?$/.test(p)) return { url: u.origin, pinned: false };
+  return { url: `${p}://${h}`, pinned: false };
+}
+
+export function getBaseUrlInfo(request: Request): BaseUrlInfo {
+  const h = request.headers;
+  return baseUrlFrom(h.get('x-forwarded-host'), h.get('x-forwarded-proto'), request.url);
+}
+
+export function getBaseUrl(request: Request): string {
+  return getBaseUrlInfo(request).url;
+}
+
+/** Discovery documents are cacheable only when the origin they contain is pinned (no cache poisoning via forged Host). */
+export function metadataHeaders(info: BaseUrlInfo): Record<string, string> {
+  return {
+    'Cache-Control': info.pinned ? 'public, max-age=300' : 'no-store',
+    'Access-Control-Allow-Origin': '*',
+    'X-Content-Type-Options': 'nosniff',
+  };
+}
+
+/** RFC 8707: a `resource` parameter, when sent, must name this MCP server (trailing slash tolerated). */
+export function resourceMatches(resource: string | null | undefined, baseUrl: string): boolean {
+  if (!resource) return true;
+  return resource.replace(/\/$/, '') === `${baseUrl}${MCP_RESOURCE_PATH}`;
+}
+
+export function isLoopbackRedirect(uri: string): boolean {
+  try {
+    const u = new URL(uri);
+    return u.protocol === 'http:' && isLoopbackHost(u.hostname);
+  } catch {
+    return false;
+  }
+}
+
+/** Client names are shown on the consent page: strip control/bidi characters and cap the length. */
+export function sanitizeClientName(raw: unknown): string {
+  const cleaned = String(raw ?? '')
+    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g, '')
+    .trim()
+    .slice(0, 60);
+  return cleaned || 'MCP client';
+}
+
+/** Parameter caps for /oauth/authorize - generous for real clients, small enough to refuse abuse. */
+export const MAX_PARAM = { clientId: 100, redirectUri: 512, state: 512, scope: 200, resource: 512 } as const;
 
 /** Append a query param set to a (validated) redirect URI. */
 export function buildRedirect(redirectUri: string, params: Record<string, string | undefined>): string {

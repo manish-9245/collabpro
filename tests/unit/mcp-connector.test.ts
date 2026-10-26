@@ -17,7 +17,7 @@ vi.mock('@/lib/redis-cache', () => ({ invalidateCachedFile: vi.fn() }));
 vi.mock('@/lib/rate-limiter', () => ({
   checkRateLimit: vi.fn().mockResolvedValue({ allowed: true, remaining: 1, resetAt: Date.now() + 1000, firstBlock: false }),
   getClientIp: () => '203.0.113.1',
-  LIMITS: { MCP: {} },
+  LIMITS: { MCP: {}, MCP_AUTH_FAIL: {}, MCP_AUTH_FAIL_AUDIT: {} },
 }));
 vi.mock('@/lib/audit', () => ({ logAuditEvent: vi.fn() }));
 const cas = vi.hoisted(() => ({ casUpdateWhiteboard: vi.fn(), casUpdateDocument: vi.fn() }));

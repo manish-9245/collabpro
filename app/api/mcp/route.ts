@@ -44,9 +44,21 @@ export async function POST(request: Request): Promise<Response> {
   const authResult = await verifyApiKey(authHeader, undefined, { allowOAuth: true });
 
   if (!authResult.isValid || !authResult.userEmail) {
-    // No email on a bad/missing key to log against - IP is the only signal.
-    // Mirrors the auth:login:failure convention elsewhere in the app.
-    void logAuditEvent(null, authResult.userEmail || 'unknown', 'mcp:auth:failure', { reason: authResult.error }, ip);
+    // A request with NO credentials is just OAuth discovery (Claude probes
+    // unauthenticated first), so it is neither audited nor counted. A request
+    // that PRESENTED a bad credential (often just an expired token) is cheap
+    // to refuse; it is counted per IP against a high flood ceiling, and
+    // audited at most once per IP per minute so no volume of failures can
+    // grow the AuditLog table.
+    if (authHeader) {
+      const failLimit = await checkRateLimit(`mcp:authfail:${ip}`, LIMITS.MCP_AUTH_FAIL);
+      if (!failLimit.allowed) {
+        if (failLimit.firstBlock) void logAuditEvent(null, authResult.userEmail || 'unknown', 'mcp:auth:rate_limited', {}, ip);
+        return jsonRpcError(-32000, 'Too many failed authentication attempts', 429, { 'Retry-After': String(Math.max(1, Math.ceil((failLimit.resetAt - Date.now()) / 1000))) });
+      }
+      const auditSlot = await checkRateLimit(`mcp:authfail-audit:${ip}`, LIMITS.MCP_AUTH_FAIL_AUDIT);
+      if (auditSlot.allowed) void logAuditEvent(null, authResult.userEmail || 'unknown', 'mcp:auth:failure', { reason: authResult.error }, ip);
+    }
     const status = authResult.statusCode || 401;
     // A 401 carrying resource_metadata is what starts Claude's OAuth sign-in
     // (it ignores WWW-Authenticate on any other status).

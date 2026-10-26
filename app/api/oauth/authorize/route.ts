@@ -4,11 +4,12 @@ import { getServerSession } from '@/lib/session-auth/server';
 import { logAuditEvent } from '@/lib/audit';
 import { getClientIp } from '@/lib/rate-limiter';
 import { buildRedirect, getBaseUrl, normalizeScope, SCOPE_WRITE, verifyConsentToken } from '@/lib/oauth/core';
+import { isSameOrigin } from '@/lib/oauth/http';
 import { validateAuthorizeRequest } from '@/lib/oauth/authorize-request';
 import { issueAuthCode } from '@/lib/oauth/store';
 
 function plain(message: string, status: number): Response {
-  return new Response(message, { status, headers: { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' } });
+  return new Response(message, { status, headers: { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
 }
 
 // Consent submit. Defenses, in order: OAuth enabled -> same-origin POST ->
@@ -17,8 +18,8 @@ function plain(message: string, status: number): Response {
 export async function POST(request: Request): Promise<Response> {
   if (process.env.OAUTH_DISABLED === 'true') return plain('OAuth is disabled', 503);
 
-  const origin = request.headers.get('origin');
-  if (origin && origin !== getBaseUrl(request)) return plain('Cross-origin request rejected', 403);
+  if (!isSameOrigin(request)) return plain('Cross-origin request rejected', 403);
+  const base = getBaseUrl(request);
 
   const user = await getServerSession().getUser();
   if (!user?.email) return plain('Not signed in', 401);
@@ -45,13 +46,13 @@ export async function POST(request: Request): Promise<Response> {
     code_challenge_method: 'S256',
     state: fields.state,
     scope: requestedScope,
-  });
+  }, base);
   if ('error' in req) return plain(req.error, 400);
 
   const ip = getClientIp(request);
   if (field('decision') !== 'allow') {
     void logAuditEvent(null, user.email, 'oauth:consent:denied', { clientId: req.clientId }, ip);
-    return NextResponse.redirect(buildRedirect(req.redirectUri, { error: 'access_denied', state: req.state || undefined }), 303);
+    return NextResponse.redirect(buildRedirect(req.redirectUri, { error: 'access_denied', state: req.state || undefined, iss: base }), 303);
   }
 
   // Write is opt-in: only granted when the app asked for it AND the box was ticked.
@@ -68,5 +69,5 @@ export async function POST(request: Request): Promise<Response> {
     scope: grantedScope,
   });
   void logAuditEvent(null, user.email, 'oauth:consent:granted', { clientId: req.clientId, scope: grantedScope }, ip);
-  return NextResponse.redirect(buildRedirect(req.redirectUri, { code, state: req.state || undefined }), 303);
+  return NextResponse.redirect(buildRedirect(req.redirectUri, { code, state: req.state || undefined, iss: base }), 303);
 }

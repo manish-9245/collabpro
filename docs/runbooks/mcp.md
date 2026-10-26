@@ -22,7 +22,7 @@ Signals already emitted: `mcp_request` structured log line (user, method, tool, 
 
 ## Deploy checklist
 - `npx prisma migrate deploy` ran (`20261026000000_add_oauth_server`). **Verify in prod** — a missing migration makes consent/token fail with 500: `select count(*) from "OAuthClient";`.
-- `SESSION_SECRET` set; `APP_URL` set if behind a proxy.
+- `SESSION_SECRET` set; **`APP_URL` set to the public https origin** (pins OAuth issuer/metadata and enables caching of discovery documents).
 - `npm run verify-pipelines` green (CI + Railway).
 - Schedule `npm run oauth:cleanup` daily (Railway cron).
 - Smoke: `npm run mcp:loadtest -- --seconds 20` against the deployed URL.

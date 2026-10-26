@@ -1,7 +1,8 @@
 import { redirect } from 'next/navigation';
+import { headers } from 'next/headers';
 import { prisma } from '@/lib/db';
 import { getServerSession } from '@/lib/session-auth/server';
-import { consentToken, SCOPE_WRITE } from '@/lib/oauth/core';
+import { baseUrlFrom, consentToken, isLoopbackRedirect, SCOPE_WRITE } from '@/lib/oauth/core';
 import { validateAuthorizeRequest } from '@/lib/oauth/authorize-request';
 
 export const dynamic = 'force-dynamic';
@@ -37,7 +38,9 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Pr
     redirect(`/login?post_login_redirect_url=${encodeURIComponent(`/oauth/authorize?${qs.toString()}`)}`);
   }
 
-  const req = await validateAuthorizeRequest(prisma, params);
+  const h = await headers();
+  const base = baseUrlFrom(h.get('x-forwarded-host') || h.get('host'), h.get('x-forwarded-proto'), 'http://localhost').url;
+  const req = await validateAuthorizeRequest(prisma, params, base);
   if ('error' in req) return <ErrorCard message={req.error} />;
 
   const [created, memberships] = await Promise.all([
@@ -59,6 +62,7 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Pr
     scope: req.scope,
   });
   const wantsWrite = req.scope.split(' ').includes(SCOPE_WRITE);
+  const isLocalApp = isLoopbackRedirect(req.redirectUri);
   let redirectHost = req.redirectUri;
   try {
     redirectHost = new URL(req.redirectUri).host;
@@ -81,6 +85,12 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Pr
             <span className="font-mono text-xs">{redirectHost}</span>.
           </p>
         </div>
+
+        {isLocalApp && (
+          <div role="alert" className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-xs text-amber-900">
+            This app runs <span className="font-semibold">on your own computer</span> (it redirects to localhost). Its name is chosen by the app itself and is not verified. Only continue if you just started a tool such as Claude Code yourself.
+          </div>
+        )}
 
         <div className="rounded-lg bg-slate-50 border border-slate-200 p-4 text-sm text-slate-700 space-y-2">
           <p className="font-medium text-slate-900">This app will be able to:</p>

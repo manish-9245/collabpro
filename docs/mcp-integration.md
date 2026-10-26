@@ -77,8 +77,11 @@ For the **Connectors Directory** see [`mcp-directory-submission.md`](mcp-directo
 | `POST /api/oauth/register` | RFC 7591 DCR. Only the Claude callback `https://claude.ai/api/mcp/auth_callback` and loopback (`http://localhost\|127.0.0.1/...`, port ignored) redirect URIs are accepted. IP rate limited |
 | `GET /oauth/authorize` | Consent page. Reuses the normal CollabPro login; shows the teams in scope; write is opt-in |
 | `POST /api/oauth/authorize` | Consent submit. Same-origin + stateless HMAC consent token bound to user/client/redirect/PKCE/scope |
+| `POST /api/oauth/revoke` | RFC 7009 revocation (access or refresh token; always `200`) |
 | `POST /api/oauth/token` | `authorization_code` and `refresh_token` grants, `application/x-www-form-urlencoded`. Access token 1 h, refresh token 30 d, rotated on every use; replaying a rotated token revokes the whole grant |
 | `GET/DELETE /api/oauth/grants` | Session-authenticated "Connected apps" list / revoke |
+
+Standards followed: OAuth 2.1 draft, RFC 9700 (security BCP), RFC 7636 (PKCE S256 only), RFC 7591 (DCR), RFC 8414 / 9728 (metadata), RFC 8707 (`resource` must be this server), RFC 9207 (`iss` on authorization responses), RFC 7009 (revocation). Token/registration/revocation inputs are capped at 8 KB, require the correct `Content-Type`, and reject repeated parameters. A reused authorization code revokes the tokens it produced; a refresh token reused after 10 s revokes the whole grant (retries inside 10 s are refused without revoking, so a double refresh can't log a user out). Discovery documents are `no-store` unless `APP_URL` pins the origin — **set `APP_URL` in production**.
 
 Scopes: `mcp:read` (always), `mcp:write` (only when requested **and** ticked), `offline_access`. OAuth tokens (`collabpro_oat_…`) are accepted **only** by `/api/mcp` — not by state-sync or any other API-key route. Every secret (codes, tokens) is stored as a SHA-256 hash. Housekeeping: `npm run oauth:cleanup` (daily).
 
