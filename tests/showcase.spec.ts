@@ -236,6 +236,9 @@ test.describe('CollabPro Complete Feature Tour & Demonstration', () => {
     // ----------------------------------------------------
     console.log('🎬 Scene 4: Interacting with Whiteboard Canvas...');
     try {
+      // Workspace opens Document-only; the canvas sidebar only exists in Split View/Canvas.
+      await page.locator('button:has-text("Split View")').click({ timeout: 5000 });
+      await page.waitForTimeout(1500);
       const awsTab = page.locator(SCENARIO_CONFIG.selectors.awsTabBtn).first();
       if (await awsTab.isVisible()) {
         await awsTab.click();

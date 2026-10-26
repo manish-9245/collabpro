@@ -48,6 +48,10 @@ async function registerAndCreateFile(page: import('@playwright/test').Page, file
   await fileRow.click();
   await page.waitForURL(/.*workspace/, { timeout: 15000 });
 
+  // The workspace opens in Document-only view on purpose (the canvas, and its
+  // network calls, only initialize once someone opens Split View or Canvas),
+  // so the canvas does not exist until we ask for it.
+  await page.locator('button:has-text("Split View")').click();
   await page.locator('.excalidraw__canvas').first().waitFor({ state: 'visible', timeout: 15000 });
 }
 
