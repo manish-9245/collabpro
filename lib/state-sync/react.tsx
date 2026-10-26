@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import { ACTIVE_POLL_MS, IDLE_AFTER_MS, pollIntervalFor } from './polling';
 // We will lazily import idb to avoid SSR module resolution errors
 let dbPromise: Promise<any> | null = null;
@@ -62,11 +63,25 @@ const makePathProxy = (path: string[] = []): any => {
 // Re-export api from our proxy
 export const api = makePathProxy([]);
 
+/**
+ * "/workspace/<fileId>/..." -> fileId, anything else -> null. "/workspace/share/<linkId>"
+ * is the shared-link viewer, not a file: it has no room to join (and the gateway
+ * would reject it), so it must not open a socket.
+ */
+export function workspaceFileIdFromPath(pathname: string | null | undefined): string | null {
+  const id = pathname?.match(/\/workspace\/([^/]+)/)?.[1] ?? null;
+  return id === 'share' ? null : id;
+}
+
 export function StateSyncProvider({
   children,
 }: {
   children: ReactNode;
 }) {
+  const pathname = usePathname();
+  useEffect(() => {
+    wsClient?.setActiveRoom(workspaceFileIdFromPath(pathname));
+  }, [pathname]);
   return <>{children}</>;
 }
 
@@ -112,11 +127,36 @@ export class StateSyncWSClient {
 
   constructor() {
     if (typeof window !== 'undefined') {
-      const match = window.location.pathname.match(/\/workspace\/([^/]+)/);
-      if (match && match[1]) {
-        this.activeRoom = match[1];
-        this.connect();
+      const fileId = workspaceFileIdFromPath(window.location.pathname);
+      if (fileId) {
+        this.activeRoom = fileId;
+        void this.connect();
       }
+    }
+  }
+
+  /**
+   * Called by StateSyncProvider on every route change. The constructor only sees
+   * the URL at page load, so opening a file from the dashboard (a client-side
+   * navigation, no page load) never opened a socket and the app polled over
+   * HTTP even with the gateway up. Entering a workspace now connects (or just
+   * joins the room when already connected); leaving one leaves the room but
+   * keeps the socket, exactly as a direct page load followed by navigation did.
+   */
+  public setActiveRoom(fileId: string | null) {
+    if (fileId === this.activeRoom) return;
+    const previous = this.activeRoom;
+    this.activeRoom = fileId;
+    // Read WebSocket.OPEN only when a socket exists: runtimes without the global must still reach connect()'s fallback.
+    const open = this.ws ? this.ws.readyState === WebSocket.OPEN : false;
+    // The gateway tracks room membership per connection, so a room we are done
+    // with must be left explicitly or its cursor/presence events keep arriving.
+    if (previous && open) this.ws!.send(JSON.stringify({ type: 'leave', fileId: previous }));
+    if (!fileId) return;
+    if (open) {
+      this.ws!.send(JSON.stringify({ type: 'join', fileId }));
+    } else if (!this.ws && !this.isConnecting) {
+      void this.connect();
     }
   }
 
@@ -330,7 +370,7 @@ export class StateSyncWSClient {
     console.log(`[CollabPro WS CLIENT] Scheduling reconnection in ${delay.toFixed(0)}ms (attempt ${this.consecutiveFailures})`);
     this.reconnectTimeout = setTimeout(() => {
       this.reconnectTimeout = null;
-      this.connect();
+      void this.connect();
     }, delay);
   }
 
