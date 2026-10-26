@@ -1,0 +1,72 @@
+import { NextResponse } from 'next/server';
+import { prisma } from '@/lib/db';
+import { getServerSession } from '@/lib/session-auth/server';
+import { logAuditEvent } from '@/lib/audit';
+import { getClientIp } from '@/lib/rate-limiter';
+import { buildRedirect, getBaseUrl, normalizeScope, SCOPE_WRITE, verifyConsentToken } from '@/lib/oauth/core';
+import { validateAuthorizeRequest } from '@/lib/oauth/authorize-request';
+import { issueAuthCode } from '@/lib/oauth/store';
+
+function plain(message: string, status: number): Response {
+  return new Response(message, { status, headers: { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' } });
+}
+
+// Consent submit. Defenses, in order: OAuth enabled -> same-origin POST ->
+// signed-in user -> stateless HMAC consent token (CSRF, binds every field) ->
+// re-validation of client/redirect/PKCE. Scope can only be narrowed here.
+export async function POST(request: Request): Promise<Response> {
+  if (process.env.OAUTH_DISABLED === 'true') return plain('OAuth is disabled', 503);
+
+  const origin = request.headers.get('origin');
+  if (origin && origin !== getBaseUrl(request)) return plain('Cross-origin request rejected', 403);
+
+  const user = await getServerSession().getUser();
+  if (!user?.email) return plain('Not signed in', 401);
+
+  const form = await request.formData();
+  const field = (k: string) => (typeof form.get(k) === 'string' ? (form.get(k) as string) : '');
+
+  const requestedScope = normalizeScope(field('scope'));
+  const fields = {
+    userEmail: user.email,
+    clientId: field('client_id'),
+    redirectUri: field('redirect_uri'),
+    codeChallenge: field('code_challenge'),
+    state: field('state'),
+    scope: requestedScope,
+  };
+  if (!verifyConsentToken(field('consent_token'), fields)) return plain('Invalid or expired consent form', 403);
+
+  const req = await validateAuthorizeRequest(prisma, {
+    response_type: 'code',
+    client_id: fields.clientId,
+    redirect_uri: fields.redirectUri,
+    code_challenge: fields.codeChallenge,
+    code_challenge_method: 'S256',
+    state: fields.state,
+    scope: requestedScope,
+  });
+  if ('error' in req) return plain(req.error, 400);
+
+  const ip = getClientIp(request);
+  if (field('decision') !== 'allow') {
+    void logAuditEvent(null, user.email, 'oauth:consent:denied', { clientId: req.clientId }, ip);
+    return NextResponse.redirect(buildRedirect(req.redirectUri, { error: 'access_denied', state: req.state || undefined }), 303);
+  }
+
+  // Write is opt-in: only granted when the app asked for it AND the box was ticked.
+  const grantedScope = requestedScope
+    .split(' ')
+    .filter((s) => s !== SCOPE_WRITE || field('allow_write') === '1')
+    .join(' ');
+
+  const code = await issueAuthCode(prisma, {
+    clientId: req.clientId,
+    userEmail: user.email,
+    codeChallenge: req.codeChallenge,
+    redirectUri: req.redirectUri,
+    scope: grantedScope,
+  });
+  void logAuditEvent(null, user.email, 'oauth:consent:granted', { clientId: req.clientId, scope: grantedScope }, ip);
+  return NextResponse.redirect(buildRedirect(req.redirectUri, { code, state: req.state || undefined }), 303);
+}

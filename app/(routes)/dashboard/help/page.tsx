@@ -65,7 +65,7 @@ const GUIDES = [
   },
   {
     title: "Explore the API in the Developer Hub",
-    description: "Full parameter reference for all 6 MCP tools, plus a live JSON-RPC console to try requests against your own key.",
+    description: "Full parameter reference for all 13 MCP tools, plus a live JSON-RPC console to try requests against your own key.",
     href: "/dashboard/developers"
   }
 ]
@@ -93,7 +93,7 @@ const FAQS = [
   },
   {
     q: "What can an MCP client (Claude Desktop, Cursor, etc.) actually do once connected?",
-    a: "Exactly 8 tools, all listed with full parameters in the Developer Hub: list files, create a new file, fetch/update a document or whiteboard, and search/browse/insert icons from community Excalidraw libraries. A read-only API key can use the read tools but gets a 403 from the write ones."
+    a: "13 tools, all listed with full parameters in the Developer Hub: list teams and files, search, create a file, fetch/update a document or whiteboard, draw a whole diagram from a node/edge description, export, and place icons from community Excalidraw libraries. A read-only API key can use the read tools but gets a 403 from the write ones."
   }
 ]
 

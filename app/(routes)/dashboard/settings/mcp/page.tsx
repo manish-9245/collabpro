@@ -17,15 +17,17 @@ import {
   RefreshCw,
   Zap,
   Info,
-  Layers
+  Layers,
+  Plug
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { MCP_TOOL_CATALOG } from '@/lib/mcp/tool-catalog';
 import CodeBlock from '@/components/ui/code-block';
+import ConnectedApps from './_components/ConnectedApps';
 
 export default function McpSettingsHub() {
   const { user }: any = useSessionAuth();
-  const [activeTab, setActiveTab] = useState<'remote' | 'vscode' | 'claude' | 'cursor' | 'windsurf' | 'custom'>('remote');
+  const [activeTab, setActiveTab] = useState<'connector' | 'remote' | 'vscode' | 'claude' | 'cursor' | 'windsurf' | 'custom'>('connector');
   const [apiKeys, setApiKeys] = useState<any[]>([]);
   // Starts empty (not the sentinel string) so the input shows a real
   // placeholder instead of literal "YOUR_API_KEY_HERE" text that looks
@@ -127,6 +129,7 @@ export default function McpSettingsHub() {
   const cursorEnv = `COLLABPRO_API_KEY=${effectiveKey}\nCOLLABPRO_BASE_URL=${baseAppUrl}`;
 
   const CLIENTS: { id: typeof activeTab; label: string; icon: typeof Server; subtitle: string }[] = [
+    { id: 'connector', label: 'Claude.ai', icon: Plug, subtitle: 'Sign in, no key' },
     { id: 'remote', label: 'Remote', icon: Server, subtitle: 'No install needed' },
     { id: 'vscode', label: 'VS Code', icon: Code, subtitle: "Copilot Chat's agent mode" },
     { id: 'claude', label: 'Claude Desktop', icon: Sparkles, subtitle: "Anthropic's desktop app" },
@@ -280,7 +283,7 @@ export default function McpSettingsHub() {
 
         {/* Client picker - a row of selectable cards, the primary interaction */}
         <div className="pt-6">
-          <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+          <div className="grid grid-cols-3 sm:grid-cols-7 gap-3">
             {CLIENTS.map((client) => {
               const isActive = activeTab === client.id;
               const Icon = client.icon;
@@ -321,6 +324,33 @@ export default function McpSettingsHub() {
               <p className="text-[11px] text-slate-500 dark:text-slate-400">{activeClient.subtitle}</p>
             </div>
           </div>
+
+          {/* TAB: CLAUDE.AI CUSTOM CONNECTOR - OAuth sign-in, no API key */}
+          {activeTab === 'connector' && (
+            <div className="mt-5 space-y-4 animate-in fade-in duration-200">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                Connect Claude on the web, Desktop, or mobile with a normal sign-in — no API key to copy. In Claude, open <strong>Settings → Connectors → Add custom connector</strong>, paste the URL below, and approve access when CollabPro asks. Writes are off unless you tick the box on the approval screen.
+              </p>
+              <div>
+                <div className="text-[9px] font-black uppercase text-slate-400 tracking-wider mb-1.5">Connector URL</div>
+                <div className="flex items-center justify-between gap-3 bg-slate-900 rounded-xl px-4 py-3">
+                  <code className="font-mono text-[11px] text-slate-100 truncate select-all">{remoteMcpUrl}</code>
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard(remoteMcpUrl, setCopiedCmd)}
+                    className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[10px] font-bold cursor-pointer transition-colors"
+                  >
+                    {copiedCmd ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                    {copiedCmd ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+              </div>
+              <p className="text-[10.5px] text-slate-400 dark:text-slate-500 leading-relaxed flex items-start gap-2">
+                <Info className="h-3.5 w-3.5 text-[#6965db] shrink-0 mt-0.5" />
+                The URL must be reachable from the internet over HTTPS. A local <code className="font-mono">localhost</code> instance needs a tunnel; use the Remote or stdio tabs for local use.
+              </p>
+            </div>
+          )}
 
           {/* TAB 0: REMOTE (NO INSTALL) - direct Streamable HTTP, no local process */}
           {activeTab === 'remote' && (
@@ -527,6 +557,10 @@ export default function McpSettingsHub() {
               </>
             )}
           </button>
+        </div>
+
+        <div className="mt-6">
+          <ConnectedApps />
         </div>
 
         {/* Available Tools - the real registry (lib/mcp/tools.ts), shared

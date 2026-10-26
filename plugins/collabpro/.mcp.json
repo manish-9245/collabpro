@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "collabpro": {
+      "type": "http",
+      "url": "https://YOUR-COLLABPRO-HOST/api/mcp"
+    }
+  }
+}

@@ -35,7 +35,9 @@ function LoginForm() {
 
       if (res.ok) {
         toast.success('Successfully logged in!');
-        const redirectUrl = searchParams.get('post_login_redirect_url') || '/dashboard';
+        const requested = searchParams.get('post_login_redirect_url');
+        // Same-site paths only: "//host" and "/\\host" would be open redirects.
+        const redirectUrl = requested && /^\/(?![/\\])/.test(requested) ? requested : '/dashboard';
         
         // Use full page reload to ensure the client-side context updates its active user state
         window.location.href = redirectUrl;

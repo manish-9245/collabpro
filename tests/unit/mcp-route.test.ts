@@ -155,7 +155,7 @@ describe('Model Context Protocol (MCP) HTTP Endpoint', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.id).toBe(10);
-    expect(body.result.tools).toHaveLength(8);
+    expect(body.result.tools).toHaveLength(13);
 
     const names = body.result.tools.map((t: { name: string }) => t.name);
     expect(names).toEqual([
@@ -167,6 +167,11 @@ describe('Model Context Protocol (MCP) HTTP Endpoint', () => {
       'collabpro_search_icon_libraries',
       'collabpro_list_library_items',
       'collabpro_get_library_icon',
+      'collabpro_list_teams',
+      'collabpro_search',
+      'collabpro_export_file',
+      'collabpro_place_icon',
+      'collabpro_apply_diagram_spec',
     ]);
 
     const getFile = body.result.tools.find((t: { name: string }) => t.name === 'collabpro_get_file');

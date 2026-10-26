@@ -7,12 +7,17 @@ import { registerCollabProPrompts } from '@/lib/mcp/prompts';
 import { checkRateLimit, getClientIp, LIMITS } from '@/lib/rate-limiter';
 import { logAuditEvent } from '@/lib/audit';
 import { logger } from '@/lib/logger';
+import { getBaseUrl } from '@/lib/oauth/core';
+import { resolveSpecGenerator } from '@/lib/mcp/ai-spec';
+import { applyToolKillSwitch, isMcpDisabled, isMcpReadOnly } from '@/lib/mcp/kill-switch';
 
 // Real request bodies here are Editor.js documents / Excalidraw element
 // arrays, which can legitimately run to a few hundred KB - 5MB comfortably
 // covers that while still bounding a malicious/broken client from streaming
 // an unbounded body into memory.
 const MAX_MCP_BODY_BYTES = 5 * 1024 * 1024;
+
+const STREAMING_TOOLS = new Set(['collabpro_create_diagram']);
 
 function jsonRpcError(code: number, message: string, status: number, headers?: HeadersInit): Response {
   return Response.json({ jsonrpc: '2.0', error: { code, message }, id: null }, { status, headers });
@@ -33,15 +38,24 @@ function jsonRpcError(code: number, message: string, status: number, headers?: H
  */
 export async function POST(request: Request): Promise<Response> {
   const startedAt = Date.now();
+  if (isMcpDisabled()) return jsonRpcError(-32001, 'MCP is temporarily disabled', 503, { 'Retry-After': '300' });
   const ip = getClientIp(request);
   const authHeader = request.headers.get('Authorization');
-  const authResult = await verifyApiKey(authHeader);
+  const authResult = await verifyApiKey(authHeader, undefined, { allowOAuth: true });
 
   if (!authResult.isValid || !authResult.userEmail) {
     // No email on a bad/missing key to log against - IP is the only signal.
     // Mirrors the auth:login:failure convention elsewhere in the app.
     void logAuditEvent(null, authResult.userEmail || 'unknown', 'mcp:auth:failure', { reason: authResult.error }, ip);
-    return jsonRpcError(authResult.statusCode || 401, authResult.error || 'Unauthorized API Key', authResult.statusCode || 401);
+    const status = authResult.statusCode || 401;
+    // A 401 carrying resource_metadata is what starts Claude's OAuth sign-in
+    // (it ignores WWW-Authenticate on any other status).
+    const headers = status === 401
+      ? {
+          'WWW-Authenticate': `Bearer resource_metadata="${getBaseUrl(request)}/.well-known/oauth-protected-resource"${authHeader ? ', error="invalid_token"' : ''}`,
+        }
+      : undefined;
+    return jsonRpcError(status, authResult.error || 'Unauthorized API Key', status, headers);
   }
 
   // Keyed per API key (falling back to email for defense in depth if the
@@ -74,34 +88,42 @@ export async function POST(request: Request): Promise<Response> {
     return jsonRpcError(-32700, 'Parse error: Invalid JSON', 400);
   }
 
-  const server = new McpServer({ name: 'collabpro-mcp-server', version: '1.0.0' });
+  const method = !parsedBody ? undefined : Array.isArray(parsedBody) ? 'batch' : (parsedBody as { method?: string }).method;
+  const toolName = !parsedBody || Array.isArray(parsedBody)
+    ? undefined
+    : (parsedBody as { params?: { name?: string } }).params?.name;
+
+  const server = new McpServer({ name: 'collabpro-mcp-server', version: '1.1.0' });
+  applyToolKillSwitch(server);
   registerCollabProTools(server, {
     prisma,
     userEmail: authResult.userEmail,
-    scope: authResult.scope,
+    scope: isMcpReadOnly() ? 'read-only' : authResult.scope,
     ip,
+    oauthClientId: authResult.oauthClientId,
+    baseUrl: getBaseUrl(request),
+    // Looked up only when it can matter: tools/list (to advertise the AI tool)
+    // or the AI tool itself being called. Every other call skips the query.
+    generateSpec: method === 'tools/list' || toolName === 'collabpro_create_diagram'
+      ? await resolveSpecGenerator(prisma, authResult.userEmail)
+      : undefined,
   });
   registerCollabProPrompts(server);
 
-  // Stateless mode (no sessionIdGenerator): each HTTP request is independent,
-  // matching this route's existing behavior - no server-initiated
-  // notifications or long-lived streams are needed for these tools, so
-  // enableJsonResponse keeps every call a single request/response instead of
-  // opening an SSE stream.
+  // Stateless mode (no sessionIdGenerator): each HTTP request is independent.
+  // Plain JSON responses by default; only the long-running AI tool streams
+  // (SSE) so it can send notifications/progress while the model works.
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
-    enableJsonResponse: true,
+    enableJsonResponse: !(method === 'tools/call' && toolName && STREAMING_TOOLS.has(toolName)),
   });
 
   await server.connect(transport);
   const response = await transport.handleRequest(request, { parsedBody });
 
-  const method = !parsedBody ? undefined : Array.isArray(parsedBody) ? 'batch' : (parsedBody as { method?: string }).method;
-  const toolName = !parsedBody || Array.isArray(parsedBody)
-    ? undefined
-    : (parsedBody as { params?: { name?: string } }).params?.name;
   logger.info('mcp_request', {
     userEmail: authResult.userEmail,
+    oauthClientId: authResult.oauthClientId,
     method,
     tool: toolName,
     status: response.status,

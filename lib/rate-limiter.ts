@@ -68,6 +68,11 @@ export const LIMITS = {
   // for normal agent use while bounding a runaway/misbehaving client or a
   // leaked key from hammering the DB.
   MCP: { windowMs: 60 * 1000, maxAttempts: 120 },
+  // OAuth endpoints are unauthenticated by design (DCR, token), so they are
+  // keyed per source IP. Claude hosted traffic shares egress IPs, hence the
+  // generous ceiling; DCR is much tighter since it writes a row per call.
+  OAUTH_REGISTER: { windowMs: 60 * 60 * 1000, maxAttempts: 30 },
+  OAUTH_TOKEN: { windowMs: 60 * 1000, maxAttempts: 120 },
   // AI chat sidebar sends: keyed per user. 20/min is generous for interactive
   // chat while bounding runaway cost against a team's own LLM provider key.
   AI_CHAT: { windowMs: 60 * 1000, maxAttempts: 20 },

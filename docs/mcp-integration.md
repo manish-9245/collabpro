@@ -55,6 +55,33 @@ Launch `scripts/mcp-server.ts` with `npx tsx` (already a project devDependency �
 
 `COLLABPRO_BASE_URL` defaults to `http://localhost:3000` if unset. The bridge exits immediately with an error if `COLLABPRO_API_KEY` is missing.
 
+### Option C — Claude (claude.ai / Desktop / mobile) custom connector
+
+No API key needed — Claude signs the user in with OAuth 2.1:
+
+1. In Claude: **Settings → Connectors → Add custom connector**, paste `<your-app-url>/api/mcp`.
+2. Claude discovers the sign-in via a `401` + `WWW-Authenticate: Bearer resource_metadata=…` from `/api/mcp`, registers itself (Dynamic Client Registration), and sends you to CollabPro's consent page (`/oauth/authorize`).
+3. Sign in to CollabPro if needed, review what the app can reach (your teams are listed), optionally tick **create and edit** (off by default), and **Allow**.
+4. Revoke any time in **Settings → MCP → Connected apps**.
+
+The instance must be reachable from the internet over HTTPS (Anthropic connects from `160.79.104.0/21`). Behind a proxy that doesn't forward `X-Forwarded-Host`/`X-Forwarded-Proto`, set `APP_URL` so discovery metadata advertises the right origin. API keys (`collabpro_pat_…`) keep working for scripts, Claude Code and the stdio bridge.
+
+For the **Connectors Directory** see [`mcp-directory-submission.md`](mcp-directory-submission.md).
+
+### OAuth server reference
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /.well-known/oauth-protected-resource` | RFC 9728 metadata; `resource` is exactly `<origin>/api/mcp` |
+| `GET /.well-known/oauth-authorization-server` | RFC 8414 metadata; S256 only, public clients (`token_endpoint_auth_methods_supported: ["none"]`) |
+| `POST /api/oauth/register` | RFC 7591 DCR. Only the Claude callback `https://claude.ai/api/mcp/auth_callback` and loopback (`http://localhost\|127.0.0.1/...`, port ignored) redirect URIs are accepted. IP rate limited |
+| `GET /oauth/authorize` | Consent page. Reuses the normal CollabPro login; shows the teams in scope; write is opt-in |
+| `POST /api/oauth/authorize` | Consent submit. Same-origin + stateless HMAC consent token bound to user/client/redirect/PKCE/scope |
+| `POST /api/oauth/token` | `authorization_code` and `refresh_token` grants, `application/x-www-form-urlencoded`. Access token 1 h, refresh token 30 d, rotated on every use; replaying a rotated token revokes the whole grant |
+| `GET/DELETE /api/oauth/grants` | Session-authenticated "Connected apps" list / revoke |
+
+Scopes: `mcp:read` (always), `mcp:write` (only when requested **and** ticked), `offline_access`. OAuth tokens (`collabpro_oat_…`) are accepted **only** by `/api/mcp` — not by state-sync or any other API-key route. Every secret (codes, tokens) is stored as a SHA-256 hash. Housekeeping: `npm run oauth:cleanup` (daily).
+
 ## Tools
 
 | Tool | Description | Requires write scope |
@@ -67,6 +94,15 @@ Launch `scripts/mcp-server.ts` with `npx tsx` (already a project devDependency �
 | `collabpro_search_icon_libraries` | Keyword search over the 200+ community Excalidraw icon libraries ([libraries.excalidraw.com](https://libraries.excalidraw.com): AWS/Azure/GCP/network/UML/BPMN/etc). Returns each match's `source` string. | No |
 | `collabpro_list_library_items` | List every icon in one library by name (derived from the item's own content when the library has no metadata name), so a caller can pick items deliberately instead of guessing numeric indices. | No |
 | `collabpro_get_library_icon` | Fetch and place one icon from a library (`librarySource` + `item`) at `(x, y)`. Returns a short-lived `ref` — plus its footprint `width`/`height` for laying out the next icon without overlap — **not** the element geometry itself. Pass `ref` to `collabpro_update_whiteboard`'s `iconRefs` array to place it; refs are single-use and expire after 30 minutes. | No |
+| `collabpro_list_teams` | List the teams you can access (id, name, description). | No |
+| `collabpro_search` | Case-insensitive search across file names, document text and whiteboard labels; returns snippets. Scoped to your teams. | No |
+| `collabpro_export_file` | Export as `svg` (whiteboard), `markdown`, `html` or `text` (document). Capped at ~100k characters (`truncated: true`). PNG/PDF stay in the app's Export menu. | No |
+| `collabpro_place_icon` | One-step icon placement from a phrase (`"aws lambda"`): searches the libraries, picks the best vector icon, returns a `ref` for `iconRefs`. | No |
+| `collabpro_apply_diagram_spec` | **Preferred way to draw.** Takes `nodes`, `edges`, optional `group`/`icon`/`direction`; the server lays out (layered, overlap-free), draws labeled boxes and bound arrows, saves. Adds below existing content unless `replaceAll`. Up to 60 nodes / 120 edges. | Yes |
+| `collabpro_create_diagram` | *Only listed when a team you belong to has an AI provider configured (Settings → AI).* Plain-English → diagram using **that team's own key**; streams `notifications/progress` over SSE. | Yes |
+
+`get_file` returns `documentVersion` / `whiteboardVersion`; `update_document`, `update_whiteboard` and `apply_diagram_spec` accept it back as `baseVersion` and reject with `Conflict` if the file changed since (opt-in optimistic concurrency, on top of the compare-and-swap writers). Every tool declares an `outputSchema` and returns `structuredContent`; file-producing tools also return a `fileUrl` / `resource_link`.
+
 
 All inputs are validated by the SDK against each tool's Zod schema before the handler runs — a missing or wrong-typed required field is rejected as a tool error automatically. Access is scoped to teams the authenticated API key's user belongs to (union of teams they created and teams they're a member of); a `read-only`-scoped key gets a `Forbidden` tool error on any write tool. Writes go through the same compare-and-swap writers (`lib/cas-writes.ts`) as every other write path in the app (HTTP state-sync, the WebSocket gateway), so a concurrent human edit can't be silently clobbered. Every tool also declares [MCP annotations](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#tool-annotations) (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) so a well-behaved client can reason about risk (and about which tools touch the network) before calling one.
 
@@ -99,7 +135,9 @@ Prompts are a distinct MCP primitive from tools (`prompts/list`, `prompts/get`) 
 
 - The Streamable HTTP transport requires the `Accept: application/json, text/event-stream` request header, per spec. A request missing it gets a `406 Not Acceptable` — this is correct, not a bug.
 - Tool execution errors (invalid arguments, forbidden scope, file not found) are returned as a `200` JSON-RPC response with `result.isError: true`, not an HTTP-level error — this is how MCP distinguishes protocol-level failures (bad auth, malformed JSON-RPC) from tool-level failures.
-- The server runs statefully-free: no session ID, no SSE stream — each HTTP request is independent, since none of these tools need server-initiated notifications.
+- The server is stateless: no session ID, each HTTP request is independent. Responses are plain JSON; only the optional AI tool (`collabpro_create_diagram`) switches to an SSE stream so it can send `notifications/progress`.
+- Unauthenticated or invalid-token requests get `401` with `WWW-Authenticate: Bearer resource_metadata="…"` (this is what starts Claude's sign-in). Scope failures are `403` with no such header.
+- Claude limits: ~150k characters per tool result, 240 s per call; OAuth discovery/registration/token endpoints must answer in under 10 s (30 s for refresh).
 
 ## Reliability, limits, and audit
 
@@ -108,17 +146,33 @@ Prompts are a distinct MCP primitive from tools (`prompts/list`, `prompts/get`) 
 - **Audit log**: `mcp:auth:failure`, `mcp:rate_limited` (once per blocked window, not once per request), `mcp:create_file`, `mcp:update_document`, and `mcp:update_whiteboard` are written to the same `AuditLog` table as every other security-relevant action in the app (auth, API key, team/org changes) — an unattended agent editing content is exactly the kind of action worth an audit trail, unlike a routine human edit through the editor UI.
 - **Observability**: every request logs a single structured `mcp_request` line (`lib/logger.ts`) with the calling user, JSON-RPC method, tool name, response status, and duration.
 
+## Operator controls (kill switches)
+
+Environment variables, read per request, so a Railway variable change plus restart takes effect without a code change:
+
+| Variable | Effect |
+|---|---|
+| `MCP_DISABLED=true` | `/api/mcp` answers `503` for everyone |
+| `MCP_READ_ONLY=true` | every MCP caller is forced to read-only |
+| `MCP_DISABLED_TOOLS=a,b` | named tools are hidden and uncallable |
+| `OAUTH_DISABLED=true` | OAuth endpoints and OAuth tokens stop working (API keys unaffected) |
+| `APP_URL` | pins the public origin used in discovery metadata |
+
+See [`runbooks/mcp.md`](runbooks/mcp.md) for SLOs, alerts and incident steps, and [`mcp-threat-model.md`](mcp-threat-model.md) for the prompt-injection model.
+
 ## Whose AI tokens get spent
 
-`lib/mcp/tools.ts` never calls an LLM — every tool is plain CRUD (list/get/update) against Postgres. So when an AI coding tool (Claude Code, Copilot, Cursor, Windsurf) calls a CollabPro tool, 100% of the reasoning/generation happens in that tool's own model, billed to its own tokens — CollabPro has no API key to a model provider and nothing here can spend one. `scripts/demo-mcp-ai.ts` demonstrates this from the other direction: it's the caller supplying its own `NVIDIA_API_KEY` to drive tool calls, not the server.
+`lib/mcp/tools.ts` does not call an LLM on its own — every tool except one is plain CRUD/layout against Postgres. The exception is `collabpro_create_diagram`, which is only registered when a team has configured its own provider (Settings → AI) and then spends **that team's key** (`lib/mcp/ai-spec.ts`); the model only returns a small graph spec, layout stays deterministic. So when an AI coding tool (Claude Code, Copilot, Cursor, Windsurf) calls a CollabPro tool, 100% of the reasoning/generation happens in that tool's own model, billed to its own tokens — CollabPro has no API key to a model provider and nothing here can spend one. `scripts/demo-mcp-ai.ts` demonstrates this from the other direction: it's the caller supplying its own `NVIDIA_API_KEY` to drive tool calls, not the server.
 
-If a future tool needs server-side generation (e.g. an AI content-authoring tool), the extension point is `McpToolContext` (`lib/mcp/tools.ts`): resolve an optional org/account-level provider key there (e.g. from a settings table) and have that tool use it only when present, falling back to [MCP sampling](https://modelcontextprotocol.io/specification/2025-06-18/client/sampling) (asking the connected client to run the completion on the caller's tokens) when it isn't configured. Nothing in the current architecture blocks adding this — it just doesn't exist yet because no tool needs it.
+Claude does not support [MCP sampling](https://modelcontextprotocol.io/specification/2025-06-18/client/sampling), so there is no fallback to the caller's tokens: without a configured team provider the AI tool simply isn't offered, and callers use the free `collabpro_apply_diagram_spec` instead.
 
 ## Troubleshooting
 
 Use the **Run Handshake Diagnostics** button on the MCP settings page — it makes a real `initialize` + `tools/list` call against `/api/mcp` with your selected key and shows the actual response (or actual error), rather than a canned success message.
 
-- **401 Unauthorized** — API key missing, invalid, revoked, or expired.
+- **401 Unauthorized** — API key missing, invalid, revoked, or expired; or an OAuth token expired (Claude refreshes automatically; if it can't, re-add the connector).
+- **Claude says "Couldn't reach the MCP server"** — discovery failed: check `curl <app-url>/.well-known/oauth-protected-resource` returns `resource` equal to the URL you pasted, and that a WAF/proxy isn't blocking `/.well-known/*` or `160.79.104.0/21`.
+- **"redirect_uri is not registered"** — remove and re-add the connector (a stale client was pruned).
 - **403 / `isError` "Forbidden"** — the key's scope is `read-only` and you called a write tool.
 - **406 Not Acceptable** — your client isn't sending the required `Accept` header (see above); this is a client bug, not a server one.
 - **stdio bridge exits immediately** — `COLLABPRO_API_KEY` is unset in its environment.
