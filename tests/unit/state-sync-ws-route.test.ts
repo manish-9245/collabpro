@@ -48,6 +48,8 @@ describe('workspaceFileIdFromPath', () => {
     const { workspaceFileIdFromPath } = await freshClient();
     expect(workspaceFileIdFromPath('/workspace/abc-123')).toBe('abc-123');
     expect(workspaceFileIdFromPath('/workspace/abc-123/settings')).toBe('abc-123');
+    expect(workspaceFileIdFromPath('/workspace/share/link-77')).toBeNull(); // shared-link viewer: not a file, no room
+    expect(workspaceFileIdFromPath('/workspace/share')).toBeNull();
     expect(workspaceFileIdFromPath('/dashboard')).toBeNull();
     expect(workspaceFileIdFromPath('/')).toBeNull();
     expect(workspaceFileIdFromPath(null)).toBeNull();
@@ -80,28 +82,44 @@ describe('wsClient follows client-side navigation (the dashboard -> file bug)', 
     expect(FakeWebSocket.instances).toHaveLength(1);
   });
 
-  it('switching files while connected joins the new room on the SAME socket', async () => {
+  it('switching files while connected leaves the old room, then joins the new one, on the SAME socket', async () => {
     const { wsClient } = await freshClient('/dashboard');
     wsClient!.setActiveRoom('file-1');
     await flush();
     FakeWebSocket.instances[0].open();
     wsClient!.setActiveRoom('file-2');
     expect(FakeWebSocket.instances).toHaveLength(1);
-    expect(FakeWebSocket.instances[0].sent).toContainEqual({ type: 'join', fileId: 'file-2' });
+    const msgs = FakeWebSocket.instances[0].sent.map((m) => `${m.type}:${m.fileId}`);
+    expect(msgs).toEqual(['join:file-1', 'leave:file-1', 'join:file-2']);
   });
 
-  it('leaving the workspace keeps the socket and sends nothing; re-entering joins again', async () => {
+  it('leaving the workspace leaves the room but keeps the socket; re-entering joins again', async () => {
     const { wsClient } = await freshClient('/dashboard');
     wsClient!.setActiveRoom('file-1');
     await flush();
     const ws = FakeWebSocket.instances[0];
     ws.open();
-    const sentBefore = ws.sent.length;
     wsClient!.setActiveRoom(null);
-    expect(ws.sent).toHaveLength(sentBefore);
     expect(ws.readyState).toBe(FakeWebSocket.OPEN);
+    expect(ws.sent.map((m) => `${m.type}:${m.fileId}`)).toEqual(['join:file-1', 'leave:file-1']);
     wsClient!.setActiveRoom('file-1');
     expect(ws.sent.filter((m) => m.type === 'join')).toHaveLength(2);
+  });
+
+  it('sends no leave when there is no open socket to send it on', async () => {
+    const { wsClient } = await freshClient('/dashboard');
+    wsClient!.setActiveRoom('file-1'); // connecting, not yet open
+    await flush();
+    wsClient!.setActiveRoom(null);
+    expect(FakeWebSocket.instances[0].sent).toEqual([]);
+  });
+
+  it('opening a shared link never opens a socket', async () => {
+    const { StateSyncProvider } = await freshClient('/dashboard');
+    nav.pathname = '/workspace/share/link-77';
+    render(React.createElement(StateSyncProvider, null, React.createElement('div', null, 'x')));
+    await flush();
+    expect(FakeWebSocket.instances).toHaveLength(0);
   });
 
   it('a page loaded directly on a workspace URL still connects immediately (unchanged behavior)', async () => {
