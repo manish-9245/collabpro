@@ -7,6 +7,9 @@ import { logger } from '@/lib/logger';
 // A short secret is brute-forceable over HTTP, so anything under this length is treated as "not configured".
 const MIN_SECRET_LENGTH = 24;
 
+// The misconfiguration warning is emitted once per process, so unauthenticated callers cannot turn it into log/alert volume.
+let warnedShortSecret = false;
+
 // Runs inside the app image (no extra tooling), so a Railway/cron job can just
 //   curl -X POST -H "Authorization: Bearer $CRON_SECRET" https://<app>/api/internal/oauth-cleanup
 // Fails closed: with CRON_SECRET unset (or shorter than 24 characters) the endpoint is disabled (404);
@@ -16,7 +19,10 @@ export async function POST(request: Request): Promise<Response> {
   if (!secret) return new Response('Not found', { status: 404 });
   if (secret.length < MIN_SECRET_LENGTH) {
     // Same 404 as "unset" for callers, but tell the operator why their cron is failing.
-    logger.warn('oauth_cleanup_disabled', { reason: `CRON_SECRET is set but shorter than ${MIN_SECRET_LENGTH} characters` });
+    if (!warnedShortSecret) {
+      warnedShortSecret = true;
+      logger.warn('oauth_cleanup_disabled', { reason: `CRON_SECRET is set but shorter than ${MIN_SECRET_LENGTH} characters` });
+    }
     return new Response('Not found', { status: 404 });
   }
   const limit = await checkRateLimit(`oauth:cleanup:${getClientIp(request)}`, LIMITS.CRON);

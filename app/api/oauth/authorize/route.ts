@@ -72,8 +72,10 @@ export async function POST(request: Request): Promise<Response> {
       scope: grantedScope,
     });
   } catch (err) {
-    // Unused clients are pruned after 24 h; if one was removed between validation above and this
-    // insert (foreign-key failure), tell the user how to recover instead of a bare 500.
+    // Only the one expected failure is recoverable: Prisma P2003 (foreign key) means the unused client
+    // was pruned (after 24 h) between validation above and this insert. Anything else (outage, bug) must
+    // stay a 5xx so it is observable and not misreported to the user as an expired request.
+    if ((err as { code?: unknown } | null)?.code !== 'P2003') throw err;
     logger.warn('oauth_issue_code_failed', { clientId: req.clientId, reason: err instanceof Error ? err.message : String(err) });
     return plain('This connection request expired. Remove the connector in your AI app and add it again.', 409);
   }

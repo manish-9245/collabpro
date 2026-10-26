@@ -151,11 +151,16 @@ describe('POST /api/oauth/authorize (consent)', () => {
   });
   it('a client pruned between validation and code issue is a clear 409, not a 500', async () => {
     session.user = { email: 'u@x.co' };
-    store.issueAuthCode.mockRejectedValueOnce(new Error('Foreign key constraint failed'));
+    store.issueAuthCode.mockRejectedValueOnce(Object.assign(new Error('Foreign key constraint failed'), { code: 'P2003' }));
     const res = await submit({ decision: 'allow', consent_token: tokenFor('u@x.co') });
     expect(res.status).toBe(409);
     expect(await res.text()).toMatch(/add it again/);
     expect(log.warn).toHaveBeenCalledWith('oauth_issue_code_failed', expect.objectContaining({ clientId: 'c1' }));
+  });
+  it('any OTHER database failure while issuing the code is not masked as a 409 - it propagates as a 5xx', async () => {
+    session.user = { email: 'u@x.co' };
+    store.issueAuthCode.mockRejectedValueOnce(Object.assign(new Error('connection refused'), { code: 'P1001' }));
+    await expect(submit({ decision: 'allow', consent_token: tokenFor('u@x.co') })).rejects.toThrow('connection refused');
   });
   it('rejects a consent token older than 10 minutes', async () => {
     session.user = { email: 'u@x.co' };
@@ -330,6 +335,14 @@ describe('revoke audit + stream failure', () => {
 });
 
 describe('cleanup endpoint (cron) fails closed', () => {
+  it('logs the short-secret warning once per process, not once per request', async () => {
+    process.env.CRON_SECRET = 'short';
+    log.warn.mockClear();
+    for (let i = 0; i < 5; i++) await cleanup(new Request('https://x.co/c', { method: 'POST' }));
+    const warnings = log.warn.mock.calls.filter((c) => c[0] === 'oauth_cleanup_disabled');
+    expect(warnings).toHaveLength(1); // five unauthenticated hits, one log line
+    expect(warnings[0][1]).toMatchObject({ reason: expect.stringContaining('shorter than 24') }); // and the operator is told why
+  });
   it('rate limits guesses before comparing the secret', async () => {
     process.env.CRON_SECRET = 'cron-secret-cron-secret-0123456789';
     vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: false, remaining: 0, resetAt: Date.now() + 1000, firstBlock: true });
@@ -341,7 +354,6 @@ describe('cleanup endpoint (cron) fails closed', () => {
     expect((await cleanup(new Request('https://x.co/c', { method: 'POST' }))).status).toBe(404);
     process.env.CRON_SECRET = 'short';
     expect((await cleanup(new Request('https://x.co/c', { method: 'POST', headers: { Authorization: 'Bearer short' } }))).status).toBe(404); // weak secrets are treated as unconfigured
-    expect(log.warn).toHaveBeenCalledWith('oauth_cleanup_disabled', expect.objectContaining({ reason: expect.stringContaining('shorter than 24') })); // ...but the operator is told why
     process.env.CRON_SECRET = 'cron-secret-cron-secret-0123456789';
     expect((await cleanup(new Request('https://x.co/c', { method: 'POST', headers: { Authorization: 'Bearer nope' } }))).status).toBe(401);
     expect((await cleanup(new Request('https://x.co/c', { method: 'POST' }))).status).toBe(401);
