@@ -76,7 +76,7 @@ For the **Connectors Directory** see [`mcp-directory-submission.md`](mcp-directo
 | `GET /.well-known/oauth-authorization-server` | RFC 8414 metadata; S256 only, public clients (`token_endpoint_auth_methods_supported: ["none"]`) |
 | `POST /api/oauth/register` | RFC 7591 DCR. Only the Claude callback `https://claude.ai/api/mcp/auth_callback` and loopback (`http://localhost\|127.0.0.1/...`, port ignored) redirect URIs are accepted. IP rate limited |
 | `GET /oauth/authorize` | Consent page. Reuses the normal CollabPro login; shows the teams in scope; write is opt-in |
-| `POST /api/oauth/authorize` | Consent submit. Same-origin + stateless HMAC consent token bound to user/client/redirect/PKCE/scope |
+| `POST /api/oauth/authorize` | Consent submit. Same-origin + stateless HMAC consent token bound to user/client/redirect/PKCE/scope. `/oauth/*` is served with `Referrer-Policy: no-referrer`, so browsers send `Origin: null` on this POST; the same-origin check then relies on `Sec-Fetch-Site: same-origin` |
 | `POST /api/oauth/revoke` | RFC 7009 revocation (access or refresh token). `200` for every well-formed request, known token or not (no validity oracle); `400` malformed, `429`/`503` throttled/disabled |
 | `POST /api/oauth/token` | `authorization_code` and `refresh_token` grants, `application/x-www-form-urlencoded`. Access token 1 h, refresh token 30 d, rotated on every use; replaying a rotated token revokes the whole grant |
 | `GET/DELETE /api/oauth/grants` | Session-authenticated "Connected apps" list / revoke |
@@ -176,6 +176,7 @@ Use the **Run Handshake Diagnostics** button on the MCP settings page — it mak
 
 - **401 Unauthorized** — API key missing, invalid, revoked, or expired; or an OAuth token expired (Claude refreshes automatically; if it can't, re-add the connector).
 - **Claude says "Couldn't reach the MCP server"** — discovery failed: check `curl <app-url>/.well-known/oauth-protected-resource` returns `resource` equal to the URL you pasted, and that a WAF/proxy isn't blocking `/.well-known/*` or `160.79.104.0/21`.
+- **"Cross-origin request rejected" (403) on the consent screen** — the browser sent neither our `Origin` nor `Sec-Fetch-Site: same-origin`. Make sure you reached the consent page on the same hostname as `APP_URL` (not a `*.up.railway.app` or `www.` alias) and use a current browser; a browser without `Sec-Fetch-Site` support is rejected.
 - **"redirect_uri is not registered"** — remove and re-add the connector (a stale client was pruned).
 - **`isError` "Forbidden" (HTTP 200)** — the key/grant is `read-only` and you called a write tool; re-authorize with write access.
 - **406 Not Acceptable** — your client isn't sending the required `Accept` header (see above); this is a client bug, not a server one.
