@@ -46,6 +46,17 @@ CollabPro is **self-contained with zero required third-party SaaS dependencies**
 - **Redis Cache-Aside Reads**: File reads are cached in Redis with write-path invalidation; falls through to Postgres transparently if Redis is unavailable.
 
 ### 🤖 6. MCP Automation Tools
+
+| Connect with | How | Auth |
+|---|---|---|
+| **Claude (claude.ai, Desktop, mobile)** | Settings → Connectors → Add custom connector → `<your-app-url>/api/mcp` | OAuth 2.1 sign-in, no key |
+| **VS Code (Copilot agent mode)** | open the repo, change the URL in the bundled `.vscode/mcp.json` from `http://localhost:3000` to your app URL, then start the `collabpro` server | API key (prompted once) |
+| **Any remote MCP client** (Claude Code, etc.) | URL `<your-app-url>/api/mcp` + `Authorization: Bearer <api-key>` | API key (Settings → API Keys) |
+| **stdio-only clients** (Claude Desktop config, Cursor, Windsurf) | `npx tsx scripts/mcp-server.ts` with `COLLABPRO_API_KEY` and `COLLABPRO_BASE_URL` | API key |
+| **Claude plugin bundle** | `plugins/collabpro/` (connector + diagramming skill; set your host in `.mcp.json`) | OAuth |
+
+Settings → MCP generates ready-to-paste config for the connector, remote, VS Code, Claude Desktop, Cursor and Windsurf, and describes the protocol and auth for other (custom) clients (the plugin bundle is set up from `plugins/collabpro/README.md`). Operators can turn it all off or restrict it with `MCP_DISABLED`, `MCP_READ_ONLY`, `MCP_DISABLED_TOOLS` and `OAUTH_DISABLED` (see [`docs/mcp-integration.md`](docs/mcp-integration.md#operator-controls-kill-switches)).
+
 - **Spec-compliant remote server**: `/api/mcp` is a real Streamable HTTP MCP server built on the official `@modelcontextprotocol/sdk` — any supporting client (including VS Code natively, via the bundled `.vscode/mcp.json`) connects directly with just a URL and API key, no local install.
 - **One-click Claude connector**: add `<your-app-url>/api/mcp` as a custom connector in claude.ai and sign in with OAuth 2.1 (PKCE, dynamic client registration, refresh rotation) — no API key. Write access is opt-in at the consent screen and revocable under Settings → MCP → Connected apps. See [`docs/mcp-integration.md`](docs/mcp-integration.md#option-c--claude-claudeai--desktop--mobile-custom-connector).
 - **stdio bridge for legacy clients**: `scripts/mcp-server.ts` bridges local stdio clients (Claude Desktop, Cursor, Windsurf) to the same server.
@@ -206,8 +217,11 @@ See [`docs/deploy-k8s.md`](docs/deploy-k8s.md) for the full Helm-based deploymen
 
 ### Option C — Platform-as-a-Service (Railway, Render, etc.)
 - Provision PostgreSQL and Redis, and set `DATABASE_URL` / `REDIS_URL` plus the other required variables from `.env.example`.
-- Run `npx prisma migrate deploy` as a release/deploy step — **not** `prisma db push` — so the schema stays in sync with the committed migration history.
-- Deploy the Next.js app (`npm run build && npm run start`) and the WebSocket gateway (`npm run ws:start`) as two separate services/processes.
+- Apply migrations with `npx prisma migrate deploy` — **not** `prisma db push` — so the schema stays in sync with the committed migration history. Where your platform has a release/pre-deploy step with the Prisma CLI available, run it there; otherwise see the manual procedure below.
+- Deploy the Next.js app and the WebSocket gateway as two separate services. Both build from the repo: the web service from `Dockerfile`, the gateway from `Dockerfile.ws` (start command `npm run ws:start`, health check `GET /health`). The main `Dockerfile` cannot run the gateway.
+- Set `NEXT_PUBLIC_WS_URL` (for example `wss://<gateway-domain>`) on the **web** service. It is inlined into the browser bundle at **build** time, so changing it needs a rebuild. Without it the client guesses a gateway URL from the page's hostname, and if that connection fails it falls back to HTTP polling.
+- Set `APP_URL` to your public https origin (pins the OAuth issuer) and `SESSION_SECRET`; see `.env.example`.
+- The web service's production image does not include the Prisma CLI and nothing runs migrations on deploy (the Railway setup here works this way). In that case apply new migrations from a checkout with `DATABASE_URL=<public db url> npx prisma migrate deploy`, after a `pg_dump` backup.
 - Point your platform's health check at `GET /api/health`.
 
 ---
@@ -215,7 +229,10 @@ See [`docs/deploy-k8s.md`](docs/deploy-k8s.md) for the full Helm-based deploymen
 ## 📚 Docs & Contributing
 
 - [`docs/architecture.md`](docs/architecture.md) — full architecture deep-dive
-- [`docs/mcp-integration.md`](docs/mcp-integration.md) — MCP / AI agent integration setup and tool reference
+- [`docs/mcp-integration.md`](docs/mcp-integration.md) — MCP / AI agent integration setup, OAuth reference and tool reference
+- [`docs/runbooks/mcp.md`](docs/runbooks/mcp.md) — MCP/OAuth deploy checklist, kill switches and incident runbook
+- [`docs/mcp-threat-model.md`](docs/mcp-threat-model.md) — MCP/OAuth threat model
+- [`docs/mcp-directory-submission.md`](docs/mcp-directory-submission.md) — publishing CollabPro in the Claude connector directory
 - [`docs/deploy-k8s.md`](docs/deploy-k8s.md) — Kubernetes deployment guide
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to propose and land a change
 - [`SECURITY.md`](SECURITY.md) — how to report a vulnerability
