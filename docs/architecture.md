@@ -110,7 +110,7 @@ When WebSockets are unavailable (firewalls, VPNs, restrictive proxies), the clie
 - **Active state**: polls every 15 seconds (`lib/state-sync/polling.ts`). This path is only the fallback for when the WebSocket gateway is not connected; each mounted query polls on its own timer, so the cadence is deliberately conservative. Local edits refetch immediately via the `state-sync:refetch` event.
 - **Tab hidden**: backs off to 5 minutes (practically paused).
 - **Inactivity**: backs off to 60 seconds after 60s with zero user input (mouse, scroll, keyboard, touch).
-- **Resumption**: any local interaction instantly restarts polling with an immediate sync and the 15s cadence.
+- **Resumption**: when a visible tab that had backed off to the idle cadence sees input again, polling restarts at the 15s cadence with an immediate sync. Activity in an already-active tab changes nothing, and input in a hidden tab does not restore polling (returning to the tab does).
 
 ---
 
