@@ -1,16 +1,16 @@
 import { z } from 'zod';
 import type { PrismaClient } from '@prisma/client';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { casUpdateDocument, casUpdateWhiteboard } from '@/lib/cas-writes';
+import { casUpdateDocument, casUpdateWhiteboard, CasConflictError } from '@/lib/cas-writes';
 import { invalidateCachedFile } from '@/lib/redis-cache';
 import { logAuditEvent } from '@/lib/audit';
 import { parseJsonIfString, asEditorDocument, asWhiteboardPayload, asJsonString } from '@/lib/state-sync-helpers';
 import { extractTextFromDocument, extractTextFromWhiteboard } from '@/lib/file-service';
 import { searchIconLibraries, listLibraryItems, getLibraryIcon } from '@/lib/mcp/icon-libraries';
 import { storeIconPlacement, takeIconPlacement } from '@/lib/mcp/icon-placement-cache';
-import { createHash } from 'crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { exportFile } from '@/lib/mcp/export';
-import { buildElements, defaultSize, layoutDiagram, validateSpec, type DiagramSpec, type SpecElement } from '@/lib/mcp/diagram-spec';
+import { buildElements, defaultSize, layoutDiagram, MAX_EDGE_LABEL, MAX_NODE_LABEL, validateSpec, type DiagramSpec, type SpecElement } from '@/lib/mcp/diagram-spec';
 import { parseWhiteboardElements } from '@/lib/whiteboard-svg';
 
 /**
@@ -39,14 +39,14 @@ export interface McpToolContext {
   oauthClientId?: string;
   /** Public origin, used to hand back clickable file URLs. */
   baseUrl?: string;
+  /** True when some team the user belongs to has an AI provider configured; gates whether collabpro_create_diagram is offered at all. */
+  aiAvailable?: boolean;
   /**
-   * Present only when the user's team has an AI provider configured (Settings
-   * -> AI). Turns a natural-language request into a diagram spec using the
-   * TEAM'S OWN provider key; collabpro_create_diagram/update_diagram are
-   * registered only when this exists, so the server never spends tokens
-   * unless an owner opted in.
+   * Returns a spec generator bound to ONE team's own provider key (undefined if
+   * that team has none). The AI tool calls it with the team the diagram goes
+   * into, so a user in teams A and B can never spend A's key on B's file.
    */
-  generateSpec?: (instruction: string, existing?: string) => Promise<DiagramSpec>;
+  generatorForTeam?: (teamId: string) => Promise<((instruction: string) => Promise<DiagramSpec>) | undefined>;
 }
 
 // Same "creator OR member" union every other access check in this app uses
@@ -104,6 +104,34 @@ function fileUrl(ctx: McpToolContext, fileId: string): string | undefined {
 
 function resourceLink(url: string | undefined, name: string) {
   return url ? [{ type: 'resource_link' as const, uri: url, name, mimeType: 'text/html' }] : [];
+}
+
+const MAX_BOARD_ELEMENTS = 500;
+
+/** Runs a CAS write; a stale `expectedRaw` surfaces as the same `Conflict` tool error as the up-front version check. */
+async function conflictAware<T>(run: () => Promise<T>): Promise<{ ok: true; value: T } | { ok: false; error: ReturnType<typeof errorResult> }> {
+  try {
+    return { ok: true, value: await run() };
+  } catch (err) {
+    if (err instanceof CasConflictError) {
+      return { ok: false, error: errorResult(`${err.message} Re-read it with collabpro_get_file and merge your change.`) };
+    }
+    throw err;
+  }
+}
+
+/** Element count the board would have AFTER a merge: existing live ids, minus deletions, plus new ids. */
+function mergedElementCount(existingWhiteboard: string, updated: unknown[], deleted: unknown[]): number {
+  const ids = new Set<string>();
+  for (const el of parseWhiteboardElements(existingWhiteboard) as { id?: unknown; isDeleted?: boolean }[]) {
+    if (typeof el.id === 'string' && !el.isDeleted) ids.add(el.id);
+  }
+  for (const id of deleted) if (typeof id === 'string') ids.delete(id);
+  for (const el of updated) {
+    const id = (el as { id?: unknown } | null)?.id;
+    if (typeof id === 'string') ids.add(id);
+  }
+  return ids.size;
 }
 
 async function reportProgress(
@@ -378,9 +406,13 @@ export function registerCollabProTools(server: McpServer, ctx: McpToolContext) {
       // Reuses the same compare-and-swap writer every other write path in
       // this app goes through (HTTP state-sync, the WS gateway), instead of
       // a raw prisma.file.update() with no conflict protection.
-      const savedDocument = await casUpdateDocument(ctx.prisma, fileId, document, {
+      const written = await conflictAware(() => casUpdateDocument(ctx.prisma, fileId, document, {
         onPersisted: (persistedId) => invalidateCachedFile(persistedId),
-      });
+        // Re-checked inside the CAS loop, so an edit landing after the check above still conflicts.
+        ...(baseVersion ? { expectedRaw: file.document ?? '' } : {}),
+      }));
+      if (!written.ok) return written.error;
+      const savedDocument = written.value;
 
       // An agentic caller overwriting content unattended is worth auditing
       // the same way other security-relevant actions in this app are,
@@ -497,13 +529,25 @@ export function registerCollabProTools(server: McpServer, ctx: McpToolContext) {
       if (layoutIssues.length > 0) {
         return errorResult(`Whiteboard rejected - fix these layout issues and retry:\n- ${layoutIssues.join('\n- ')}`);
       }
+      // validateWhiteboardGeometry only sees the incoming elements; in merge
+      // mode the board's final size is existing + new, which must also fit.
+      if (!replaceAll) {
+        const delta = payloadForWrite as { updated: unknown[]; deleted: unknown[] };
+        const finalCount = mergedElementCount(file.whiteboard, delta.updated, delta.deleted);
+        if (finalCount > MAX_BOARD_ELEMENTS) {
+          return errorResult(`Whiteboard would have ${finalCount} elements after this merge - max ${MAX_BOARD_ELEMENTS}. Delete some elements first.`);
+        }
+      }
 
       // casUpdateWhiteboard returns the final whiteboard as a JSON string
       // (unlike casUpdateDocument, which returns a plain object) - parse it
       // back before embedding, or it double-encodes as an escaped string.
-      const savedWhiteboardString = await casUpdateWhiteboard(ctx.prisma, fileId, payloadForWrite, {
+      const written = await conflictAware(() => casUpdateWhiteboard(ctx.prisma, fileId, payloadForWrite, {
         onPersisted: (persistedId) => invalidateCachedFile(persistedId),
-      });
+        ...(baseVersion ? { expectedRaw: file.whiteboard ?? '' } : {}),
+      }));
+      if (!written.ok) return written.error;
+      const savedWhiteboardString = written.value;
 
       void logAuditEvent(file.teamId, ctx.userEmail, 'mcp:update_whiteboard', { fileId, oauthClientId: ctx.oauthClientId }, ctx.ip);
 
@@ -568,7 +612,7 @@ export function registerCollabProTools(server: McpServer, ctx: McpToolContext) {
     },
     async ({ librarySource, item, x, y, scale, idPrefix }) => {
       try {
-        const prefix = idPrefix || `icon${Math.random().toString(36).slice(2, 8)}`;
+        const prefix = idPrefix || `icon${randomBytes(4).toString('hex')}`;
         const { name, elements, width, height } = await getLibraryIcon(librarySource, item, x, y, prefix, scale);
         const ref = storeIconPlacement(name, elements);
         return textResult({
@@ -691,7 +735,7 @@ export function registerCollabProTools(server: McpServer, ctx: McpToolContext) {
           }
         }
         if (!best) return errorResult(`No vector icon matched "${query}". Try a shorter query, or browse with collabpro_search_icon_libraries.`);
-        const prefix = `icon${Math.random().toString(36).slice(2, 8)}`;
+        const prefix = `icon${randomBytes(4).toString('hex')}`;
         const icon = await getLibraryIcon(best.source, String(best.index), x, y, prefix, scale);
         const ref = storeIconPlacement(icon.name, icon.elements);
         return textResult({ name: icon.name, librarySource: best.source, ref, width: icon.width, height: icon.height, elementCount: icon.elements.length });
@@ -739,24 +783,36 @@ export function registerCollabProTools(server: McpServer, ctx: McpToolContext) {
     }
     const boxes = layoutDiagram(spec, sizes);
     for (const b of boxes.values()) b.y += originY;
+    // Excalidraw ids are board-wide: a per-call prefix keeps this diagram from
+    // colliding with (and silently overwriting) anything already on the board.
+    const idPrefix = `d${randomBytes(3).toString('hex')}-`;
 
     const iconElements = new Map<string, SpecElement[]>();
     try {
       await Promise.all(iconNodes.map(async (n) => {
         const b = boxes.get(n.id)!;
-        const placed = await getLibraryIcon(n.icon!.librarySource, n.icon!.item, b.x, b.y, `${n.id}-`, 1);
+        const placed = await getLibraryIcon(n.icon!.librarySource, n.icon!.item, b.x, b.y, `${idPrefix}${n.id}-`, 1);
         iconElements.set(n.id, placed.elements);
       }));
     } catch (err) {
       return errorResult(err instanceof Error ? err.message : String(err));
     }
 
-    const elements = buildElements(spec, boxes, iconElements);
+    const elements = buildElements(spec, boxes, iconElements, idPrefix);
     const issues = validateWhiteboardGeometry(elements);
     if (issues.length > 0) return errorResult(`Generated diagram failed layout checks:\n- ${issues.join('\n- ')}`);
+    if (!replaceAll) {
+      const finalCount = mergedElementCount(file.whiteboard, elements, []);
+      if (finalCount > MAX_BOARD_ELEMENTS) return errorResult(`Whiteboard would have ${finalCount} elements after this diagram - max ${MAX_BOARD_ELEMENTS}. Use replaceAll or delete some elements first.`);
+    }
 
     const payload = replaceAll ? elements : { isDelta: true, updated: elements, deleted: [] };
-    const saved = await casUpdateWhiteboard(ctx.prisma, file.id, payload, { onPersisted: (id) => invalidateCachedFile(id) });
+    const written = await conflictAware(() => casUpdateWhiteboard(ctx.prisma, file.id, payload, {
+      onPersisted: (id) => invalidateCachedFile(id),
+      ...(baseVersion ? { expectedRaw: file.whiteboard ?? '' } : {}),
+    }));
+    if (!written.ok) return written.error;
+    const saved = written.value;
     void logAuditEvent(file.teamId, ctx.userEmail, 'mcp:apply_diagram_spec', { fileId: file.id, nodes: spec.nodes.length, oauthClientId: ctx.oauthClientId }, ctx.ip);
     const url = fileUrl(ctx, file.id);
     return {
@@ -767,12 +823,12 @@ export function registerCollabProTools(server: McpServer, ctx: McpToolContext) {
 
   const specNodeSchema = z.object({
     id: z.string().min(1).max(60).describe('Unique id, referenced by edges.'),
-    label: z.string().min(1).max(120).describe('Text shown on the node.'),
+    label: z.string().min(1).max(MAX_NODE_LABEL).describe(`Text shown on the node (max ${MAX_NODE_LABEL} characters so it fits its box).`),
     group: z.string().max(60).optional().describe('Nodes with the same group share a color.'),
     icon: z.object({ librarySource: z.string(), item: z.string() }).optional()
       .describe('Render a library icon instead of a box (librarySource/item from collabpro_search_icon_libraries / list_library_items).'),
   });
-  const specEdgeSchema = z.object({ from: z.string(), to: z.string(), label: z.string().max(80).optional() });
+  const specEdgeSchema = z.object({ from: z.string(), to: z.string(), label: z.string().max(MAX_EDGE_LABEL).optional() });
   const specOutput = { updated: z.boolean(), elementCount: z.number(), whiteboardVersion: z.string(), fileUrl: z.string().optional() };
 
   server.registerTool(
@@ -798,14 +854,15 @@ export function registerCollabProTools(server: McpServer, ctx: McpToolContext) {
     }
   );
 
-  // Optional server-side AI. Registered only when the team has configured a
-  // provider; the call spends THAT team's key, never ours.
-  if (ctx.generateSpec) {
-    const generate = ctx.generateSpec;
+  // Optional server-side AI. Offered only when some team of the user has a
+  // provider; every call then uses the provider of the team the diagram is
+  // created in, and spends THAT team's key - never ours, never another team's.
+  if (ctx.aiAvailable && ctx.generatorForTeam) {
+    const generatorForTeam = ctx.generatorForTeam;
     server.registerTool(
       'collabpro_create_diagram',
       {
-        description: 'Create a diagram from a plain-English description using your team\'s configured AI provider (costs that provider\'s tokens). Pass fileId to draw into an existing file, or teamId + fileName to create one. Equivalent to describing the graph yourself via collabpro_apply_diagram_spec - prefer that if you can, it is free.',
+        description: 'Create a diagram from a plain-English description using the AI provider configured by the team the diagram goes into (costs that provider\'s tokens; errors if that team has none). Pass fileId to draw into an existing file, or teamId + fileName to create one. Equivalent to describing the graph yourself via collabpro_apply_diagram_spec - prefer that if you can, it is free.',
         inputSchema: {
           text: z.string().min(5).max(4000).describe('What to diagram, e.g. "checkout flow across web, API, payments and database".'),
           fileId: z.string().optional(),
@@ -817,12 +874,15 @@ export function registerCollabProTools(server: McpServer, ctx: McpToolContext) {
       },
       async ({ text, fileId, teamId, fileName }, extra) => {
         if (ctx.scope === 'read-only') return errorResult('Forbidden: API key has read-only access scope');
-        let file = fileId ? await getAuthorizedFile(ctx, fileId) : null;
-        if (fileId && !file) return errorResult('File not found or access denied');
-        if (!file) {
-          if (!teamId || !fileName) return errorResult('Provide fileId, or teamId and fileName to create a new file.');
-          if (!(await getAllowedTeamIds(ctx)).includes(teamId)) return errorResult('Team not found or access denied');
-        }
+        const existing = fileId ? await getAuthorizedFile(ctx, fileId) : null;
+        if (fileId && !existing) return errorResult('File not found or access denied');
+        const targetTeamId = existing?.teamId ?? teamId;
+        if (!existing && (!teamId || !fileName)) return errorResult('Provide fileId, or teamId and fileName to create a new file.');
+        if (!targetTeamId || !(await getAllowedTeamIds(ctx)).includes(targetTeamId)) return errorResult('Team not found or access denied');
+
+        const generate = await generatorForTeam(targetTeamId);
+        if (!generate) return errorResult('This team has no AI provider configured (a team owner can add one in Settings -> AI). Use collabpro_apply_diagram_spec instead.');
+
         await reportProgress(extra, 1, 3, 'Generating diagram spec');
         let spec: DiagramSpec;
         try {
@@ -830,12 +890,24 @@ export function registerCollabProTools(server: McpServer, ctx: McpToolContext) {
         } catch (err) {
           return errorResult(`AI generation failed: ${err instanceof Error ? err.message : String(err)}`);
         }
+        // Validate BEFORE creating anything, so a bad model answer never leaves an orphan file.
+        const specIssues = validateSpec(spec);
+        if (specIssues.length > 0) return errorResult(`The model returned an unusable diagram:\n- ${specIssues.join('\n- ')}`);
+
         await reportProgress(extra, 2, 3, 'Laying out and saving');
-        if (!file) {
-          file = await ctx.prisma.file.create({ data: { fileName: fileName!, teamId: teamId!, createdBy: ctx.userEmail, document: '', whiteboard: '', whiteboardText: '' } });
-          void logAuditEvent(teamId!, ctx.userEmail, 'mcp:create_file', { fileId: file.id, oauthClientId: ctx.oauthClientId }, ctx.ip);
+        const created = existing ? null : await ctx.prisma.file.create({
+          data: { fileName: fileName!, teamId: targetTeamId, createdBy: ctx.userEmail, document: '', whiteboard: '', whiteboardText: '' },
+        });
+        const target = existing ?? created!;
+        const result = await applySpecToFile(target, spec, false, undefined);
+        if (created) {
+          if ('isError' in result && result.isError) {
+            // Don't leave an empty file behind if the write failed.
+            await ctx.prisma.file.deleteMany({ where: { id: created.id, createdBy: ctx.userEmail } }).catch(() => undefined);
+          } else {
+            void logAuditEvent(targetTeamId, ctx.userEmail, 'mcp:create_file', { fileId: created.id, oauthClientId: ctx.oauthClientId }, ctx.ip);
+          }
         }
-        const result = await applySpecToFile(file, spec, false, undefined);
         await reportProgress(extra, 3, 3, 'Done');
         return result;
       }

@@ -35,7 +35,7 @@ export function registerCollabProPrompts(server: McpServer) {
           content: {
             type: 'text',
             text: [
-              'FIRST CHOICE: call collabpro_apply_diagram_spec with nodes, edges and groups. The server computes layout, draws labeled boxes and bound arrows, and saves - no coordinates needed, so none of the rules below can be broken. Use collabpro_place_icon to turn a word like "aws lambda" into an icon ref. Everything below applies only when you hand-place elements with collabpro_update_whiteboard.',
+              'FIRST CHOICE: call collabpro_apply_diagram_spec. Its inputs are nodes ({id, label (max 40 chars), group?, icon?: {librarySource, item}}), edges ({from, to, label?}) and direction. The server computes layout, draws labeled boxes and bound arrows, and saves - no coordinates needed, so none of the rules below can be broken. A node-level icon takes a library source and item from collabpro_search_icon_libraries / collabpro_list_library_items. Separately, collabpro_place_icon returns a ref that is only for hand-placed boards (collabpro_update_whiteboard iconRefs). Everything below applies only when you hand-place elements with collabpro_update_whiteboard.',
               '',
               'Follow these rules when composing elements for collabpro_update_whiteboard.',
               '(Condensed from https://github.com/Agents365-ai/excalidraw-skill, MIT.)',

@@ -71,13 +71,12 @@ export const LIMITS = {
   // OAuth endpoints are unauthenticated by design (DCR, token), so they are
   // keyed per source IP. Claude hosted traffic shares egress IPs, hence the
   // generous ceiling; DCR is much tighter since it writes a row per call.
-  // Bad-credential attempts against /api/mcp, per source IP. Deliberately
-  // high: hosted Claude traffic shares egress IPs across many users, and an
-  // expired access token is a routine 401 (the client refreshes and retries),
-  // so this only has to stop a flood, not normal churn. The audit limit below
-  // is what actually bounds AuditLog growth.
-  MCP_AUTH_FAIL: { windowMs: 60 * 1000, maxAttempts: 600 },
+  // Audit rows for failed /api/mcp authentication: one per source IP per
+  // minute, and a global ceiling across all IPs, so AuditLog growth from
+  // unauthenticated traffic is bounded by (global ceiling x minutes) rather
+  // than by request volume. Failures themselves are never throttled here.
   MCP_AUTH_FAIL_AUDIT: { windowMs: 60 * 1000, maxAttempts: 1 },
+  MCP_AUTH_FAIL_AUDIT_GLOBAL: { windowMs: 60 * 1000, maxAttempts: 60 },
   OAUTH_REGISTER: { windowMs: 60 * 60 * 1000, maxAttempts: 30 },
   OAUTH_TOKEN: { windowMs: 60 * 1000, maxAttempts: 120 },
   // AI chat sidebar sends: keyed per user. 20/min is generous for interactive

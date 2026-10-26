@@ -30,7 +30,11 @@ export type SpecElement = Record<string, unknown>;
 
 export const MAX_SPEC_NODES = 60;
 export const MAX_SPEC_EDGES = 120;
-const GAP_MAIN = 100; // between layers (arrow room)
+/** Longest label that still fits the widest box / the room reserved for an arrow label. */
+export const MAX_NODE_LABEL = 40;
+export const MAX_EDGE_LABEL = 24;
+const CHAR_W = 9;
+const MIN_GAP_MAIN = 100; // between layers (arrow room); grows with edge-label length
 const GAP_CROSS = 40; // between siblings in a layer
 const NODE_H = 64;
 
@@ -52,8 +56,10 @@ export function validateSpec(spec: DiagramSpec): string[] {
   for (const n of spec.nodes) {
     if (ids.has(n.id)) issues.push(`Duplicate node id "${n.id}".`);
     ids.add(n.id);
+    if (n.label.length > MAX_NODE_LABEL) issues.push(`Node "${n.id}": label is ${n.label.length} characters; max ${MAX_NODE_LABEL} so it fits its box.`);
   }
   for (const e of spec.edges ?? []) {
+    if ((e.label?.length ?? 0) > MAX_EDGE_LABEL) issues.push(`Edge "${e.from}" -> "${e.to}": label is longer than ${MAX_EDGE_LABEL} characters.`);
     if (!ids.has(e.from)) issues.push(`Edge references unknown node "${e.from}".`);
     if (!ids.has(e.to)) issues.push(`Edge references unknown node "${e.to}".`);
     if (e.from === e.to) issues.push(`Edge "${e.from}" -> "${e.to}" is a self-loop; not supported.`);
@@ -63,7 +69,7 @@ export function validateSpec(spec: DiagramSpec): string[] {
 
 /** Default box size from the label; icon nodes pass their own measured size. */
 export function defaultSize(label: string): { w: number; h: number } {
-  return { w: Math.min(280, Math.max(140, label.length * 9 + 32)), h: NODE_H };
+  return { w: Math.min(CHAR_W * MAX_NODE_LABEL + 40, Math.max(140, label.length * CHAR_W + 32)), h: NODE_H };
 }
 
 function assignLayers(spec: DiagramSpec): Map<string, number> {
@@ -118,6 +124,11 @@ export function layoutDiagram(spec: DiagramSpec, sizes: Map<string, { w: number;
   }
   const maxCross = Math.max(...layerCross.values());
 
+  // Edge labels sit mid-arrow, so a left-to-right layout must leave the
+  // longest one room between layers (top-to-bottom labels sit beside the arrow).
+  const longestEdgeLabel = Math.max(0, ...(spec.edges ?? []).map((e) => e.label?.length ?? 0));
+  const gapMain = down ? MIN_GAP_MAIN : Math.max(MIN_GAP_MAIN, longestEdgeLabel * 8 + 48);
+
   const out = new Map<string, Box>();
   let mainPos = 0;
   for (const l of [...columns.keys()].sort((a, b) => a - b)) {
@@ -128,23 +139,23 @@ export function layoutDiagram(spec: DiagramSpec, sizes: Map<string, { w: number;
       out.set(n.id, down ? { x: crossPos, y: mainPos, w, h } : { x: mainPos, y: crossPos, w, h });
       crossPos += crossExtent(n) + GAP_CROSS;
     }
-    mainPos += Math.max(...nodes.map(mainExtent)) + GAP_MAIN;
+    mainPos += Math.max(...nodes.map(mainExtent)) + gapMain;
   }
   return out;
 }
 
-function base(id: string, type: string, x: number, y: number, w: number, h: number, i: number): SpecElement {
+function base(id: string, type: string, box: Box, i: number): SpecElement {
   return {
-    id, type, x, y, width: w, height: h, angle: 0,
+    id, type, x: box.x, y: box.y, width: box.w, height: box.h, angle: 0,
     strokeColor: '#1e293b', backgroundColor: 'transparent', fillStyle: 'solid', strokeWidth: 2, strokeStyle: 'solid',
     roughness: 0, opacity: 100, groupIds: [], frameId: null, roundness: null, seed: 1000 + i, version: 1,
     versionNonce: 2000 + i, isDeleted: false, boundElements: [], updated: 1, link: null, locked: false,
   };
 }
 
-function textEl(id: string, text: string, x: number, y: number, w: number, h: number, i: number, containerId: string | null): SpecElement {
+function textEl(id: string, text: string, box: Box, i: number, containerId: string | null): SpecElement {
   return {
-    ...base(id, 'text', x, y, w, h, i),
+    ...base(id, 'text', box, i),
     text, originalText: text, fontSize: 16, fontFamily: 2, textAlign: 'center', verticalAlign: containerId ? 'middle' : 'top',
     containerId, autoResize: true, lineHeight: 1.25,
   };
@@ -164,53 +175,82 @@ function connect(a: Box, b: Box): { sx: number; sy: number; dx: number; dy: numb
   return { sx: acx, sy, dx: bcx - acx, dy: ey - sy };
 }
 
+const SHAPE_TYPES = new Set(['rectangle', 'ellipse', 'diamond']);
+
+/** The icon's main backing shape (largest by area) - what an arrow should bind to so it follows the icon when moved. */
+function iconAnchor(elements: SpecElement[]): SpecElement | undefined {
+  let best: SpecElement | undefined;
+  let bestArea = -1;
+  for (const el of elements) {
+    if (!SHAPE_TYPES.has(String(el.type))) continue;
+    const area = Number(el.width) * Number(el.height);
+    if (area > bestArea) { best = el; bestArea = area; }
+  }
+  return best;
+}
+
+function addBoundArrow(target: SpecElement | undefined, arrowId: string): void {
+  (target?.boundElements as unknown[] | undefined)?.push({ id: arrowId, type: 'arrow' });
+}
+
 /**
  * @param iconElements already-positioned library elements for icon nodes (keyed by node id).
+ * @param idPrefix prepended to every id this function creates. Excalidraw ids are
+ *   board-wide, so merging a second diagram without a distinct prefix would
+ *   overwrite (or drop) elements of the first.
  */
-export function buildElements(spec: DiagramSpec, boxes: Map<string, Box>, iconElements: Map<string, SpecElement[]> = new Map()): SpecElement[] {
+export function buildElements(
+  spec: DiagramSpec,
+  boxes: Map<string, Box>,
+  iconElements: Map<string, SpecElement[]> = new Map(),
+  idPrefix = '',
+): SpecElement[] {
   const out: SpecElement[] = [];
   const groups = [...new Set(spec.nodes.map((n) => n.group ?? ''))];
   let i = 0;
+  const anchors = new Map<string, SpecElement>(); // node id -> element arrows bind to
 
-  const shapeIds = new Map<string, string>();
-  spec.nodes.forEach((n) => {
+  for (const n of spec.nodes) {
     const box = boxes.get(n.id)!;
+    const nodeId = `${idPrefix}${n.id}`;
     const icon = iconElements.get(n.id);
     if (icon) {
-      out.push(...icon);
-      out.push(textEl(`${n.id}-label`, n.label, box.x, box.y + box.h + 6, box.w, 20, i++, null));
-      return;
+      out.push(...icon, textEl(`${nodeId}-label`, n.label, { x: box.x, y: box.y + box.h + 6, w: box.w, h: 20 }, i++, null));
+      const anchor = iconAnchor(icon);
+      if (anchor) anchors.set(n.id, anchor);
+      continue;
     }
     const color = PALETTE[groups.indexOf(n.group ?? '') % PALETTE.length];
-    const rect = base(n.id, 'rectangle', box.x, box.y, box.w, box.h, i++);
+    const rect = base(nodeId, 'rectangle', box, i++);
     rect.strokeColor = color.stroke;
     rect.backgroundColor = color.bg;
     rect.roundness = { type: 3 };
-    rect.boundElements = [{ id: `${n.id}-label`, type: 'text' }];
-    out.push(rect, textEl(`${n.id}-label`, n.label, box.x + 8, box.y + box.h / 2 - 10, box.w - 16, 20, i++, n.id));
-    shapeIds.set(n.id, n.id);
-  });
+    rect.boundElements = [{ id: `${nodeId}-label`, type: 'text' }];
+    out.push(rect, textEl(`${nodeId}-label`, n.label, { x: box.x + 8, y: box.y + box.h / 2 - 10, w: box.w - 16, h: 20 }, i++, nodeId));
+    anchors.set(n.id, rect);
+  }
 
   (spec.edges ?? []).forEach((e, idx) => {
     const a = boxes.get(e.from)!, b = boxes.get(e.to)!;
     const { sx, sy, dx, dy } = connect(a, b);
-    const id = `edge-${idx + 1}`;
-    const arrow = base(id, 'arrow', sx, sy, Math.abs(dx), Math.abs(dy), i++);
+    const id = `${idPrefix}edge-${idx + 1}`;
+    const arrow = base(id, 'arrow', { x: sx, y: sy, w: Math.abs(dx), h: Math.abs(dy) }, i++);
     arrow.points = [[0, 0], [dx, dy]];
     arrow.endArrowhead = 'arrow';
     arrow.startArrowhead = null;
-    if (shapeIds.has(e.from)) {
-      arrow.startBinding = { elementId: e.from, focus: 0, gap: 4 };
-      (out.find((el) => el.id === e.from)!.boundElements as unknown[]).push({ id, type: 'arrow' });
+    const from = anchors.get(e.from), to = anchors.get(e.to);
+    if (from) {
+      arrow.startBinding = { elementId: from.id, focus: 0, gap: 4 };
+      addBoundArrow(from, id);
     }
-    if (shapeIds.has(e.to)) {
-      arrow.endBinding = { elementId: e.to, focus: 0, gap: 4 };
-      (out.find((el) => el.id === e.to)!.boundElements as unknown[]).push({ id, type: 'arrow' });
+    if (to) {
+      arrow.endBinding = { elementId: to.id, focus: 0, gap: 4 };
+      addBoundArrow(to, id);
     }
     out.push(arrow);
     if (e.label) {
       const w = Math.max(40, e.label.length * 8);
-      out.push(textEl(`${id}-label`, e.label, sx + dx / 2 - w / 2, sy + dy / 2 - 24, w, 18, i++, null));
+      out.push(textEl(`${id}-label`, e.label, { x: sx + dx / 2 - w / 2, y: sy + dy / 2 - 24, w, h: 18 }, i++, null));
     }
   });
   return out;

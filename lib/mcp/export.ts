@@ -1,4 +1,4 @@
-import { extractTextFromDocument } from '@/lib/file-service';
+import { decodeState } from '@/lib/state-encode';
 import { parseWhiteboardElements, renderWhiteboardSvg } from '@/lib/whiteboard-svg';
 
 /**
@@ -8,60 +8,120 @@ import { parseWhiteboardElements, renderWhiteboardSvg } from '@/lib/whiteboard-s
  */
 export const MAX_EXPORT_CHARS = 100_000;
 
-type Block = { type?: string; data?: Record<string, any> };
+type Block = { type?: string; data?: Record<string, unknown> };
+type Item = string | { content?: unknown; text?: unknown; checked?: unknown };
 
+/** Stored documents may still be legacy-encoded; decode before reading, like every other read path. */
 function parseBlocks(document: string): Block[] {
-  try {
-    const parsed = JSON.parse(document);
-    return Array.isArray(parsed?.blocks) ? parsed.blocks : [];
-  } catch {
-    return [];
+  const decoded = decodeState(document, null) as { blocks?: unknown } | null;
+  return Array.isArray(decoded?.blocks) ? (decoded.blocks as Block[]) : [];
+}
+
+function decodedWhiteboard(whiteboard: string): string {
+  const decoded = decodeState(whiteboard, null);
+  return decoded === null ? whiteboard : JSON.stringify(decoded);
+}
+
+const esc = (s: string) => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
+
+function str(value: unknown): string {
+  return typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+}
+
+// Editor.js stores inline HTML (<b>, <i>, <a>); keep the text, drop the tags.
+// Tags are removed with a linear scan (no regex backtracking on hostile input).
+function stripTags(html: string): string {
+  let out = '';
+  let inTag = false;
+  for (const ch of html) {
+    if (ch === '<') inTag = true;
+    else if (ch === '>' && inTag) inTag = false;
+    else if (!inTag) out += ch;
+  }
+  return out;
+}
+
+function plain(value: unknown): string {
+  const withBreaks = str(value).replaceAll(/<br\s*\/?>/gi, '\n');
+  return stripTags(withBreaks).replaceAll('&nbsp;', ' ').replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&');
+}
+
+const itemText = (item: Item): string => (typeof item === 'string' ? plain(item) : plain(item?.content ?? item?.text));
+const isChecked = (item: Item): boolean => typeof item === 'object' && item !== null && item.checked === true;
+const list = (value: unknown): Item[] => (Array.isArray(value) ? (value as Item[]) : []);
+const rows = (value: unknown): unknown[][] => (Array.isArray(value) ? (value as unknown[][]) : []);
+const level = (value: unknown) => Math.min(6, Math.max(1, Number(value) || 2));
+const imageUrl = (d: Record<string, unknown>): string => str((d.file as { url?: unknown } | undefined)?.url);
+
+function blockToMarkdown(b: Block): string[] {
+  const d = b.data ?? {};
+  switch (b.type) {
+    case 'header': return [`${'#'.repeat(level(d.level))} ${plain(d.text)}`, ''];
+    case 'paragraph': return [plain(d.text), ''];
+    case 'list': return [...list(d.items).map((it, i) => `${d.style === 'ordered' ? `${i + 1}.` : '-'} ${itemText(it)}`), ''];
+    case 'checklist': return [...list(d.items).map((it) => `- [${isChecked(it) ? 'x' : ' '}] ${itemText(it)}`), ''];
+    case 'table': return [...tableMarkdown(rows(d.content)), ''];
+    case 'image': return imageUrl(d) ? [`![${plain(d.caption)}](${imageUrl(d)})`, ''] : [];
+    case 'warning': return [`> **${plain(d.title)}** ${plain(d.message)}`, ''];
+    default: return typeof d.text === 'string' ? [plain(d.text), ''] : [];
   }
 }
 
-const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-// Editor.js stores inline HTML (<b>, <i>, <a>); keep the text, drop the tags.
-const plain = (s: unknown) => String(s ?? '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+function tableMarkdown(content: unknown[][]): string[] {
+  const out: string[] = [];
+  content.forEach((row, i) => {
+    out.push(`| ${row.map(plain).join(' | ')} |`);
+    if (i === 0) out.push(`| ${row.map(() => '---').join(' | ')} |`);
+  });
+  return out;
+}
 
 export function documentToMarkdown(document: string, title: string): string {
-  const lines: string[] = [`# ${plain(title)}`, ''];
-  for (const b of parseBlocks(document)) {
-    const d = b.data ?? {};
-    switch (b.type) {
-      case 'header': lines.push(`${'#'.repeat(Math.min(6, Math.max(1, Number(d.level) || 2)))} ${plain(d.text)}`, ''); break;
-      case 'paragraph': lines.push(plain(d.text), ''); break;
-      case 'list':
-        (d.items ?? []).forEach((it: any, i: number) => lines.push(`${d.style === 'ordered' ? `${i + 1}.` : '-'} ${plain(typeof it === 'string' ? it : it?.content)}`));
-        lines.push('');
-        break;
-      case 'checklist': (d.items ?? []).forEach((it: any) => lines.push(`- [${it.checked ? 'x' : ' '}] ${plain(it.text)}`)); lines.push(''); break;
-      case 'table': (d.content ?? []).forEach((row: unknown[], i: number) => {
-        lines.push(`| ${row.map(plain).join(' | ')} |`);
-        if (i === 0) lines.push(`| ${row.map(() => '---').join(' | ')} |`);
-      }); lines.push(''); break;
-      case 'image': if (d.file?.url) lines.push(`![${plain(d.caption)}](${d.file.url})`, ''); break;
-      case 'warning': lines.push(`> **${plain(d.title)}** ${plain(d.message)}`, ''); break;
-      default: if (typeof d.text === 'string') lines.push(plain(d.text), '');
-    }
+  const lines = [`# ${plain(title)}`, '', ...parseBlocks(document).flatMap(blockToMarkdown)];
+  return `${lines.join('\n').trim()}\n`;
+}
+
+function blockToHtml(b: Block): string {
+  const d = b.data ?? {};
+  switch (b.type) {
+    case 'header': { const l = level(d.level); return `<h${l}>${esc(plain(d.text))}</h${l}>`; }
+    case 'paragraph': return `<p>${esc(plain(d.text))}</p>`;
+    case 'list': return listHtml(d);
+    case 'checklist': return `<ul>${list(d.items).map((it) => `<li>${isChecked(it) ? '&#9745;' : '&#9744;'} ${esc(itemText(it))}</li>`).join('')}</ul>`;
+    case 'table': return `<table>${rows(d.content).map((r) => `<tr>${r.map((c) => `<td>${esc(plain(c))}</td>`).join('')}</tr>`).join('')}</table>`;
+    case 'image': return /^https?:\/\//.test(imageUrl(d)) ? `<figure><img src="${esc(imageUrl(d))}" alt="${esc(plain(d.caption))}"/></figure>` : '';
+    case 'warning': return `<blockquote><strong>${esc(plain(d.title))}</strong> ${esc(plain(d.message))}</blockquote>`;
+    default: return typeof d.text === 'string' ? `<p>${esc(plain(d.text))}</p>` : '';
   }
-  return lines.join('\n').trim() + '\n';
+}
+
+function listHtml(d: Record<string, unknown>): string {
+  const tag = d.style === 'ordered' ? 'ol' : 'ul';
+  const items = list(d.items).map((it) => `<li>${esc(itemText(it))}</li>`).join('');
+  return `<${tag}>${items}</${tag}>`;
 }
 
 export function documentToHtml(document: string, title: string): string {
-  const out: string[] = [];
-  for (const b of parseBlocks(document)) {
-    const d = b.data ?? {};
-    switch (b.type) {
-      case 'header': { const l = Math.min(6, Math.max(1, Number(d.level) || 2)); out.push(`<h${l}>${esc(plain(d.text))}</h${l}>`); break; }
-      case 'paragraph': out.push(`<p>${esc(plain(d.text))}</p>`); break;
-      case 'list': { const tag = d.style === 'ordered' ? 'ol' : 'ul'; out.push(`<${tag}>${(d.items ?? []).map((it: any) => `<li>${esc(plain(typeof it === 'string' ? it : it?.content))}</li>`).join('')}</${tag}>`); break; }
-      case 'checklist': out.push(`<ul>${(d.items ?? []).map((it: any) => `<li>${it.checked ? '&#9745;' : '&#9744;'} ${esc(plain(it.text))}</li>`).join('')}</ul>`); break;
-      case 'table': out.push(`<table>${(d.content ?? []).map((r: unknown[]) => `<tr>${r.map((c) => `<td>${esc(plain(c))}</td>`).join('')}</tr>`).join('')}</table>`); break;
-      case 'image': if (/^https?:\/\//.test(d.file?.url ?? '')) out.push(`<figure><img src="${esc(d.file.url)}" alt="${esc(plain(d.caption))}"/></figure>`); break;
-      default: if (typeof d.text === 'string') out.push(`<p>${esc(plain(d.text))}</p>`);
-    }
-  }
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(plain(title))}</title></head><body><h1>${esc(plain(title))}</h1>${out.join('\n')}</body></html>`;
+  const body = parseBlocks(document).map(blockToHtml).filter(Boolean).join('\n');
+  const heading = esc(plain(title));
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${heading}</title></head><body><h1>${heading}</h1>${body}</body></html>`;
+}
+
+/** Plain text of the document, including checklist items (Editor.js stores those as objects). */
+export function documentToText(document: string): string {
+  return parseBlocks(document)
+    .flatMap((b): string[] => {
+      const d = b.data ?? {};
+      switch (b.type) {
+        case 'list': case 'checklist': return list(d.items).map(itemText);
+        case 'table': return rows(d.content).map((r) => r.map(plain).join(' | '));
+        case 'warning': return [`${plain(d.title)} ${plain(d.message)}`.trim()];
+        case 'image': return d.caption ? [plain(d.caption)] : [];
+        default: return typeof d.text === 'string' ? [plain(d.text)] : [];
+      }
+    })
+    .filter(Boolean)
+    .join('\n');
 }
 
 export type ExportFormat = 'svg' | 'markdown' | 'html' | 'text';
@@ -70,10 +130,10 @@ export function exportFile(file: { fileName: string; document: string; whiteboar
   let content: string;
   let mimeType: string;
   switch (format) {
-    case 'svg': content = renderWhiteboardSvg(parseWhiteboardElements(file.whiteboard), file.fileName); mimeType = 'image/svg+xml'; break;
+    case 'svg': content = renderWhiteboardSvg(parseWhiteboardElements(decodedWhiteboard(file.whiteboard)), file.fileName); mimeType = 'image/svg+xml'; break;
     case 'markdown': content = documentToMarkdown(file.document, file.fileName); mimeType = 'text/markdown'; break;
     case 'html': content = documentToHtml(file.document, file.fileName); mimeType = 'text/html'; break;
-    default: content = extractTextFromDocument(file.document); mimeType = 'text/plain';
+    default: content = documentToText(file.document); mimeType = 'text/plain';
   }
   const truncated = content.length > MAX_EXPORT_CHARS;
   return { content: truncated ? content.slice(0, MAX_EXPORT_CHARS) : content, mimeType, truncated };

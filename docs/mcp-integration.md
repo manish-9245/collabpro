@@ -77,13 +77,13 @@ For the **Connectors Directory** see [`mcp-directory-submission.md`](mcp-directo
 | `POST /api/oauth/register` | RFC 7591 DCR. Only the Claude callback `https://claude.ai/api/mcp/auth_callback` and loopback (`http://localhost\|127.0.0.1/...`, port ignored) redirect URIs are accepted. IP rate limited |
 | `GET /oauth/authorize` | Consent page. Reuses the normal CollabPro login; shows the teams in scope; write is opt-in |
 | `POST /api/oauth/authorize` | Consent submit. Same-origin + stateless HMAC consent token bound to user/client/redirect/PKCE/scope |
-| `POST /api/oauth/revoke` | RFC 7009 revocation (access or refresh token; always `200`) |
+| `POST /api/oauth/revoke` | RFC 7009 revocation (access or refresh token). `200` for every well-formed request, known token or not (no validity oracle); `400` malformed, `429`/`503` throttled/disabled |
 | `POST /api/oauth/token` | `authorization_code` and `refresh_token` grants, `application/x-www-form-urlencoded`. Access token 1 h, refresh token 30 d, rotated on every use; replaying a rotated token revokes the whole grant |
 | `GET/DELETE /api/oauth/grants` | Session-authenticated "Connected apps" list / revoke |
 
-Standards followed: OAuth 2.1 draft, RFC 9700 (security BCP), RFC 7636 (PKCE S256 only), RFC 7591 (DCR), RFC 8414 / 9728 (metadata), RFC 8707 (`resource` must be this server), RFC 9207 (`iss` on authorization responses), RFC 7009 (revocation). Token/registration/revocation inputs are capped at 8 KB, require the correct `Content-Type`, and reject repeated parameters. A reused authorization code revokes the tokens it produced; a refresh token reused after 10 s revokes the whole grant (retries inside 10 s are refused without revoking, so a double refresh can't log a user out). Discovery documents are `no-store` unless `APP_URL` pins the origin — **set `APP_URL` in production**.
+Standards followed: OAuth 2.1 draft, RFC 9700 (security BCP), RFC 7636 (PKCE S256 only), RFC 7591 (DCR), RFC 8414 / 9728 (metadata), RFC 8707 (`resource` must be this server), RFC 9207 (`iss` on authorization responses), RFC 7009 (revocation). Token/registration/revocation inputs are capped at 8 KB, require the correct `Content-Type`, and reject repeated parameters. A reused authorization code revokes the tokens it produced; a refresh token reused after 10 s revokes the whole grant (retries inside 10 s are refused without revoking, so a double refresh can't log a user out). Discovery documents are cacheable only when `APP_URL` (or `OAUTH_ISSUER`) pins the origin, and `no-store` otherwise — **set `APP_URL` in production**. Registration (`/api/oauth/register`) accepts at most 5 redirect URIs of 512 characters; unlike the form endpoints it does not reject duplicate JSON members (last one wins), but only values that pass the allowlist are stored.
 
-Scopes: `mcp:read` (always), `mcp:write` (only when requested **and** ticked), `offline_access`. OAuth tokens (`collabpro_oat_…`) are accepted **only** by `/api/mcp` — not by state-sync or any other API-key route. Every secret (codes, tokens) is stored as a SHA-256 hash. Housekeeping: `npm run oauth:cleanup` (daily).
+Scopes: `mcp:read` (always), `mcp:write` (only when requested **and** ticked), `offline_access`. OAuth tokens (`collabpro_oat_…`) are accepted **only** by `/api/mcp` — not by state-sync or any other API-key route. Every secret (codes, tokens) is stored as a SHA-256 hash. Housekeeping runs from a daily cron that calls `POST /api/internal/oauth-cleanup` with `Authorization: Bearer $CRON_SECRET` (disabled with `404` until `CRON_SECRET` is set); `npm run oauth:cleanup` does the same from a source checkout.
 
 ## Tools
 
@@ -97,12 +97,12 @@ Scopes: `mcp:read` (always), `mcp:write` (only when requested **and** ticked), `
 | `collabpro_search_icon_libraries` | Keyword search over the 200+ community Excalidraw icon libraries ([libraries.excalidraw.com](https://libraries.excalidraw.com): AWS/Azure/GCP/network/UML/BPMN/etc). Returns each match's `source` string. | No |
 | `collabpro_list_library_items` | List every icon in one library by name (derived from the item's own content when the library has no metadata name), so a caller can pick items deliberately instead of guessing numeric indices. | No |
 | `collabpro_get_library_icon` | Fetch and place one icon from a library (`librarySource` + `item`) at `(x, y)`. Returns a short-lived `ref` — plus its footprint `width`/`height` for laying out the next icon without overlap — **not** the element geometry itself. Pass `ref` to `collabpro_update_whiteboard`'s `iconRefs` array to place it; refs are single-use and expire after 30 minutes. | No |
-| `collabpro_list_teams` | List the teams you can access (id, name, description). | No |
+| `collabpro_list_teams` | List the teams you can access (`id`, `teamName`, `description`). | No |
 | `collabpro_search` | Case-insensitive search across file names, document text and whiteboard labels; returns snippets. Scoped to your teams. | No |
 | `collabpro_export_file` | Export as `svg` (whiteboard), `markdown`, `html` or `text` (document). Capped at ~100k characters (`truncated: true`). PNG/PDF stay in the app's Export menu. | No |
 | `collabpro_place_icon` | One-step icon placement from a phrase (`"aws lambda"`): searches the libraries, picks the best vector icon, returns a `ref` for `iconRefs`. | No |
 | `collabpro_apply_diagram_spec` | **Preferred way to draw.** Takes `nodes`, `edges`, optional `group`/`icon`/`direction`; the server lays out (layered, overlap-free), draws labeled boxes and bound arrows, saves. Adds below existing content unless `replaceAll`. Up to 60 nodes / 120 edges. | Yes |
-| `collabpro_create_diagram` | *Only listed when a team you belong to has an AI provider configured (Settings → AI).* Plain-English → diagram using **that team's own key**; streams `notifications/progress` over SSE. | Yes |
+| `collabpro_create_diagram` | *Only listed when a team you belong to has an AI provider configured (Settings → AI).* Plain-English → diagram. The provider (and so the key that is billed) is the one configured by **the team the diagram is created in** — the file's team, or the `teamId` you pass — never another team you happen to belong to; if that team has none the call fails with a clear error. Validated before any file is created (no orphans), then streams `notifications/progress` over SSE. | Yes |
 
 `get_file` returns `documentVersion` / `whiteboardVersion`; `update_document`, `update_whiteboard` and `apply_diagram_spec` accept it back as `baseVersion` and reject with `Conflict` if the file changed since (opt-in optimistic concurrency, on top of the compare-and-swap writers). Every tool declares an `outputSchema` and returns `structuredContent`; file-producing tools also return a `fileUrl` / `resource_link`.
 
@@ -139,7 +139,7 @@ Prompts are a distinct MCP primitive from tools (`prompts/list`, `prompts/get`) 
 - The Streamable HTTP transport requires the `Accept: application/json, text/event-stream` request header, per spec. A request missing it gets a `406 Not Acceptable` — this is correct, not a bug.
 - Tool execution errors (invalid arguments, forbidden scope, file not found) are returned as a `200` JSON-RPC response with `result.isError: true`, not an HTTP-level error — this is how MCP distinguishes protocol-level failures (bad auth, malformed JSON-RPC) from tool-level failures.
 - The server is stateless: no session ID, each HTTP request is independent. Responses are plain JSON; only the optional AI tool (`collabpro_create_diagram`) switches to an SSE stream so it can send `notifications/progress`.
-- Unauthenticated or invalid-token requests get `401` with `WWW-Authenticate: Bearer resource_metadata="…"` (this is what starts Claude's sign-in). Scope failures are `403` with no such header.
+- Unauthenticated or invalid-token requests get `401` with `WWW-Authenticate: Bearer resource_metadata="…"` (this is what starts Claude's sign-in). A bad-scope credential is `403` with no such header. Once authenticated, a read-only grant calling a write tool is **not** an HTTP error: it is a `200` JSON-RPC response with `result.isError: true` ("Forbidden: … read-only access scope").
 - Claude limits: ~150k characters per tool result, 240 s per call; OAuth discovery/registration/token endpoints must answer in under 10 s (30 s for refresh).
 
 ## Reliability, limits, and audit
@@ -159,7 +159,8 @@ Environment variables, read per request, so a Railway variable change plus resta
 | `MCP_READ_ONLY=true` | every MCP caller is forced to read-only |
 | `MCP_DISABLED_TOOLS=a,b` | named tools are hidden and uncallable |
 | `OAUTH_DISABLED=true` | OAuth endpoints and OAuth tokens stop working (API keys unaffected) |
-| `APP_URL` | pins the public origin used in discovery metadata |
+| `APP_URL` / `OAUTH_ISSUER` | pins the public origin used in discovery metadata (and allows it to be cached) |
+| `CRON_SECRET` | enables `POST /api/internal/oauth-cleanup` (Bearer-protected); unset = endpoint returns 404 |
 
 See [`runbooks/mcp.md`](runbooks/mcp.md) for SLOs, alerts and incident steps, and [`mcp-threat-model.md`](mcp-threat-model.md) for the prompt-injection model.
 
@@ -176,6 +177,6 @@ Use the **Run Handshake Diagnostics** button on the MCP settings page — it mak
 - **401 Unauthorized** — API key missing, invalid, revoked, or expired; or an OAuth token expired (Claude refreshes automatically; if it can't, re-add the connector).
 - **Claude says "Couldn't reach the MCP server"** — discovery failed: check `curl <app-url>/.well-known/oauth-protected-resource` returns `resource` equal to the URL you pasted, and that a WAF/proxy isn't blocking `/.well-known/*` or `160.79.104.0/21`.
 - **"redirect_uri is not registered"** — remove and re-add the connector (a stale client was pruned).
-- **403 / `isError` "Forbidden"** — the key's scope is `read-only` and you called a write tool.
+- **`isError` "Forbidden" (HTTP 200)** — the key/grant is `read-only` and you called a write tool; re-authorize with write access.
 - **406 Not Acceptable** — your client isn't sending the required `Accept` header (see above); this is a client bug, not a server one.
 - **stdio bridge exits immediately** — `COLLABPRO_API_KEY` is unset in its environment.

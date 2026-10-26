@@ -1,6 +1,6 @@
 # Submitting CollabPro to the Claude Connectors Directory
 
-Status: **not submitted** — blocked on the hosted-vs-self-hosted decision (see below). Everything technical is in place once OAuth is deployed.
+Status: **not submitted** — blocked on the hosted-vs-self-hosted decision (see below). The server side is implemented, but **it has not yet been exercised end to end by the real claude.ai client**: do that (custom connector → every tool) before treating this as ready to submit.
 
 ## Decide first: which URL is the listing?
 A directory listing has one URL. Listings whose users connect to *different* URLs (self-hosters) can only be published once Anthropic marks them **Verified**. Options:
@@ -13,7 +13,7 @@ A directory listing has one URL. Listings whose users connect to *different* URL
 - [ ] Every tool has a `title` and `readOnlyHint`/`destructiveHint` ✅ (see `lib/mcp/tools.ts`).
 - [ ] Privacy policy URL, documentation URL (this repo's docs or a public page), support contact.
 - [ ] Icon (the portal's Listing step states the accepted format/size).
-- [ ] A fully populated **test account** for reviewers (team with files, a diagram, a document).
+- [ ] A fully populated **test account** for reviewers (team with files, a diagram, a document) **and a team AI provider configured**, otherwise `collabpro_create_diagram` is not exposed and the "every tool called" check cannot cover the full connector.
 - [ ] Plugin bundle (`plugins/collabpro/`) — set `.mcp.json` to the same URL; submit it as a separate Plugin bundle pointing at the same server.
 
 ## Portal steps

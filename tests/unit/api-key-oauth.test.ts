@@ -18,9 +18,10 @@ describe('OAuth access tokens in verifyApiKey', () => {
   });
 
   it('are accepted on opt-in endpoints and expose the client id', async () => {
-    verifyOAuth.mockResolvedValue({ id: 't1', userEmail: 'u@x.co', clientId: 'c1', scope: 'read-only' });
+    verifyOAuth.mockResolvedValue({ id: 't1', familyId: 'fam1', userEmail: 'u@x.co', clientId: 'c1', scope: 'read-only' });
     const res = await verifyApiKey(header, undefined, { allowOAuth: true });
-    expect(res).toMatchObject({ isValid: true, userEmail: 'u@x.co', scope: 'read-only', oauthClientId: 'c1', apiKeyId: 'oauth:t1' });
+    // Keyed by the grant FAMILY, which survives refresh rotation, so refreshing never earns a fresh rate-limit bucket.
+    expect(res).toMatchObject({ isValid: true, userEmail: 'u@x.co', scope: 'read-only', oauthClientId: 'c1', apiKeyId: 'oauth:fam1' });
   });
 
   it('read-only tokens are forbidden on write operations', async () => {

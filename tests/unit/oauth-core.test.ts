@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import { createHash } from 'crypto';
 import {
   CLAUDE_CALLBACK, consentToken, isAllowedRedirectUri, isValidCodeChallenge, normalizeScope,
@@ -48,6 +48,9 @@ describe('redirect URIs', () => {
     expect(redirectUriMatches(['http://localhost/callback'], 'http://127.0.0.1:51234/callback')).toBe(false);
     expect(redirectUriMatches(['http://localhost/callback'], 'http://localhost:51234/other')).toBe(false);
     expect(redirectUriMatches(['http://localhost/callback'], 'https://localhost:1/callback')).toBe(false);
+    // only the port may vary: fragments and credentials are rejected
+    expect(redirectUriMatches(['http://localhost/callback'], 'http://localhost:9/callback#frag')).toBe(false);
+    expect(redirectUriMatches(['http://localhost/callback'], 'http://user:pw@localhost:9/callback')).toBe(false);
   });
 });
 
@@ -76,6 +79,7 @@ describe('consent CSRF token', () => {
 });
 
 describe('getBaseUrl', () => {
+  afterEach(() => { delete process.env.APP_URL; delete process.env.OAUTH_ISSUER; });
   it('prefers APP_URL, then forwarded headers', () => {
     delete process.env.APP_URL;
     delete process.env.OAUTH_ISSUER;
@@ -114,6 +118,9 @@ describe('base URL trust', () => {
     expect(baseUrlFrom('evil.com', 'https', 'http://internal/x')).toEqual({ url: 'https://pinned.example.com', pinned: true });
     delete process.env.APP_URL;
   });
+  it('uses the first value of a comma-separated X-Forwarded-Host (chained proxies)', () => {
+    expect(baseUrlFrom('app.example.com, internal-proxy:3000', 'https, http', 'http://internal/x').url).toBe('https://app.example.com');
+  });
   it('ignores malformed forwarded hosts/protos instead of reflecting them', () => {
     expect(baseUrlFrom('evil.com/path?x=<script>', 'https', 'http://internal:3000/x').url).toBe('http://internal:3000');
     expect(baseUrlFrom('ok.example.com', 'javascript', 'http://internal:3000/x').url).toBe('http://internal:3000');
@@ -127,6 +134,8 @@ describe('RFC 8707 resource', () => {
     expect(resourceMatches('https://a.co/api/mcp/', 'https://a.co')).toBe(true);
     expect(resourceMatches('https://b.co/api/mcp', 'https://a.co')).toBe(false);
     expect(resourceMatches('https://a.co/other', 'https://a.co')).toBe(false);
+    expect(resourceMatches('', 'https://a.co')).toBe(false); // present-but-empty is wrong, not absent
+    expect(resourceMatches(null, 'https://a.co')).toBe(true);
   });
 });
 

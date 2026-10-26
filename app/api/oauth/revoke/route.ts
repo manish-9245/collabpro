@@ -1,15 +1,17 @@
 import { prisma } from '@/lib/db';
 import { checkRateLimit, getClientIp, LIMITS } from '@/lib/rate-limiter';
+import { logAuditEvent } from '@/lib/audit';
 import { revokeByToken } from '@/lib/oauth/store';
-import { NO_STORE_HEADERS, parseForm, readBodyCapped } from '@/lib/oauth/http';
+import { hasMediaType, NO_STORE_HEADERS, parseForm, readBodyCapped } from '@/lib/oauth/http';
 
-// RFC 7009 token revocation. Always 200 for a well-formed request, whether or
+// RFC 7009 token revocation. 200 for every well-formed request (400 malformed, 429/503 throttled/disabled), whether or
 // not the token existed, so it cannot be used to test whether a token is valid.
 export async function POST(request: Request): Promise<Response> {
   if (process.env.OAUTH_DISABLED === 'true') return new Response(null, { status: 503, headers: NO_STORE_HEADERS });
-  const limit = await checkRateLimit(`oauth:token:${getClientIp(request)}`, LIMITS.OAUTH_TOKEN);
+  const ip = getClientIp(request);
+  const limit = await checkRateLimit(`oauth:token:${ip}`, LIMITS.OAUTH_TOKEN);
   if (!limit.allowed) return new Response(null, { status: 429, headers: NO_STORE_HEADERS });
-  if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/x-www-form-urlencoded')) {
+  if (!hasMediaType(request, 'application/x-www-form-urlencoded')) {
     return Response.json({ error: 'invalid_request' }, { status: 400, headers: NO_STORE_HEADERS });
   }
   const text = await readBodyCapped(request);
@@ -17,6 +19,7 @@ export async function POST(request: Request): Promise<Response> {
   const token = form?.get('token');
   const clientId = form?.get('client_id');
   if (!token || !clientId) return Response.json({ error: 'invalid_request' }, { status: 400, headers: NO_STORE_HEADERS });
-  await revokeByToken(prisma, clientId, token);
+  const revoked = await revokeByToken(prisma, clientId, token);
+  if (revoked > 0) void logAuditEvent(null, 'unknown', 'oauth:token:revoked', { clientId, tokens: revoked }, ip);
   return new Response(null, { status: 200, headers: NO_STORE_HEADERS });
 }

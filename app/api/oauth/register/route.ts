@@ -1,8 +1,9 @@
 import { prisma } from '@/lib/db';
 import { checkRateLimit, getClientIp, LIMITS } from '@/lib/rate-limiter';
 import { isAllowedRedirectUri } from '@/lib/oauth/core';
-import { registerClient } from '@/lib/oauth/store';
-import { NO_STORE_HEADERS, readBodyCapped } from '@/lib/oauth/http';
+import { MAX_REDIRECT_URIS, registerClient } from '@/lib/oauth/store';
+import { hasMediaType, NO_STORE_HEADERS, readBodyCapped } from '@/lib/oauth/http';
+import { MAX_PARAM } from '@/lib/oauth/core';
 
 function err(error: string, description: string, status = 400): Response {
   return Response.json({ error, error_description: description }, { status, headers: NO_STORE_HEADERS });
@@ -16,13 +17,13 @@ export async function POST(request: Request): Promise<Response> {
   const limit = await checkRateLimit(`oauth:register:${getClientIp(request)}`, LIMITS.OAUTH_REGISTER);
   if (!limit.allowed) return err('temporarily_unavailable', 'Too many registrations', 429);
 
-  if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) {
+  if (!hasMediaType(request, 'application/json')) {
     return err('invalid_client_metadata', 'Content-Type must be application/json');
   }
   let body: { client_name?: unknown; redirect_uris?: unknown };
   try {
     const text = await readBodyCapped(request);
-    if (text === null) return err('invalid_client_metadata', 'Request body too large', 413);
+    if (text === null) return err('invalid_client_metadata', 'Request body too large or unreadable', 413);
     body = JSON.parse(text);
     if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('not an object');
   } catch {
@@ -31,6 +32,9 @@ export async function POST(request: Request): Promise<Response> {
   const uris = body.redirect_uris;
   if (!Array.isArray(uris) || uris.length === 0 || uris.some((u) => typeof u !== 'string')) {
     return err('invalid_redirect_uri', 'redirect_uris must be a non-empty array of strings');
+  }
+  if (uris.length > MAX_REDIRECT_URIS || uris.some((u: string) => u.length > MAX_PARAM.redirectUri)) {
+    return err('invalid_redirect_uri', `At most ${MAX_REDIRECT_URIS} redirect_uris of ${MAX_PARAM.redirectUri} characters each`);
   }
   if (!(uris as string[]).every(isAllowedRedirectUri)) {
     return err('invalid_redirect_uri', 'Only the Claude callback and loopback redirect URIs are allowed');

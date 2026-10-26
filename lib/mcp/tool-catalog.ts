@@ -115,7 +115,7 @@ export const MCP_TOOL_CATALOG: McpToolDoc[] = [
   {
     name: 'collabpro_list_teams',
     title: 'List Teams',
-    description: 'List the teams you can access (id, name) - use an id as teamId elsewhere instead of guessing.',
+    description: 'List the teams you can access (id, teamName, description) - use an id as teamId elsewhere instead of guessing.',
     access: 'read',
     params: [],
     exampleArgs: {},

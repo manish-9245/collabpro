@@ -233,53 +233,56 @@ export default function McpSettingsHub() {
         </div>
 
         {/* Prerequisites strip - API key + workspace path, needed before any
-            client config below can actually work, kept compact so the client
+            API-key client config below can work (the keyless Claude.ai
+            connector tab doesn't need them), kept compact so the client
             picker stays the visual centerpiece of the page */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-6 border-b border-slate-200/70 dark:border-slate-800/60">
-          <div>
-            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
-              <Key className="h-3 w-3" /> API Key
-            </div>
-            {loadingKeys ? (
-              <div className="text-[10px] text-slate-400 py-2">Loading...</div>
-            ) : apiKeys.length === 0 ? (
-              <div className="px-3 py-2 bg-amber-50 dark:bg-amber-950/20 border border-amber-200/50 dark:border-amber-900/40 rounded-lg text-[10px] text-amber-700 dark:text-amber-400 font-semibold">
-                No API keys yet — generate one in Profile settings first.
+        {activeTab !== 'connector' && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-6 border-b border-slate-200/70 dark:border-slate-800/60">
+            <div>
+              <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
+                <Key className="h-3 w-3" /> API Key
               </div>
-            ) : (
-              <>
-                {/* The list endpoint only ever returns a masked value - the
-                    raw secret is shown once, at creation, and never again -
-                    so it can't be auto-filled here. This is a paste target,
-                    not a picker. */}
-                <input
-                  type="text"
-                  value={selectedKey}
-                  onChange={(e) => setSelectedKey(e.target.value)}
-                  placeholder="YOUR_API_KEY_HERE"
-                  className="w-full text-[10px] font-mono bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2.5 py-2 outline-none focus:border-[#6965db] text-slate-700 dark:text-slate-300"
-                />
-                <div className="mt-1.5 text-[9px] text-slate-400 dark:text-slate-500">
-                  Paste one of your keys' full value above. For reference, your keys:{' '}
-                  {apiKeys.map((key) => `${key.name} (${key.maskedKey})`).join(', ')}
+              {loadingKeys ? (
+                <div className="text-[10px] text-slate-400 py-2">Loading...</div>
+              ) : apiKeys.length === 0 ? (
+                <div className="px-3 py-2 bg-amber-50 dark:bg-amber-950/20 border border-amber-200/50 dark:border-amber-900/40 rounded-lg text-[10px] text-amber-700 dark:text-amber-400 font-semibold">
+                  No API keys yet — generate one in Profile settings first.
                 </div>
-              </>
-            )}
-          </div>
-
-          <div>
-            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
-              <Code className="h-3 w-3" /> Local Workspace Path
+              ) : (
+                <>
+                  {/* The list endpoint only ever returns a masked value - the
+                      raw secret is shown once, at creation, and never again -
+                      so it can't be auto-filled here. This is a paste target,
+                      not a picker. */}
+                  <input
+                    type="text"
+                    value={selectedKey}
+                    onChange={(e) => setSelectedKey(e.target.value)}
+                    placeholder="YOUR_API_KEY_HERE"
+                    className="w-full text-[10px] font-mono bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2.5 py-2 outline-none focus:border-[#6965db] text-slate-700 dark:text-slate-300"
+                  />
+                  <div className="mt-1.5 text-[9px] text-slate-400 dark:text-slate-500">
+                    Paste one of your keys' full value above. For reference, your keys:{' '}
+                    {apiKeys.map((key) => `${key.name} (${key.maskedKey})`).join(', ')}
+                  </div>
+                </>
+              )}
             </div>
-            <input
-              type="text"
-              value={workspacePath}
-              onChange={(e) => setWorkspacePath(e.target.value)}
-              placeholder="/Users/username/collabpro"
-              className="w-full text-[10px] font-mono bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2.5 py-2 outline-none focus:border-[#6965db] text-slate-700 dark:text-slate-300"
-            />
+
+            <div>
+              <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
+                <Code className="h-3 w-3" /> Local Workspace Path
+              </div>
+              <input
+                type="text"
+                value={workspacePath}
+                onChange={(e) => setWorkspacePath(e.target.value)}
+                placeholder="/Users/username/collabpro"
+                className="w-full text-[10px] font-mono bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2.5 py-2 outline-none focus:border-[#6965db] text-slate-700 dark:text-slate-300"
+              />
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Client picker - a row of selectable cards, the primary interaction */}
         <div className="pt-6">
@@ -514,50 +517,54 @@ export default function McpSettingsHub() {
           )}
         </div>
 
-        {/* Diagnostics - live handshake test against the real MCP endpoint */}
-        <div className="mt-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
-              <Activity className="h-4 w-4 text-[#6965db]" />
-              <span className="text-xs font-black">Diagnostics</span>
-            </div>
-            {diagnosticState === 'success' && (
-              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
-            )}
-          </div>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-            Test the selected API key against the live MCP endpoint.
-          </p>
-
-          <div data-testid="mcp-diagnostics-console" className="mt-4 min-h-[110px] max-h-[140px] bg-slate-900 rounded-xl p-3.5 font-mono text-[10px] overflow-y-auto space-y-1 select-none">
-            {handshakeLogs.length === 0 ? (
-              <div className="text-slate-500 italic text-center pt-8">Console idle. Run diagnostics below.</div>
-            ) : (
-              handshakeLogs.map((log, i) => (
-                <div key={i} className={log.startsWith('✅') ? 'text-emerald-400 font-bold' : log.startsWith('❌') ? 'text-rose-400 font-bold' : 'text-slate-300'}>
-                  {log}
+        {activeTab !== 'connector' && (
+          <>
+            {/* Diagnostics - live handshake test against the real MCP endpoint */}
+            <div className="mt-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
+                  <Activity className="h-4 w-4 text-[#6965db]" />
+                  <span className="text-xs font-black">Diagnostics</span>
                 </div>
-              ))
-            )}
-          </div>
+                {diagnosticState === 'success' && (
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
+                )}
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                Test the selected API key against the live MCP endpoint.
+              </p>
 
-          <button
-            type="button"
-            onClick={runDiagnostics}
-            disabled={diagnosticState === 'testing'}
-            className="mt-4 w-full sm:w-auto px-5 h-9 bg-[#6965db] hover:bg-[#5753c9] text-white text-[11px] font-bold rounded-xl cursor-pointer shadow-md shadow-[#6965db]/20 flex items-center justify-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
-          >
-            {diagnosticState === 'testing' ? (
-              <>
-                <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Handshaking...
-              </>
-            ) : (
-              <>
-                <Zap className="h-3.5 w-3.5" /> Run Diagnostics
-              </>
-            )}
-          </button>
-        </div>
+              <div data-testid="mcp-diagnostics-console" className="mt-4 min-h-[110px] max-h-[140px] bg-slate-900 rounded-xl p-3.5 font-mono text-[10px] overflow-y-auto space-y-1 select-none">
+                {handshakeLogs.length === 0 ? (
+                  <div className="text-slate-500 italic text-center pt-8">Console idle. Run diagnostics below.</div>
+                ) : (
+                  handshakeLogs.map((log, i) => (
+                    <div key={i} className={log.startsWith('✅') ? 'text-emerald-400 font-bold' : log.startsWith('❌') ? 'text-rose-400 font-bold' : 'text-slate-300'}>
+                      {log}
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={runDiagnostics}
+                disabled={diagnosticState === 'testing'}
+                className="mt-4 w-full sm:w-auto px-5 h-9 bg-[#6965db] hover:bg-[#5753c9] text-white text-[11px] font-bold rounded-xl cursor-pointer shadow-md shadow-[#6965db]/20 flex items-center justify-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
+              >
+                {diagnosticState === 'testing' ? (
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Handshaking...
+                  </>
+                ) : (
+                  <>
+                    <Zap className="h-3.5 w-3.5" /> Run Diagnostics
+                  </>
+                )}
+              </button>
+            </div>
+          </>
+        )}
 
         <div className="mt-6">
           <ConnectedApps />

@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 import { headers } from 'next/headers';
 import { prisma } from '@/lib/db';
 import { getServerSession } from '@/lib/session-auth/server';
-import { baseUrlFrom, consentToken, isLoopbackRedirect, SCOPE_WRITE } from '@/lib/oauth/core';
+import { consentToken, getBaseUrl, isLoopbackRedirect, SCOPE_WRITE } from '@/lib/oauth/core';
 import { validateAuthorizeRequest } from '@/lib/oauth/authorize-request';
 
 export const dynamic = 'force-dynamic';
@@ -13,7 +13,7 @@ function first(v: string | string[] | undefined): string | undefined {
   return Array.isArray(v) ? v[0] : v;
 }
 
-function ErrorCard({ message }: { message: string }) {
+function ErrorCard({ message }: Readonly<{ message: string }>) {
   return (
     <main className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
       <div className="max-w-md w-full rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
@@ -24,7 +24,7 @@ function ErrorCard({ message }: { message: string }) {
   );
 }
 
-export default async function AuthorizePage({ searchParams }: { searchParams: Promise<SearchParams> }) {
+export default async function AuthorizePage({ searchParams }: Readonly<{ searchParams: Promise<SearchParams> }>) {
   if (process.env.OAUTH_DISABLED === 'true') return <ErrorCard message="Connecting apps is temporarily disabled." />;
 
   const raw = await searchParams;
@@ -35,11 +35,14 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Pr
   if (!user?.email) {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) if (v !== undefined) qs.set(k, v);
-    redirect(`/login?post_login_redirect_url=${encodeURIComponent(`/oauth/authorize?${qs.toString()}`)}`);
+    const back = `/oauth/authorize?${qs.toString()}`;
+    redirect(`/login?post_login_redirect_url=${encodeURIComponent(back)}`);
   }
 
   const h = await headers();
-  const base = baseUrlFrom(h.get('x-forwarded-host') || h.get('host'), h.get('x-forwarded-proto'), 'http://localhost').url;
+  // Same derivation as /api/oauth/token and /api/oauth/authorize, so the
+  // resource check cannot disagree between consent and token exchange.
+  const base = getBaseUrl(new Request(`http://${h.get('host') ?? 'localhost'}/`, { headers: h }));
   const req = await validateAuthorizeRequest(prisma, params, base);
   if ('error' in req) return <ErrorCard message={req.error} />;
 

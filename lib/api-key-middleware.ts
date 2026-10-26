@@ -79,7 +79,7 @@ export async function verifyApiKey(
     if (isWriteOperation && oauth.scope === 'read-only') {
       return { isValid: false, userEmail: oauth.userEmail, scope: oauth.scope, error: 'Forbidden: token has read-only access scope', statusCode: 403 };
     }
-    return { isValid: true, userEmail: oauth.userEmail, scope: oauth.scope, apiKeyId: `oauth:${oauth.id}`, oauthClientId: oauth.clientId };
+    return { isValid: true, userEmail: oauth.userEmail, scope: oauth.scope, apiKeyId: `oauth:${oauth.familyId}`, oauthClientId: oauth.clientId };
   }
 
   if (!token.startsWith('collabpro_pat_')) {

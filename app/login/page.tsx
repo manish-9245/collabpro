@@ -1,5 +1,6 @@
 "use client";
 
+import { safeRedirectPath } from '@/lib/safe-redirect';
 import React, { useState, Suspense } from 'react';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -35,9 +36,7 @@ function LoginForm() {
 
       if (res.ok) {
         toast.success('Successfully logged in!');
-        const requested = searchParams.get('post_login_redirect_url');
-        // Same-site paths only: "//host" and "/\\host" would be open redirects.
-        const redirectUrl = requested && /^\/(?![/\\])/.test(requested) ? requested : '/dashboard';
+        const redirectUrl = safeRedirectPath(searchParams.get('post_login_redirect_url'), window.location.origin);
         
         // Use full page reload to ensure the client-side context updates its active user state
         window.location.href = redirectUrl;

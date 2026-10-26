@@ -2,14 +2,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const db = vi.hoisted(() => ({
   teamFindMany: vi.fn(), memberFindMany: vi.fn(), fileFindMany: vi.fn(), fileFindUnique: vi.fn(),
-  fileUpdateMany: vi.fn(), fileCreate: vi.fn(), aiFindFirst: vi.fn(),
+  fileUpdateMany: vi.fn(), fileCreate: vi.fn(), fileDeleteMany: vi.fn(), aiFindFirst: vi.fn(), aiFindUnique: vi.fn(),
 }));
 vi.mock('@/lib/db', () => ({
   prisma: {
     team: { findMany: db.teamFindMany },
     teamMember: { findMany: db.memberFindMany },
-    file: { findMany: db.fileFindMany, findUnique: db.fileFindUnique, updateMany: db.fileUpdateMany, create: db.fileCreate },
-    teamAiSettings: { findFirst: db.aiFindFirst },
+    file: { findMany: db.fileFindMany, findUnique: db.fileFindUnique, updateMany: db.fileUpdateMany, create: db.fileCreate, deleteMany: db.fileDeleteMany },
+    teamAiSettings: { findFirst: db.aiFindFirst, findUnique: db.aiFindUnique },
   },
 }));
 vi.mock('@/lib/api-key-middleware', () => ({ verifyApiKey: vi.fn() }));
@@ -17,10 +17,13 @@ vi.mock('@/lib/redis-cache', () => ({ invalidateCachedFile: vi.fn() }));
 vi.mock('@/lib/rate-limiter', () => ({
   checkRateLimit: vi.fn().mockResolvedValue({ allowed: true, remaining: 1, resetAt: Date.now() + 1000, firstBlock: false }),
   getClientIp: () => '203.0.113.1',
-  LIMITS: { MCP: {}, MCP_AUTH_FAIL: {}, MCP_AUTH_FAIL_AUDIT: {} },
+  LIMITS: { MCP: {}, MCP_AUTH_FAIL_AUDIT: {}, MCP_AUTH_FAIL_AUDIT_GLOBAL: {} },
 }));
 vi.mock('@/lib/audit', () => ({ logAuditEvent: vi.fn() }));
-const cas = vi.hoisted(() => ({ casUpdateWhiteboard: vi.fn(), casUpdateDocument: vi.fn() }));
+const cas = vi.hoisted(() => {
+  class CasConflictError extends Error {}
+  return { casUpdateWhiteboard: vi.fn(), casUpdateDocument: vi.fn(), CasConflictError };
+});
 vi.mock('@/lib/cas-writes', () => cas);
 
 import { POST } from '@/app/api/mcp/route';
@@ -30,7 +33,16 @@ const headers = { 'Content-Type': 'application/json', Accept: 'application/json,
 let rpcId = 1;
 const call = (name: string, args: Record<string, unknown>) =>
   POST(new Request('https://app.example.com/api/mcp', { method: 'POST', headers, body: JSON.stringify({ jsonrpc: '2.0', id: rpcId++, method: 'tools/call', params: { name, arguments: args } }) }));
-const result = async (res: Response) => (await res.json()).result;
+// create_diagram streams (SSE) so it can send progress; every other tool is plain JSON.
+async function rpc(res: Response) {
+  if (res.headers.get('content-type')?.includes('text/event-stream')) {
+    const text = await res.text();
+    const data = text.split('\n').filter((l) => l.startsWith('data:')).map((l) => JSON.parse(l.slice(5).trim()));
+    return data.find((m) => m.result || m.error) ?? {};
+  }
+  return res.json();
+}
+const result = async (res: Response) => (await rpc(res)).result;
 const asUser = (scope = 'read-write') => vi.mocked(verifyApiKey).mockResolvedValue({ isValid: true, userEmail: 'u@x.co', scope });
 
 const FILE = {
@@ -46,6 +58,8 @@ beforeEach(() => {
   db.memberFindMany.mockResolvedValue([]);
   db.fileFindUnique.mockResolvedValue(FILE);
   db.aiFindFirst.mockResolvedValue(null);
+  db.aiFindUnique.mockResolvedValue(null);
+  db.fileDeleteMany.mockResolvedValue({ count: 1 });
   cas.casUpdateWhiteboard.mockImplementation(async (_p: unknown, _id: string, payload: unknown) => JSON.stringify(payload));
 });
 afterEach(() => { delete process.env.MCP_DISABLED; delete process.env.MCP_READ_ONLY; delete process.env.MCP_DISABLED_TOOLS; });
@@ -201,5 +215,79 @@ describe('optional AI tool', () => {
     asUser();
     db.aiFindFirst.mockRejectedValue(new Error('db down'));
     expect(await listNames()).toContain('collabpro_list_teams');
+  });
+});
+
+
+describe('atomic baseVersion + board limits', () => {
+  it('passes the expected raw value into the CAS write so a mid-flight edit conflicts', async () => {
+    asUser();
+    const wb = JSON.stringify({ elements: [] });
+    db.fileFindUnique.mockResolvedValue({ ...FILE, whiteboard: wb });
+    const version = (await result(await call('collabpro_get_file', { fileId: 'f1' }))).structuredContent.whiteboardVersion;
+    cas.casUpdateWhiteboard.mockResolvedValue(JSON.stringify({ elements: [] }));
+    await call('collabpro_apply_diagram_spec', { fileId: 'f1', baseVersion: version, nodes: [{ id: 'a', label: 'A' }] });
+    expect(cas.casUpdateWhiteboard.mock.calls[0][3]).toMatchObject({ expectedRaw: wb });
+  });
+  it('turns a CAS conflict into a Conflict tool error (not a 500)', async () => {
+    asUser();
+    db.fileFindUnique.mockResolvedValue({ ...FILE, whiteboard: '' });
+    const version = (await result(await call('collabpro_get_file', { fileId: 'f1' }))).structuredContent.whiteboardVersion;
+    cas.casUpdateWhiteboard.mockRejectedValue(new cas.CasConflictError('Conflict: the whiteboard changed since you read it.'));
+    const r = await result(await call('collabpro_apply_diagram_spec', { fileId: 'f1', baseVersion: version, nodes: [{ id: 'a', label: 'A' }] }));
+    expect(r.isError).toBe(true);
+    expect(r.content[0].text).toMatch(/Conflict/);
+  });
+  it('rejects a merge that would push the board past 500 elements (existing + new)', async () => {
+    asUser();
+    const existing = Array.from({ length: 498 }, (_, i) => ({ id: `e${i}`, type: 'rectangle', x: i * 200, y: 0, width: 10, height: 10 }));
+    db.fileFindUnique.mockResolvedValue({ ...FILE, whiteboard: JSON.stringify({ elements: existing }) });
+    const r = await result(await call('collabpro_apply_diagram_spec', { fileId: 'f1', nodes: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }] }));
+    expect(r.isError).toBe(true);
+    expect(r.content[0].text).toMatch(/max 500/);
+    expect(cas.casUpdateWhiteboard).not.toHaveBeenCalled();
+  });
+  it('two diagrams applied to one board never share element ids (merge cannot overwrite)', async () => {
+    asUser();
+    db.fileFindUnique.mockResolvedValue(FILE);
+    const args = { fileId: 'f1', nodes: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }], edges: [{ from: 'a', to: 'b' }] };
+    await call('collabpro_apply_diagram_spec', args);
+    await call('collabpro_apply_diagram_spec', args);
+    const ids = (n: number) => new Set(cas.casUpdateWhiteboard.mock.calls[n][2].updated.map((e: any) => e.id));
+    expect([...ids(0)].some((id) => ids(1).has(id))).toBe(false);
+  });
+});
+
+describe('collabpro_create_diagram uses the TARGET team\'s own provider', () => {
+  const call2 = (args: Record<string, unknown>) => call('collabpro_create_diagram', args);
+  beforeEach(() => {
+    db.aiFindFirst.mockResolvedValue({ id: 'x' }); // the user has SOME team with a provider -> tool is offered
+    db.teamFindMany.mockImplementation(async (args: any) => (args?.where?.createdBy ? [{ id: 't1' }, { id: 't2' }] : [{ id: 't1', teamName: 'A', description: '' }]));
+  });
+
+  it('looks up the provider for the team the file lives in, not "the first team with one"', async () => {
+    asUser();
+    db.fileFindUnique.mockResolvedValue({ ...FILE, id: 'f2', teamId: 't2' });
+    db.aiFindUnique.mockResolvedValue(null); // team t2 has NO provider (team t1 does)
+    const r = await result(await call2({ text: 'checkout flow diagram', fileId: 'f2' }));
+    expect(db.aiFindUnique).toHaveBeenCalledWith({ where: { teamId: 't2' } });
+    expect(r.isError).toBe(true);
+    expect(r.content[0].text).toMatch(/no AI provider/);
+    expect(cas.casUpdateWhiteboard).not.toHaveBeenCalled();
+  });
+
+  it('rejects a team the caller does not belong to before touching any provider', async () => {
+    asUser();
+    const r = await result(await call2({ text: 'checkout flow diagram', teamId: 'not-mine', fileName: 'X' }));
+    expect(r.isError).toBe(true);
+    expect(db.aiFindUnique).not.toHaveBeenCalled();
+  });
+
+  it('never creates a file when generation fails or returns an unusable spec (no orphans)', async () => {
+    asUser();
+    db.aiFindUnique.mockResolvedValue({ provider: 'openai', baseUrl: 'http://127.0.0.1:9/v1', encryptedKey: 'bad', model: 'm' });
+    const r = await result(await call2({ text: 'checkout flow diagram', teamId: 't2', fileName: 'New' }));
+    expect(r.isError).toBe(true); // key cannot even be decrypted / provider unreachable
+    expect(db.fileCreate).not.toHaveBeenCalled();
   });
 });

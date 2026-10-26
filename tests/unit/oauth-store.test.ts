@@ -30,8 +30,9 @@ function makeDb() {
     updateMany: async ({ where, data }: { where: Row; data: Row }) => { const hit = rows.filter((r) => match(r, where)); hit.forEach((r) => Object.assign(r, data)); return { count: hit.length }; },
     deleteMany: async ({ where }: { where: Row }) => { const hit = rows.filter((r) => match(r, where)); hit.forEach((r) => rows.splice(rows.indexOf(r), 1)); return { count: hit.length }; },
   });
-  const prisma = { oAuthCode: table(codes), oAuthToken: table(tokens), oAuthClient: table(clients) } as unknown as PrismaClient;
-  return { prisma, codes, tokens };
+  const prisma: Record<string, unknown> = { oAuthCode: table(codes), oAuthToken: table(tokens), oAuthClient: table(clients) };
+  prisma.$transaction = async (fn: (tx: unknown) => Promise<unknown>) => fn(prisma);
+  return { prisma: prisma as unknown as PrismaClient, codes, tokens };
 }
 
 const verifier = 'v'.repeat(50);
@@ -102,10 +103,10 @@ describe('RFC 7009 revocation + registration cap', () => {
     const code = await issue(db.prisma);
     const t = await exchangeAuthCode(db.prisma, { code, clientId: 'c1', redirectUri, codeVerifier: verifier });
     if ('error' in t) throw new Error('unexpected');
-    await revokeByToken(db.prisma, 'someone-else', t.accessToken);
+    expect(await revokeByToken(db.prisma, 'someone-else', t.accessToken)).toBe(0);
     expect(await verifyOAuthAccessToken(db.prisma, t.accessToken)).not.toBeNull();
     await revokeByToken(db.prisma, 'c1', 'collabpro_ort_unknown');
-    await revokeByToken(db.prisma, 'c1', t.refreshToken);
+    expect(await revokeByToken(db.prisma, 'c1', t.refreshToken)).toBe(1);
     expect(await verifyOAuthAccessToken(db.prisma, t.accessToken)).toBeNull();
   });
   it('registerClient sanitizes names and refuses past the cap', async () => {
@@ -117,13 +118,52 @@ describe('RFC 7009 revocation + registration cap', () => {
   });
 });
 
+describe('concurrency (atomic claims)', () => {
+  it('two simultaneous exchanges of one code: exactly one wins, and the loser revokes nothing it should not', async () => {
+    const db = makeDb();
+    const code = await issue(db.prisma);
+    const args = { code, clientId: 'c1', redirectUri, codeVerifier: verifier };
+    const [a, b] = await Promise.all([exchangeAuthCode(db.prisma, args), exchangeAuthCode(db.prisma, args)]);
+    const winners = [a, b].filter((r) => !('error' in r));
+    expect(winners).toHaveLength(1);
+    expect([a, b].filter((r) => 'error' in r)).toHaveLength(1);
+  });
+  it('two simultaneous refreshes of one token: one succeeds, the other is refused without revoking the grant', async () => {
+    const db = makeDb();
+    const code = await issue(db.prisma);
+    const t = await exchangeAuthCode(db.prisma, { code, clientId: 'c1', redirectUri, codeVerifier: verifier });
+    if ('error' in t) throw new Error('unexpected');
+    const results = await Promise.all([
+      refreshTokens(db.prisma, { refreshToken: t.refreshToken, clientId: 'c1' }),
+      refreshTokens(db.prisma, { refreshToken: t.refreshToken, clientId: 'c1' }),
+    ]);
+    const ok = results.filter((r) => !('error' in r));
+    expect(ok).toHaveLength(1);
+    const winner = ok[0] as { accessToken: string };
+    expect(await verifyOAuthAccessToken(db.prisma, winner.accessToken)).not.toBeNull();
+  });
+});
+
+describe('grant listing', () => {
+  it('collapses re-authorizations of the same client into one entry', async () => {
+    const db = makeDb();
+    for (let i = 0; i < 2; i++) {
+      const code = await issue(db.prisma, i === 0 ? 'mcp:read' : 'mcp:read mcp:write');
+      await exchangeAuthCode(db.prisma, { code, clientId: 'c1', redirectUri, codeVerifier: verifier });
+    }
+    const grants = await listGrants(db.prisma, 'u@x.co');
+    expect(grants).toHaveLength(1);
+    expect(grants[0].scope).toContain('mcp:write');
+  });
+});
+
 describe('access tokens', () => {
   it('verify, map scope, and reject expired/revoked/unknown', async () => {
     const db = makeDb();
     const code = await issue(db.prisma, 'mcp:read');
     const t = await exchangeAuthCode(db.prisma, { code, clientId: 'c1', redirectUri, codeVerifier: verifier });
     if ('error' in t) throw new Error('unexpected');
-    expect(await verifyOAuthAccessToken(db.prisma, t.accessToken)).toMatchObject({ userEmail: 'u@x.co', clientId: 'c1', scope: 'read-only' });
+    expect(await verifyOAuthAccessToken(db.prisma, t.accessToken)).toMatchObject({ userEmail: 'u@x.co', clientId: 'c1', scope: 'read-only', familyId: db.codes[0].id });
     expect(await verifyOAuthAccessToken(db.prisma, 'collabpro_oat_nope')).toBeNull();
     expect(await verifyOAuthAccessToken(db.prisma, 'collabpro_pat_x')).toBeNull();
     db.tokens[0].accessExpiresAt = new Date(Date.now() - 1);

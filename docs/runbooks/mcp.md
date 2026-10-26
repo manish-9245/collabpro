@@ -24,8 +24,8 @@ Signals already emitted: `mcp_request` structured log line (user, method, tool, 
 - `npx prisma migrate deploy` ran (`20261026000000_add_oauth_server`). **Verify in prod** — a missing migration makes consent/token fail with 500: `select count(*) from "OAuthClient";`.
 - `SESSION_SECRET` set; **`APP_URL` set to the public https origin** (pins OAuth issuer/metadata and enables caching of discovery documents).
 - `npm run verify-pipelines` green (CI + Railway).
-- Schedule `npm run oauth:cleanup` daily (Railway cron).
-- Smoke: `npm run mcp:loadtest -- --seconds 20` against the deployed URL.
+- Set `CRON_SECRET` and schedule a daily cron: `curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://<app>/api/internal/oauth-cleanup` (runs inside the app image; the `npm run oauth:cleanup` script needs a source checkout + `tsx`, which the production image does not ship).
+- Smoke: `BASE_URL=https://<app> COLLABPRO_API_KEY=<test-key> npm run mcp:loadtest -- --seconds 20` (without `BASE_URL` it targets localhost; without a key it skips the authenticated `tools/list` probe).
 
 ## Incidents
 | Symptom | Action |
@@ -36,7 +36,7 @@ Signals already emitted: `mcp_request` structured log line (user, method, tool, 
 | Suspected token theft for a user | User: Settings → MCP → Connected apps → Revoke. Operator: `update "OAuthToken" set "revokedAt"=now() where "userEmail"='…';` |
 | Claude: "Couldn't reach the MCP server" | `curl -i <url>/api/mcp -X POST -d '{}'` → expect 401 + `WWW-Authenticate`. Then `curl <url>/.well-known/oauth-protected-resource` → `resource` must equal the pasted URL. Check WAF allows `160.79.104.0/21`. |
 | Claude: "Authorization failed" | Check logs for `oauth:token:failure` reason; confirm the token endpoint isn't returning JSON-only parsing errors (must accept form-encoded). |
-| Table growth | Run `npm run oauth:cleanup`; DCR clients with no tokens are pruned after 24 h. |
+| Table growth | Call the cleanup endpoint (see Deploy checklist); DCR clients with no tokens are pruned after 24 h. |
 
 ## Rollback
 Disable with env vars above (instant after restart). The migration is additive (3 new tables); rolling the app back without dropping them is safe.

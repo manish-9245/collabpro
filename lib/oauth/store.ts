@@ -1,7 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import {
   ACCESS_TOKEN_PREFIX, ACCESS_TOKEN_TTL_MS, AUTH_CODE_TTL_MS, REFRESH_TOKEN_PREFIX, REFRESH_TOKEN_TTL_MS,
-  randomId, randomToken, sha256Hex, verifyPkceS256, redirectUriMatches, sanitizeClientName, toApiScope,
+  randomId, randomToken, sha256Hex, verifyPkceS256, sanitizeClientName, toApiScope,
 } from '@/lib/oauth/core';
 
 /**
@@ -17,10 +17,15 @@ export interface IssuedTokens {
   scope: string;
 }
 
-const MAX_REDIRECT_URIS = 5;
+export const MAX_REDIRECT_URIS = 5;
 /** Concurrent refreshes (two requests racing on the same token) must not look like theft. */
 const REFRESH_REUSE_LEEWAY_MS = 10_000;
-/** Hard ceiling on stored dynamic clients so open registration cannot fill the table. */
+/**
+ * Soft ceiling on stored dynamic clients so open registration cannot fill the
+ * table. It is a count-then-insert, so a burst can overshoot by roughly the
+ * number of concurrent registrations; the per-IP rate limit and the 24 h prune
+ * bound that overshoot, which is all this guard is for.
+ */
 export const MAX_OAUTH_CLIENTS = 20_000;
 
 export async function registerClient(
@@ -33,7 +38,7 @@ export async function registerClient(
     data: {
       clientId,
       clientName: sanitizeClientName(input.clientName),
-      redirectUris: input.redirectUris.slice(0, MAX_REDIRECT_URIS),
+      redirectUris: input.redirectUris,
     },
   });
   return client;
@@ -84,7 +89,21 @@ async function mintTokens(
   return { accessToken, refreshToken, expiresIn: Math.floor(ACCESS_TOKEN_TTL_MS / 1000), scope: input.scope };
 }
 
-export async function exchangeAuthCode(
+/**
+ * Claim + validate + mint run in ONE transaction. Postgres row locks make a
+ * concurrent replay of the same code block on the claim until this commits, so
+ * by the time it sees `usedAt` set the minted tokens already exist and its
+ * family revocation actually reaches them (no window where a replay revokes
+ * zero rows and the first request then issues a live token).
+ */
+export function exchangeAuthCode(
+  prisma: PrismaClient,
+  input: { code: string; clientId: string; redirectUri: string; codeVerifier: string },
+): Promise<IssuedTokens | OAuthError> {
+  return prisma.$transaction((tx) => exchangeAuthCodeTx(tx as unknown as PrismaClient, input));
+}
+
+async function exchangeAuthCodeTx(
   prisma: PrismaClient,
   input: { code: string; clientId: string; redirectUri: string; codeVerifier: string },
 ): Promise<IssuedTokens | OAuthError> {
@@ -116,7 +135,15 @@ export async function exchangeAuthCode(
   return mintTokens(prisma, { familyId: row.id, clientId: row.clientId, userEmail: row.userEmail, scope: row.scope });
 }
 
-export async function refreshTokens(
+/** Rotation (claim old + insert new) is atomic: a crash can never leave a claimed token with no successor. */
+export function refreshTokens(
+  prisma: PrismaClient,
+  input: { refreshToken: string; clientId: string },
+): Promise<IssuedTokens | OAuthError> {
+  return prisma.$transaction((tx) => refreshTokensTx(tx as unknown as PrismaClient, input));
+}
+
+async function refreshTokensTx(
   prisma: PrismaClient,
   input: { refreshToken: string; clientId: string },
 ): Promise<IssuedTokens | OAuthError> {
@@ -143,6 +170,8 @@ export async function refreshTokens(
 
 export interface VerifiedOAuthToken {
   id: string;
+  /** Stable across refresh rotation - the right key for per-grant rate limiting. */
+  familyId: string;
   userEmail: string;
   clientId: string;
   /** API-key vocabulary ('read-only' | 'read-write') so tools.ts enforcement is unchanged. */
@@ -162,7 +191,7 @@ export async function verifyOAuthAccessToken(prisma: PrismaClient, token: string
       data: { lastUsedAt: new Date() },
     })
     .catch(() => {});
-  return { id: row.id, userEmail: row.userEmail, clientId: row.clientId, scope: toApiScope(row.scope) };
+  return { id: row.id, familyId: row.familyId, userEmail: row.userEmail, clientId: row.clientId, scope: toApiScope(row.scope) };
 }
 
 export async function listGrants(prisma: PrismaClient, userEmail: string) {
@@ -171,13 +200,20 @@ export async function listGrants(prisma: PrismaClient, userEmail: string) {
     include: { client: { select: { clientName: true } } },
     orderBy: { createdAt: 'desc' },
   });
-  return rows.map((r) => ({
-    clientId: r.clientId,
-    clientName: r.client.clientName,
-    scope: r.scope,
-    connectedAt: r.createdAt,
-    lastUsedAt: r.lastUsedAt,
-  }));
+  // One entry per client: re-authorizing the same app creates a new token
+  // family, but the user thinks of it (and revokes it) as one connected app.
+  const byClient = new Map<string, { clientId: string; clientName: string; scope: string; connectedAt: Date; lastUsedAt: Date | null }>();
+  for (const r of rows) {
+    const existing = byClient.get(r.clientId);
+    if (!existing) {
+      byClient.set(r.clientId, { clientId: r.clientId, clientName: r.client.clientName, scope: r.scope, connectedAt: r.createdAt, lastUsedAt: r.lastUsedAt });
+      continue;
+    }
+    if (r.scope.includes('mcp:write')) existing.scope = r.scope;
+    if (r.lastUsedAt && (!existing.lastUsedAt || r.lastUsedAt > existing.lastUsedAt)) existing.lastUsedAt = r.lastUsedAt;
+    if (r.createdAt < existing.connectedAt) existing.connectedAt = r.createdAt;
+  }
+  return [...byClient.values()];
 }
 
 /**
@@ -185,12 +221,13 @@ export async function listGrants(prisma: PrismaClient, userEmail: string) {
  * revokes the whole family; unknown tokens are silently ignored (the endpoint
  * always answers 200 so it cannot be used to probe for valid tokens).
  */
-export async function revokeByToken(prisma: PrismaClient, clientId: string, token: string): Promise<void> {
+export async function revokeByToken(prisma: PrismaClient, clientId: string, token: string): Promise<number> {
   const hashed = sha256Hex(token);
   const row = await prisma.oAuthToken.findUnique({ where: { hashedAccess: hashed } })
     ?? await prisma.oAuthToken.findUnique({ where: { hashedRefresh: hashed } });
-  if (!row || row.clientId !== clientId) return;
-  await prisma.oAuthToken.updateMany({ where: { familyId: row.familyId, revokedAt: null }, data: { revokedAt: new Date() } });
+  if (row?.clientId !== clientId) return 0;
+  const res = await prisma.oAuthToken.updateMany({ where: { familyId: row.familyId, revokedAt: null }, data: { revokedAt: new Date() } });
+  return res.count;
 }
 
 export async function revokeGrant(prisma: PrismaClient, userEmail: string, clientId: string): Promise<number> {
@@ -212,4 +249,3 @@ export async function cleanupExpired(prisma: PrismaClient): Promise<{ codes: num
   return { codes: codes.count, tokens: tokens.count, clients: clients.count };
 }
 
-export { redirectUriMatches };

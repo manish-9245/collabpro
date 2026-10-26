@@ -47,7 +47,22 @@ export interface CasPrismaClient {
   };
 }
 
+/** Thrown when `expectedRaw` was supplied and the stored value no longer matches it. */
+export class CasConflictError extends Error {
+  constructor(what: string) {
+    super(`Conflict: the ${what} changed since you read it.`);
+    this.name = 'CasConflictError';
+  }
+}
+
 export interface CasWriteOptions {
+  /**
+   * Optimistic-concurrency guard: the exact stored value the caller based
+   * its edit on. Checked against the freshly read row on EVERY attempt of
+   * the CAS loop (not just once up front), so an edit that lands between the
+   * caller's read and this write is a CasConflictError, never a silent overwrite.
+   */
+  expectedRaw?: string;
   /** Called once the write has actually persisted (e.g. cache invalidation). Failures here do not affect the returned result. */
   onPersisted?: (fileId: string) => Promise<void> | void;
   maxAttempts?: number;
@@ -96,6 +111,9 @@ export async function casUpdateDocument(
     // brand-new file's `document` column is the empty string, and the CAS
     // predicate must match THAT, not a stand-in default object.
     const rawCurrentDocString = file.document ?? '';
+    if (options.expectedRaw !== undefined && options.expectedRaw !== rawCurrentDocString) {
+      throw new CasConflictError('document');
+    }
 
     const updated = await prismaClient.file.updateMany({
       where: { id: targetFileId, document: rawCurrentDocString },
@@ -158,6 +176,9 @@ export async function casUpdateWhiteboard(
       throw new Error("File not found");
     }
     const rawCurrentWhiteboardString = file.whiteboard ?? '';
+    if (options.expectedRaw !== undefined && options.expectedRaw !== rawCurrentWhiteboardString) {
+      throw new CasConflictError('whiteboard');
+    }
 
     // Issue found in review (Group 5): a malformed incoming payload must be
     // REJECTED (thrown, so the caller's mutation fails and the client sees

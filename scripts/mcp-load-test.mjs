@@ -10,10 +10,17 @@ const base = (process.env.BASE_URL || 'http://localhost:3000').replace(/\/$/, ''
 const key = process.env.COLLABPRO_API_KEY;
 const seconds = flag('seconds', 30);
 const concurrency = flag('concurrency', 10);
+// A typo'd flag must fail loudly, not produce an empty "green" run.
+if (!Number.isFinite(seconds) || seconds <= 0 || !Number.isInteger(concurrency) || concurrency <= 0) {
+  console.error('Usage: --seconds <positive number> --concurrency <positive integer>');
+  process.exit(2);
+}
 
 const targets = [
   { name: 'well-known/oauth-protected-resource', run: () => fetch(`${base}/.well-known/oauth-protected-resource`) },
   { name: 'well-known/oauth-authorization-server', run: () => fetch(`${base}/.well-known/oauth-authorization-server`) },
+  // Token endpoint with a deliberately invalid grant: exercises the real hot path (rate limit, parsing, DB lookup) and must answer 400 invalid_grant quickly.
+  { name: 'oauth token (invalid grant)', run: () => fetch(`${base}/api/oauth/token`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'grant_type=refresh_token&client_id=loadtest&refresh_token=collabpro_ort_invalid' }), expect: 400 },
   { name: 'mcp 401 (unauthenticated)', run: () => fetch(`${base}/api/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: '{}' }), expect: 401 },
 ];
 if (key) {

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, beforeAll, vi } from 'vitest';
+import { describe, it, expect, beforeEach, beforeAll, afterEach, vi } from 'vitest';
 import { createHash } from 'crypto';
 
 const store = vi.hoisted(() => ({
@@ -10,9 +10,9 @@ const store = vi.hoisted(() => ({
   getClient: vi.fn(),
   listGrants: vi.fn(),
   revokeGrant: vi.fn(),
-  revokeByToken: vi.fn(),
+  revokeByToken: vi.fn().mockResolvedValue(0),
 }));
-vi.mock('@/lib/oauth/store', () => ({ ...store, redirectUriMatches: (reg: string[], r: string) => reg.includes(r) }));
+vi.mock('@/lib/oauth/store', () => ({ ...store, MAX_REDIRECT_URIS: 5 }));
 vi.mock('@/lib/db', () => ({ prisma: {} }));
 vi.mock('@/lib/audit', () => ({ logAuditEvent: vi.fn() }));
 vi.mock('@/lib/rate-limiter', () => ({
@@ -32,6 +32,8 @@ import { GET as prm } from '@/app/.well-known/oauth-protected-resource/[[...path
 import { GET as asm } from '@/app/.well-known/oauth-authorization-server/route';
 import { consentToken, CLAUDE_CALLBACK } from '@/lib/oauth/core';
 import { checkRateLimit } from '@/lib/rate-limiter';
+import { logAuditEvent } from '@/lib/audit';
+import { POST as cleanup } from '@/app/api/internal/oauth-cleanup/route';
 
 beforeAll(() => { process.env.SESSION_SECRET = 'test-secret-test-secret-test-secret-1234'; });
 beforeEach(() => { vi.clearAllMocks(); session.user = null; delete process.env.OAUTH_DISABLED; });
@@ -88,8 +90,10 @@ describe('POST /api/oauth/register', () => {
 describe('POST /api/oauth/token', () => {
   it('exchanges a code (form-encoded) and never caches', async () => {
     store.exchangeAuthCode.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresIn: 3600, scope: 'mcp:read' });
-    const res = await token(formReq('https://x.co/api/oauth/token', { grant_type: 'authorization_code', client_id: 'c1', code: 'c', redirect_uri: CLAUDE_CALLBACK, code_verifier: 'v' }));
+    const verifier = 'v'.repeat(50);
+    const res = await token(formReq('https://x.co/api/oauth/token', { grant_type: 'authorization_code', client_id: 'c1', code: 'c', redirect_uri: CLAUDE_CALLBACK, code_verifier: verifier }));
     expect(res.status).toBe(200);
+    expect(store.exchangeAuthCode).toHaveBeenCalledWith({}, { code: 'c', clientId: 'c1', redirectUri: CLAUDE_CALLBACK, codeVerifier: verifier });
     expect(res.headers.get('Cache-Control')).toBe('no-store');
     expect(await res.json()).toEqual({ access_token: 'a', token_type: 'Bearer', expires_in: 3600, refresh_token: 'r', scope: 'mcp:read' });
   });
@@ -158,12 +162,12 @@ describe('POST /api/oauth/authorize (consent)', () => {
     const res = await submit({ decision: 'allow', consent_token: tokenFor('u@x.co') });
     expect(res.status).toBe(303);
     expect(res.headers.get('Location')).toBe(`${CLAUDE_CALLBACK}?code=CODE&state=st&iss=https%3A%2F%2Fapp.example.com`);
-    expect(store.issueAuthCode).toHaveBeenCalledWith({}, expect.objectContaining({ scope: 'mcp:read' }));
+    expect(store.issueAuthCode).toHaveBeenCalledWith({}, { clientId: 'c1', userEmail: 'u@x.co', codeChallenge: challenge, redirectUri: CLAUDE_CALLBACK, scope: 'mcp:read' });
   });
   it('grants write when ticked', async () => {
     session.user = { email: 'u@x.co' };
     await submit({ decision: 'allow', allow_write: '1', consent_token: tokenFor('u@x.co') });
-    expect(store.issueAuthCode).toHaveBeenCalledWith({}, expect.objectContaining({ scope: 'mcp:read mcp:write' }));
+    expect(store.issueAuthCode).toHaveBeenCalledWith({}, { clientId: 'c1', userEmail: 'u@x.co', codeChallenge: challenge, redirectUri: CLAUDE_CALLBACK, scope: 'mcp:read mcp:write' });
   });
   it('redirects access_denied on deny without issuing a code', async () => {
     session.user = { email: 'u@x.co' };
@@ -197,6 +201,10 @@ describe('token endpoint input hardening', () => {
     const res = await token(formReq(url, { grant_type: 'refresh_token', client_id: 'c1', refresh_token: 'x'.repeat(9000) }));
     expect(res.status).toBe(413);
   });
+  it('treats an EMPTY resource as present-and-wrong (not as absent)', async () => {
+    const res = await token(formReq(url, { grant_type: 'refresh_token', client_id: 'c1', refresh_token: 'r', resource: '' }));
+    expect(await res.json()).toMatchObject({ error: 'invalid_target' });
+  });
   it('enforces RFC 8707 resource: wrong audience -> invalid_target, right one passes', async () => {
     const bad = await token(formReq(url, { grant_type: 'refresh_token', client_id: 'c1', refresh_token: 'r', resource: 'https://other.example.com/api/mcp' }));
     expect(await bad.json()).toMatchObject({ error: 'invalid_target' });
@@ -218,6 +226,7 @@ describe('register endpoint input hardening', () => {
 });
 
 describe('metadata caching (cache-poisoning defense)', () => {
+  afterEach(() => { delete process.env.APP_URL; });
   it('is no-store when the origin is derived from forwarded headers', () => {
     delete process.env.APP_URL;
     const res = asm(new Request('http://internal/x', { headers: { 'x-forwarded-host': 'evil.example.com', 'x-forwarded-proto': 'https' } }));
@@ -234,6 +243,7 @@ describe('metadata caching (cache-poisoning defense)', () => {
     const body = await asm(new Request('https://app.example.com/x')).json();
     expect(body.revocation_endpoint).toBe('https://app.example.com/api/oauth/revoke');
     expect(body.authorization_response_iss_parameter_supported).toBe(true);
+    expect(body.revocation_endpoint_auth_methods_supported).toEqual(['none']);
   });
 });
 
@@ -261,5 +271,64 @@ describe('DELETE /api/oauth/grants', () => {
     const ok = await deleteGrant(new Request(url, { method: 'DELETE', headers: { Origin: 'https://app.example.com' } }));
     expect(ok.status).toBe(200);
     expect(store.revokeGrant).toHaveBeenCalledWith({}, 'u@x.co', 'c1');
+  });
+});
+
+
+describe('exact media types', () => {
+  it('rejects look-alike content types on token, revoke and register', async () => {
+    const lookalike = { 'Content-Type': 'application/x-www-form-urlencoded-evil' };
+    expect((await token(new Request('https://x.co/t', { method: 'POST', headers: lookalike, body: 'grant_type=refresh_token&client_id=c&refresh_token=r' }))).status).toBe(400);
+    expect((await revoke(new Request('https://x.co/r', { method: 'POST', headers: lookalike, body: 'token=t&client_id=c' }))).status).toBe(400);
+    expect((await register(new Request('https://x.co/g', { method: 'POST', headers: { 'Content-Type': 'application/json-malformed' }, body: '{}' }))).status).toBe(400);
+  });
+  it('accepts a charset parameter', async () => {
+    store.refreshTokens.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresIn: 1, scope: 'mcp:read' });
+    const res = await token(new Request('https://x.co/t', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' }, body: 'grant_type=refresh_token&client_id=c&refresh_token=r' }));
+    expect(res.status).toBe(200);
+  });
+});
+
+describe('register: redirect_uris bounds and body shape', () => {
+  it('rejects more than 5 URIs (no silent truncation) and over-long URIs', async () => {
+    const six = Array.from({ length: 6 }, () => CLAUDE_CALLBACK);
+    expect((await register(json('https://x.co/', { redirect_uris: six }))).status).toBe(400);
+    expect((await register(json('https://x.co/', { redirect_uris: [`${CLAUDE_CALLBACK}?${'a'.repeat(600)}`] }))).status).toBe(400);
+    expect(store.registerClient).not.toHaveBeenCalled();
+  });
+  it('a JSON null / array body is a 400, not a crash', async () => {
+    expect((await register(json('https://x.co/', null))).status).toBe(400);
+    expect((await register(json('https://x.co/', []))).status).toBe(400);
+  });
+});
+
+describe('revoke audit + stream failure', () => {
+  it('audits only when something was actually revoked', async () => {
+    store.revokeByToken.mockResolvedValueOnce(0);
+    await revoke(formReq('https://x.co/api/oauth/revoke', { token: 't', client_id: 'c1' }));
+    expect(logAuditEvent).not.toHaveBeenCalled();
+    store.revokeByToken.mockResolvedValueOnce(2);
+    await revoke(formReq('https://x.co/api/oauth/revoke', { token: 't', client_id: 'c1' }));
+    expect(logAuditEvent).toHaveBeenCalledWith(null, 'unknown', 'oauth:token:revoked', { clientId: 'c1', tokens: 2 }, '203.0.113.9');
+  });
+  it('a body stream that errors mid-upload is a clean 413/400, not a 500', async () => {
+    const body = new ReadableStream({ start(c) { c.error(new Error('client went away')); } });
+    const req = new Request('https://x.co/t', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body, duplex: 'half' } as RequestInit);
+    const res = await token(req);
+    expect([400, 413]).toContain(res.status);
+  });
+});
+
+describe('cleanup endpoint (cron) fails closed', () => {
+  afterEach(() => { delete process.env.CRON_SECRET; });
+  it('is 404 without CRON_SECRET, 401 with a wrong secret, 200 with the right one', async () => {
+    expect((await cleanup(new Request('https://x.co/c', { method: 'POST' }))).status).toBe(404);
+    process.env.CRON_SECRET = 'cron-secret';
+    expect((await cleanup(new Request('https://x.co/c', { method: 'POST', headers: { Authorization: 'Bearer nope' } }))).status).toBe(401);
+    expect((await cleanup(new Request('https://x.co/c', { method: 'POST' }))).status).toBe(401);
+    store.cleanupExpired.mockResolvedValue({ codes: 1, tokens: 2, clients: 3 });
+    const ok = await cleanup(new Request('https://x.co/c', { method: 'POST', headers: { Authorization: 'Bearer cron-secret' } }));
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ codes: 1, tokens: 2, clients: 3 });
   });
 });

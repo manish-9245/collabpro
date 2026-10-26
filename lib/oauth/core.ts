@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 /**
  * Pure helpers for CollabPro's OAuth 2.1 authorization server (the sign-in
@@ -82,6 +82,7 @@ export function redirectUriMatches(registered: string[], requested: string): boo
     return false;
   }
   if (req.protocol !== 'http:' || !isLoopbackHost(req.hostname)) return false;
+  if (req.hash || req.username || req.password) return false;
   return registered.some((r) => {
     try {
       const reg = new URL(r);
@@ -168,7 +169,7 @@ export function baseUrlFrom(host: string | null, proto: string | null, fallbackU
   const configured = process.env.APP_URL || process.env.OAUTH_ISSUER;
   if (configured) return { url: configured.replace(/\/$/, ''), pinned: true };
   const u = new URL(fallbackUrl);
-  const h = host || u.host;
+  const h = host?.split(',')[0].trim() || u.host;
   const p = proto?.split(',')[0].trim() || u.protocol.replace(':', '');
   // Reject anything that is not a plain host[:port] over http(s).
   if (!/^[a-z0-9.\-:[\]]+$/i.test(h) || !/^https?$/.test(p)) return { url: u.origin, pinned: false };
@@ -195,7 +196,7 @@ export function metadataHeaders(info: BaseUrlInfo): Record<string, string> {
 
 /** RFC 8707: a `resource` parameter, when sent, must name this MCP server (trailing slash tolerated). */
 export function resourceMatches(resource: string | null | undefined, baseUrl: string): boolean {
-  if (!resource) return true;
+  if (resource === null || resource === undefined) return true;
   return resource.replace(/\/$/, '') === `${baseUrl}${MCP_RESOURCE_PATH}`;
 }
 
@@ -210,7 +211,7 @@ export function isLoopbackRedirect(uri: string): boolean {
 
 /** Client names are shown on the consent page: strip control/bidi characters and cap the length. */
 export function sanitizeClientName(raw: unknown): string {
-  const cleaned = String(raw ?? '')
+  const cleaned = (typeof raw === 'string' ? raw : '')
     .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g, '')
     .trim()
     .slice(0, 60);

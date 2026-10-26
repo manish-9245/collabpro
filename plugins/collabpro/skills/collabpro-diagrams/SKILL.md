@@ -16,9 +16,9 @@ Use the CollabPro connector's tools. Never ask the user for coordinates.
    - Use `group` to color related nodes (e.g. `frontend`, `backend`, `data`).
    - `direction: "right"` for pipelines, `"down"` for layered architectures.
    - It adds below existing content; use `replaceAll` only when the user asked to start over.
-4. **Icons.** `collabpro_place_icon` with a phrase such as "aws lambda" returns a `ref`; hand-placed boards pass it to `collabpro_update_whiteboard`'s `iconRefs`. Or put `icon: { librarySource, item }` on a node.
+4. **Icons.** For `collabpro_apply_diagram_spec`, put `icon: { librarySource, item }` on a node (find them with `collabpro_search_icon_libraries` and `collabpro_list_library_items`). Only when hand-placing a board with `collabpro_update_whiteboard`: call `collabpro_place_icon` (it needs an `x`/`y` - read the board with `collabpro_get_file`, pick free space below the existing content) and pass the returned `ref` in `iconRefs`.
 5. **Export.** `collabpro_export_file` as `markdown`, `html`, `text` (document) or `svg` (whiteboard). For PNG or PDF, tell the user to use the Export menu in CollabPro.
-6. **Tell the user where it is.** Include the returned `fileUrl`.
+6. **Tell the user where it is.** Diagram and file-creating tools return a `fileUrl`; other tools do not - call `collabpro_get_file` to get the URL when you need one.
 
 ## Safety
 

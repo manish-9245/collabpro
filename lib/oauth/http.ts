@@ -9,12 +9,40 @@ export const NO_STORE_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
 } as const;
 
-/** Reads a request body as text, refusing anything over the cap without buffering it all. */
-export async function readBodyCapped(request: Request): Promise<string | null> {
+/**
+ * Reads a request body as text while counting bytes as they stream in, and
+ * stops (cancelling the stream) the moment the cap is exceeded - so an
+ * oversized body is never fully buffered. Returns null when over the cap or
+ * when the stream fails (e.g. client disconnects mid-upload).
+ */
+export async function readBodyCapped(request: Request, maxBytes: number = MAX_OAUTH_BODY_BYTES): Promise<string | null> {
   const declared = Number(request.headers.get('content-length') ?? 0);
-  if (declared > MAX_OAUTH_BODY_BYTES) return null;
-  const text = await request.text();
-  return Buffer.byteLength(text) > MAX_OAUTH_BODY_BYTES ? null : text;
+  if (declared > maxBytes) return null;
+  if (!request.body) return '';
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => {});
+        return null;
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return null;
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+/** Exact media-type match (parameters like charset allowed): `application/json-malformed` does NOT match `application/json`. */
+export function hasMediaType(request: Request, expected: string): boolean {
+  const type = request.headers.get('content-type')?.split(';')[0].trim().toLowerCase();
+  return type === expected;
 }
 
 /**

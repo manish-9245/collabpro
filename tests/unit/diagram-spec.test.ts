@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildElements, layoutDiagram, validateSpec, type DiagramSpec } from '@/lib/mcp/diagram-spec';
+import { buildElements, defaultSize, layoutDiagram, MAX_EDGE_LABEL, MAX_NODE_LABEL, validateSpec, type DiagramSpec } from '@/lib/mcp/diagram-spec';
 import { validateWhiteboardGeometry } from '@/lib/mcp/tools';
 import { parseSpecFromModelText } from '@/lib/mcp/ai-spec';
 
@@ -56,13 +56,30 @@ describe('layout + elements', () => {
     expect(validateWhiteboardGeometry(elements)).toEqual([]);
   });
 
-  it('binds arrows to shapes reciprocally and gives text a visible color', () => {
+  it('binds arrows to shapes reciprocally on BOTH ends and gives text a visible color', () => {
     const elements = buildElements(spec, layoutDiagram(spec, new Map()));
     const arrow = elements.find((e) => e.id === 'edge-1') as any;
-    expect(arrow.startBinding.elementId).toBe('web');
     const web = elements.find((e) => e.id === 'web') as any;
-    expect(web.boundElements.some((b: any) => b.id === arrow.id)).toBe(true);
+    const api = elements.find((e) => e.id === 'api') as any;
+    expect(arrow.startBinding.elementId).toBe('web');
+    expect(arrow.endBinding.elementId).toBe('api');
+    expect(web.boundElements.some((b: any) => b.id === arrow.id && b.type === 'arrow')).toBe(true);
+    expect(api.boundElements.some((b: any) => b.id === arrow.id && b.type === 'arrow')).toBe(true);
     for (const t of elements.filter((e) => e.type === 'text')) expect((t as any).strokeColor).toBeTruthy();
+  });
+
+  it('namespaces every id with the prefix so a second diagram cannot collide on a shared board', () => {
+    const layout = layoutDiagram(spec, new Map());
+    const first = buildElements(spec, layout, new Map(), 'dA-');
+    const second = buildElements(spec, layout, new Map(), 'dB-');
+    const ids = (els: any[]) => new Set(els.map((e) => e.id));
+    expect([...ids(first)].every((id) => id.startsWith('dA-'))).toBe(true);
+    expect([...ids(first)].some((id) => ids(second).has(id))).toBe(false);
+    // bindings and bound text follow the prefixed ids
+    const arrow = first.find((e: any) => e.id === 'dA-edge-1') as any;
+    expect(arrow.startBinding.elementId).toBe('dA-web');
+    const label = first.find((e: any) => e.id === 'dA-web-label') as any;
+    expect(label.containerId).toBe('dA-web');
   });
 
   it('is deterministic', () => {
@@ -71,15 +88,45 @@ describe('layout + elements', () => {
     expect(a).toBe(b);
   });
 
-  it('uses supplied icon sizes and emits no shape binding for icon nodes', () => {
+  it('uses supplied icon sizes and BINDS arrows to the icon\'s main shape (largest by area), reciprocally', () => {
     const s: DiagramSpec = { nodes: [{ id: 'i', label: 'Lambda', icon: { librarySource: 'a/b.excalidrawlib', item: '1' } }, { id: 'j', label: 'S3' }], edges: [{ from: 'i', to: 'j' }] };
     const boxes = layoutDiagram(s, new Map([['i', { w: 80, h: 80 }]]));
     expect(boxes.get('i')).toMatchObject({ w: 80, h: 80 });
-    const iconEl = { id: 'i-0', type: 'rectangle', x: 0, y: 0, width: 80, height: 80, groupIds: ['g'], strokeColor: '#000' };
-    const els = buildElements(s, boxes, new Map([['i', [iconEl]]]));
+    const small = { id: 'i-inner', type: 'rectangle', x: 10, y: 10, width: 20, height: 20, groupIds: ['g'], strokeColor: '#000', boundElements: [] };
+    const main = { id: 'i-main', type: 'ellipse', x: 0, y: 0, width: 80, height: 80, groupIds: ['g'], strokeColor: '#000', boundElements: [] };
+    const els = buildElements(s, boxes, new Map([['i', [small, main]]]));
     const arrow = els.find((e) => e.type === 'arrow') as any;
-    expect(arrow.startBinding).toBeUndefined();
+    expect(arrow.startBinding.elementId).toBe('i-main');
+    expect((main.boundElements as any[]).some((b) => b.id === arrow.id)).toBe(true);
+    expect((small.boundElements as any[])).toHaveLength(0);
     expect(arrow.endBinding.elementId).toBe('j');
+  });
+
+  it('an icon with no backing shape simply leaves that end unbound (never a dangling binding)', () => {
+    const s: DiagramSpec = { nodes: [{ id: 'i', label: 'T', icon: { librarySource: 'a/b.excalidrawlib', item: '1' } }, { id: 'j', label: 'U' }], edges: [{ from: 'i', to: 'j' }] };
+    const boxes = layoutDiagram(s, new Map([['i', { w: 60, h: 60 }]]));
+    const els = buildElements(s, boxes, new Map([['i', [{ id: 'i-t', type: 'text', x: 0, y: 0, width: 60, height: 20, strokeColor: '#000' }]]]));
+    expect((els.find((e) => e.type === 'arrow') as any).startBinding).toBeUndefined();
+  });
+});
+
+describe('label limits keep text inside its box and clear of arrows', () => {
+  it('rejects labels longer than the box can hold', () => {
+    const issues = validateSpec({ nodes: [{ id: 'a', label: 'x'.repeat(41) }, { id: 'b', label: 'ok' }], edges: [{ from: 'a', to: 'b', label: 'y'.repeat(25) }] });
+    expect(issues.join('\n')).toMatch(/label is 41 characters; max 40/);
+    expect(issues.join('\n')).toMatch(/longer than 24 characters/);
+  });
+  it('the widest permitted label still fits its (capped) box', () => {
+    const size = defaultSize('x'.repeat(MAX_NODE_LABEL));
+    expect(size.w).toBeGreaterThanOrEqual(MAX_NODE_LABEL * 9);
+  });
+  it('left-to-right layers leave room for the longest edge label between boxes', () => {
+    const s: DiagramSpec = { nodes: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }], edges: [{ from: 'a', to: 'b', label: 'x'.repeat(MAX_EDGE_LABEL) }] };
+    const boxes = layoutDiagram(s, new Map());
+    const gap = boxes.get('b')!.x - (boxes.get('a')!.x + boxes.get('a')!.w);
+    expect(gap).toBeGreaterThanOrEqual(MAX_EDGE_LABEL * 8);
+    const els = buildElements(s, boxes);
+    expect(validateWhiteboardGeometry(els)).toEqual([]);
   });
 });
 
