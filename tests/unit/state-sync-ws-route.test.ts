@@ -122,6 +122,13 @@ describe('wsClient follows client-side navigation (the dashboard -> file bug)', 
     expect(FakeWebSocket.instances).toHaveLength(0);
   });
 
+  it('a page loaded directly on a shared-link URL never opens a socket (constructor path)', async () => {
+    const { wsClient } = await freshClient('/workspace/share/link-77');
+    await flush();
+    expect(FakeWebSocket.instances).toHaveLength(0);
+    expect(wsClient!.getStatus()).toBe('disconnected');
+  });
+
   it('a page loaded directly on a workspace URL still connects immediately (unchanged behavior)', async () => {
     await freshClient('/workspace/direct-file');
     await flush();
