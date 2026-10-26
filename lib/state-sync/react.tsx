@@ -130,7 +130,7 @@ export class StateSyncWSClient {
       const fileId = workspaceFileIdFromPath(window.location.pathname);
       if (fileId) {
         this.activeRoom = fileId;
-        this.connect();
+        void this.connect();
       }
     }
   }
@@ -369,7 +369,7 @@ export class StateSyncWSClient {
     console.log(`[CollabPro WS CLIENT] Scheduling reconnection in ${delay.toFixed(0)}ms (attempt ${this.consecutiveFailures})`);
     this.reconnectTimeout = setTimeout(() => {
       this.reconnectTimeout = null;
-      this.connect();
+      void this.connect();
     }, delay);
   }
 
