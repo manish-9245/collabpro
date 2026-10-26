@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import { ACTIVE_POLL_MS, IDLE_AFTER_MS, pollIntervalFor } from './polling';
 // We will lazily import idb to avoid SSR module resolution errors
 let dbPromise: Promise<any> | null = null;
@@ -62,11 +63,21 @@ const makePathProxy = (path: string[] = []): any => {
 // Re-export api from our proxy
 export const api = makePathProxy([]);
 
+/** "/workspace/<fileId>/..." -> fileId, anything else -> null. */
+export function workspaceFileIdFromPath(pathname: string | null | undefined): string | null {
+  const match = pathname?.match(/\/workspace\/([^/]+)/);
+  return match?.[1] ?? null;
+}
+
 export function StateSyncProvider({
   children,
 }: {
   children: ReactNode;
 }) {
+  const pathname = usePathname();
+  useEffect(() => {
+    wsClient?.setActiveRoom(workspaceFileIdFromPath(pathname));
+  }, [pathname]);
   return <>{children}</>;
 }
 
@@ -112,11 +123,30 @@ export class StateSyncWSClient {
 
   constructor() {
     if (typeof window !== 'undefined') {
-      const match = window.location.pathname.match(/\/workspace\/([^/]+)/);
-      if (match && match[1]) {
-        this.activeRoom = match[1];
+      const fileId = workspaceFileIdFromPath(window.location.pathname);
+      if (fileId) {
+        this.activeRoom = fileId;
         this.connect();
       }
+    }
+  }
+
+  /**
+   * Called by StateSyncProvider on every route change. The constructor only sees
+   * the URL at page load, so opening a file from the dashboard (a client-side
+   * navigation, no page load) never opened a socket and the app polled over
+   * HTTP even with the gateway up. Entering a workspace now connects (or just
+   * joins the room when already connected); leaving one clears the room but
+   * keeps the socket, exactly as a direct page load followed by navigation did.
+   */
+  public setActiveRoom(fileId: string | null) {
+    if (fileId === this.activeRoom) return;
+    this.activeRoom = fileId;
+    if (!fileId) return;
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'join', fileId }));
+    } else if (!this.ws && !this.isConnecting) {
+      this.connect();
     }
   }
 
