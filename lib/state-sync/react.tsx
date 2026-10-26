@@ -147,7 +147,7 @@ export class StateSyncWSClient {
     if (fileId === this.activeRoom) return;
     const previous = this.activeRoom;
     this.activeRoom = fileId;
-    const open = !!this.ws && this.ws.readyState === WebSocket.OPEN;
+    const open = this.ws?.readyState === WebSocket.OPEN;
     // The gateway tracks room membership per connection, so a room we are done
     // with must be left explicitly or its cursor/presence events keep arriving.
     if (previous && open) this.ws!.send(JSON.stringify({ type: 'leave', fileId: previous }));
@@ -155,7 +155,7 @@ export class StateSyncWSClient {
     if (open) {
       this.ws!.send(JSON.stringify({ type: 'join', fileId }));
     } else if (!this.ws && !this.isConnecting) {
-      this.connect();
+      void this.connect();
     }
   }
 
