@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/db';
 import { checkRateLimit, getClientIp, LIMITS } from '@/lib/rate-limiter';
 import { logAuditEvent } from '@/lib/audit';
+import { logger } from '@/lib/logger';
 import { cleanupExpired, exchangeAuthCode, refreshTokens, type IssuedTokens, type OAuthError } from '@/lib/oauth/store';
 import { getBaseUrl, resourceMatches } from '@/lib/oauth/core';
 import { hasMediaType, NO_STORE_HEADERS, parseForm, readBodyCapped } from '@/lib/oauth/http';
@@ -18,7 +19,7 @@ function maybeCleanup(): void {
   const now = Date.now();
   if (now - lastCleanupAt < CLEANUP_INTERVAL_MS) return;
   lastCleanupAt = now;
-  void cleanupExpired(prisma).catch(() => undefined);
+  cleanupExpired(prisma).catch((err: unknown) => logger.error('oauth_cleanup_fallback_failed', err));
 }
 
 type Parsed = { form: URLSearchParams } | { response: Response };

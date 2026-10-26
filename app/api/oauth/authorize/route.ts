@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { getServerSession } from '@/lib/session-auth/server';
 import { logAuditEvent } from '@/lib/audit';
 import { getClientIp } from '@/lib/rate-limiter';
+import { logger } from '@/lib/logger';
 import { buildRedirect, getBaseUrl, normalizeScope, SCOPE_WRITE, verifyConsentToken } from '@/lib/oauth/core';
 import { isSameOrigin } from '@/lib/oauth/http';
 import { validateAuthorizeRequest } from '@/lib/oauth/authorize-request';
@@ -61,13 +62,21 @@ export async function POST(request: Request): Promise<Response> {
     .filter((s) => s !== SCOPE_WRITE || field('allow_write') === '1')
     .join(' ');
 
-  const code = await issueAuthCode(prisma, {
-    clientId: req.clientId,
-    userEmail: user.email,
-    codeChallenge: req.codeChallenge,
-    redirectUri: req.redirectUri,
-    scope: grantedScope,
-  });
+  let code: string;
+  try {
+    code = await issueAuthCode(prisma, {
+      clientId: req.clientId,
+      userEmail: user.email,
+      codeChallenge: req.codeChallenge,
+      redirectUri: req.redirectUri,
+      scope: grantedScope,
+    });
+  } catch (err) {
+    // Unused clients are pruned after 24 h; if one was removed between validation above and this
+    // insert (foreign-key failure), tell the user how to recover instead of a bare 500.
+    logger.warn('oauth_issue_code_failed', { clientId: req.clientId, reason: err instanceof Error ? err.message : String(err) });
+    return plain('This connection request expired. Remove the connector in your AI app and add it again.', 409);
+  }
   void logAuditEvent(null, user.email, 'oauth:consent:granted', { clientId: req.clientId, scope: grantedScope }, ip);
   return NextResponse.redirect(buildRedirect(req.redirectUri, { code, state: req.state || undefined, iss: base }), 303);
 }

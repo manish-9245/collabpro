@@ -15,6 +15,8 @@ const store = vi.hoisted(() => ({
 vi.mock('@/lib/oauth/store', () => ({ ...store, MAX_REDIRECT_URIS: 5 }));
 vi.mock('@/lib/db', () => ({ prisma: {} }));
 vi.mock('@/lib/audit', () => ({ logAuditEvent: vi.fn() }));
+const log = vi.hoisted(() => ({ warn: vi.fn(), error: vi.fn(), info: vi.fn() }));
+vi.mock('@/lib/logger', () => ({ logger: log }));
 vi.mock('@/lib/rate-limiter', () => ({
   checkRateLimit: vi.fn().mockResolvedValue({ allowed: true, remaining: 1, resetAt: Date.now() + 1000, firstBlock: false }),
   getClientIp: () => '203.0.113.9',
@@ -146,6 +148,14 @@ describe('POST /api/oauth/authorize (consent)', () => {
     expect((await submit({ decision: 'allow', consent_token: t }, {})).status).toBe(403);
     expect((await submit({ decision: 'allow', consent_token: t }, { 'Sec-Fetch-Site': 'cross-site' })).status).toBe(403);
     expect((await submit({ decision: 'allow', consent_token: t }, { 'Sec-Fetch-Site': 'same-origin' })).status).toBe(303);
+  });
+  it('a client pruned between validation and code issue is a clear 409, not a 500', async () => {
+    session.user = { email: 'u@x.co' };
+    store.issueAuthCode.mockRejectedValueOnce(new Error('Foreign key constraint failed'));
+    const res = await submit({ decision: 'allow', consent_token: tokenFor('u@x.co') });
+    expect(res.status).toBe(409);
+    expect(await res.text()).toMatch(/add it again/);
+    expect(log.warn).toHaveBeenCalledWith('oauth_issue_code_failed', expect.objectContaining({ clientId: 'c1' }));
   });
   it('rejects a consent token older than 10 minutes', async () => {
     session.user = { email: 'u@x.co' };
@@ -331,6 +341,7 @@ describe('cleanup endpoint (cron) fails closed', () => {
     expect((await cleanup(new Request('https://x.co/c', { method: 'POST' }))).status).toBe(404);
     process.env.CRON_SECRET = 'short';
     expect((await cleanup(new Request('https://x.co/c', { method: 'POST', headers: { Authorization: 'Bearer short' } }))).status).toBe(404); // weak secrets are treated as unconfigured
+    expect(log.warn).toHaveBeenCalledWith('oauth_cleanup_disabled', expect.objectContaining({ reason: expect.stringContaining('shorter than 24') })); // ...but the operator is told why
     process.env.CRON_SECRET = 'cron-secret-cron-secret-0123456789';
     expect((await cleanup(new Request('https://x.co/c', { method: 'POST', headers: { Authorization: 'Bearer nope' } }))).status).toBe(401);
     expect((await cleanup(new Request('https://x.co/c', { method: 'POST' }))).status).toBe(401);
