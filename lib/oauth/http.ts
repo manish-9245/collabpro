@@ -59,9 +59,14 @@ export function parseForm(body: string): URLSearchParams | null {
   return params;
 }
 
-/** Defense in depth for cookie-authenticated state changes: browser-set Origin (or Sec-Fetch-Site) must be our own origin. */
+/**
+ * Defense in depth for cookie-authenticated state changes: the browser-set Origin must be our own origin.
+ * /oauth/* pages are served with `Referrer-Policy: no-referrer` (next.config.mjs), which makes browsers send
+ * `Origin: null` on the consent form POST, so a "null" Origin falls back to Sec-Fetch-Site (set by the browser,
+ * not forgeable by pages). No Referer fallback: no-referrer means none is sent.
+ */
 export function isSameOrigin(request: Request): boolean {
   const origin = request.headers.get('origin');
-  if (origin) return origin === getBaseUrl(request);
+  if (origin && origin !== 'null') return origin === getBaseUrl(request);
   return request.headers.get('sec-fetch-site') === 'same-origin';
 }
