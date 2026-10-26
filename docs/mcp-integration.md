@@ -176,7 +176,7 @@ Use the **Run Handshake Diagnostics** button on the MCP settings page — it mak
 
 - **401 Unauthorized** — API key missing, invalid, revoked, or expired; or an OAuth token expired (Claude refreshes automatically; if it can't, re-add the connector).
 - **Claude says "Couldn't reach the MCP server"** — discovery failed: check `curl <app-url>/.well-known/oauth-protected-resource` returns `resource` equal to the URL you pasted, and that a WAF/proxy isn't blocking `/.well-known/*` or `160.79.104.0/21`.
-- **"Cross-origin request rejected" (403) on the consent screen** — the browser sent neither our `Origin` nor `Sec-Fetch-Site: same-origin`. Make sure you reached the consent page on the same hostname as `APP_URL` (not a `*.up.railway.app` or `www.` alias) and use a current browser; a browser without `Sec-Fetch-Site` support is rejected.
+- **"Cross-origin request rejected" (403) on the consent screen** — the POST had no `Origin` matching this server's public origin and, when `Origin` was absent or `null` (the normal case here), no `Sec-Fetch-Site: same-origin` either. Make sure you reached the consent page on the same hostname as `APP_URL` (not a `*.up.railway.app` or `www.` alias) and use a current browser.
 - **"redirect_uri is not registered"** — remove and re-add the connector (a stale client was pruned).
 - **`isError` "Forbidden" (HTTP 200)** — the key/grant is `read-only` and you called a write tool; re-authorize with write access.
 - **406 Not Acceptable** — your client isn't sending the required `Accept` header (see above); this is a client bug, not a server one.
