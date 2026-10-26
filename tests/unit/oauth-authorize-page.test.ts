@@ -17,6 +17,7 @@ vi.mock('@/lib/session-auth/server', () => ({ getServerSession: () => ({ getUser
 vi.mock('@/lib/oauth/authorize-request', () => ({ validateAuthorizeRequest: validate }));
 
 import AuthorizePage from '@/app/oauth/authorize/page';
+import { verifyConsentToken } from '@/lib/oauth/core';
 
 beforeAll(() => { process.env.SESSION_SECRET = 'test-secret-test-secret-test-secret-1234'; });
 
@@ -72,7 +73,12 @@ describe('/oauth/authorize page', () => {
     expect(html).toContain('Core, Platform');
     expect(html).toContain('name="allow_write"');
     expect(html).not.toMatch(/name="allow_write"[^>]*checked/); // write is OFF by default
-    expect(html).toMatch(/name="consent_token" value="\d+\.[A-Za-z0-9_-]+"/);
+    const token = html.match(/name="consent_token" value="([^"]+)"/)?.[1] ?? '';
+    const fields = { userEmail: 'u@x.co', clientId: base.clientId, redirectUri: base.redirectUri, codeChallenge: base.codeChallenge, state: base.state, scope: base.scope };
+    expect(verifyConsentToken(token, fields)).toBe(true); // bound to exactly this user + request...
+    expect(verifyConsentToken(token, { ...fields, userEmail: 'other@x.co' })).toBe(false); // ...not another user
+    expect(verifyConsentToken(token, { ...fields, redirectUri: 'https://evil.example.com/cb' })).toBe(false);
+    expect(verifyConsentToken(token, { ...fields, scope: 'mcp:read' })).toBe(false);
     expect(html).toContain('action="/api/oauth/authorize"');
     expect(html).not.toContain('on your own computer'); // hosted callback: no loopback warning
   });

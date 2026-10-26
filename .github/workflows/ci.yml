@@ -255,6 +255,21 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: node scripts/parse-insights.js
 
+      # This job needs both `test` and `e2e` now (Sonar needs the unit-test
+      # coverage), so the headline status must reflect BOTH: a failed unit-test
+      # job with green E2E must not produce a green summary.
+      - name: 🚦 Combine unit-test and E2E results
+        id: overall
+        env:
+          E2E_RESULT: ${{ needs.e2e.result }}
+          UNIT_RESULT: ${{ needs.test.result }}
+        run: |
+          if [ "$E2E_RESULT" = "success" ] && [ "$UNIT_RESULT" = "success" ]; then result=success
+          elif [ "$E2E_RESULT" = "cancelled" ] || [ "$UNIT_RESULT" = "cancelled" ]; then result=cancelled
+          else result=failure
+          fi
+          echo "result=$result" >> "$GITHUB_OUTPUT"
+
       # Render the CI summary email from .github/ci-email-template.html -
       # the static markup lives in that file; this step only resolves the
       # handful of dynamic values (job/step outcomes aren't visible inside a
@@ -263,10 +278,10 @@ jobs:
       - name: 🧩 Render CI Summary Email
         id: render_email
         env:
-          JOB_STATUS: ${{ needs.e2e.result }}
-          STATUS_BG: ${{ needs.e2e.result == 'success' && '#ecfdf5' || '#fef2f2' }}
-          STATUS_BORDER: ${{ needs.e2e.result == 'success' && '#a7f3d0' || '#fecaca' }}
-          STATUS_COLOR: ${{ needs.e2e.result == 'success' && '#047857' || '#b91c1c' }}
+          JOB_STATUS: ${{ steps.overall.outputs.result }}
+          STATUS_BG: ${{ steps.overall.outputs.result == 'success' && '#ecfdf5' || '#fef2f2' }}
+          STATUS_BORDER: ${{ steps.overall.outputs.result == 'success' && '#a7f3d0' || '#fecaca' }}
+          STATUS_COLOR: ${{ steps.overall.outputs.result == 'success' && '#047857' || '#b91c1c' }}
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_REF_NAME: ${{ github.ref_name }}
           GITHUB_SHA: ${{ github.sha }}
@@ -287,7 +302,7 @@ jobs:
           username: ${{ secrets.SMTP_USERNAME }}
           password: ${{ secrets.SMTP_PASSWORD }}
           secure: true
-          subject: "CollabPro CI: ${{ github.ref_name }} ${{ needs.e2e.result }} — Run #${{ github.run_id }}"
+          subject: "CollabPro CI: ${{ github.ref_name }} ${{ steps.overall.outputs.result }} — Run #${{ github.run_id }}"
           to: ${{ secrets.NOTIFICATION_EMAIL }}
           from: "CollabPro CI/CD <ci-reports@collabpro.com>"
           html_body: ${{ steps.render_email.outputs.html }}
