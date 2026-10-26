@@ -18,7 +18,7 @@ vi.mock('@/lib/audit', () => ({ logAuditEvent: vi.fn() }));
 vi.mock('@/lib/rate-limiter', () => ({
   checkRateLimit: vi.fn().mockResolvedValue({ allowed: true, remaining: 1, resetAt: Date.now() + 1000, firstBlock: false }),
   getClientIp: () => '203.0.113.9',
-  LIMITS: { OAUTH_REGISTER: {}, OAUTH_TOKEN: {} },
+  LIMITS: { OAUTH_REGISTER: {}, OAUTH_TOKEN: {}, CRON: {} },
 }));
 const session = vi.hoisted(() => ({ user: null as null | { email: string } }));
 vi.mock('@/lib/session-auth/server', () => ({ getServerSession: () => ({ getUser: async () => session.user }) }));
@@ -315,19 +315,27 @@ describe('revoke audit + stream failure', () => {
     const body = new ReadableStream({ start(c) { c.error(new Error('client went away')); } });
     const req = new Request('https://x.co/t', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body, duplex: 'half' } as RequestInit);
     const res = await token(req);
-    expect([400, 413]).toContain(res.status);
+    expect(res.status).toBe(413); // unreadable body is reported as 413 (readBodyCapped -> null), never a 500
   });
 });
 
 describe('cleanup endpoint (cron) fails closed', () => {
+  it('rate limits guesses before comparing the secret', async () => {
+    process.env.CRON_SECRET = 'cron-secret-cron-secret-0123456789';
+    vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: false, remaining: 0, resetAt: Date.now() + 1000, firstBlock: true });
+    expect((await cleanup(new Request('https://x.co/c', { method: 'POST', headers: { Authorization: 'Bearer cron-secret-cron-secret-0123456789' } }))).status).toBe(429);
+    expect(store.cleanupExpired).not.toHaveBeenCalled();
+  });
   afterEach(() => { delete process.env.CRON_SECRET; });
   it('is 404 without CRON_SECRET, 401 with a wrong secret, 200 with the right one', async () => {
     expect((await cleanup(new Request('https://x.co/c', { method: 'POST' }))).status).toBe(404);
-    process.env.CRON_SECRET = 'cron-secret';
+    process.env.CRON_SECRET = 'short';
+    expect((await cleanup(new Request('https://x.co/c', { method: 'POST', headers: { Authorization: 'Bearer short' } }))).status).toBe(404); // weak secrets are treated as unconfigured
+    process.env.CRON_SECRET = 'cron-secret-cron-secret-0123456789';
     expect((await cleanup(new Request('https://x.co/c', { method: 'POST', headers: { Authorization: 'Bearer nope' } }))).status).toBe(401);
     expect((await cleanup(new Request('https://x.co/c', { method: 'POST' }))).status).toBe(401);
     store.cleanupExpired.mockResolvedValue({ codes: 1, tokens: 2, clients: 3 });
-    const ok = await cleanup(new Request('https://x.co/c', { method: 'POST', headers: { Authorization: 'Bearer cron-secret' } }));
+    const ok = await cleanup(new Request('https://x.co/c', { method: 'POST', headers: { Authorization: 'Bearer cron-secret-cron-secret-0123456789' } }));
     expect(ok.status).toBe(200);
     expect(await ok.json()).toEqual({ codes: 1, tokens: 2, clients: 3 });
   });

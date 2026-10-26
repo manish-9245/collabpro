@@ -56,7 +56,7 @@ export default function ConnectedApps() {
         {state.status === 'error' && (
           <div role="alert" className="flex items-center justify-between gap-3 text-[11px] text-rose-600">
             Couldn&apos;t load your connected apps.
-            <button type="button" onClick={() => void load()} className="font-bold underline cursor-pointer">Retry</button>
+            <button type="button" onClick={() => { setState({ status: 'loading' }); void load(); }} className="font-bold underline cursor-pointer">Retry</button>
           </div>
         )}
         {state.status === 'ready' && state.grants.length === 0 && <div className="text-[11px] text-slate-400 italic">No connected apps yet.</div>}

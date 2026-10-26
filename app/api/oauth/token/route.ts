@@ -1,12 +1,24 @@
 import { prisma } from '@/lib/db';
 import { checkRateLimit, getClientIp, LIMITS } from '@/lib/rate-limiter';
 import { logAuditEvent } from '@/lib/audit';
-import { exchangeAuthCode, refreshTokens, type IssuedTokens, type OAuthError } from '@/lib/oauth/store';
+import { cleanupExpired, exchangeAuthCode, refreshTokens, type IssuedTokens, type OAuthError } from '@/lib/oauth/store';
 import { getBaseUrl, resourceMatches } from '@/lib/oauth/core';
 import { hasMediaType, NO_STORE_HEADERS, parseForm, readBodyCapped } from '@/lib/oauth/http';
 
 function fail(error: string, description: string, status = 400): Response {
   return Response.json({ error, error_description: description }, { status, headers: NO_STORE_HEADERS });
+}
+
+// Housekeeping fallback for deployments that never schedule the cron: at most
+// once an hour per server process, on a successful exchange. Deterministic (no
+// randomness) and fire-and-forget; /api/internal/oauth-cleanup is the primary path.
+const CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
+let lastCleanupAt = 0;
+function maybeCleanup(): void {
+  const now = Date.now();
+  if (now - lastCleanupAt < CLEANUP_INTERVAL_MS) return;
+  lastCleanupAt = now;
+  void cleanupExpired(prisma).catch(() => undefined);
 }
 
 type Parsed = { form: URLSearchParams } | { response: Response };
@@ -44,8 +56,6 @@ function runGrant(form: URLSearchParams, clientId: string): Promise<IssuedTokens
 
 // OAuth 2.1 token endpoint. Spec requires application/x-www-form-urlencoded
 // (Claude sends exactly that for both the code exchange and refreshes).
-// Housekeeping of expired rows lives in /api/internal/oauth-cleanup (cron),
-// not on this hot path.
 export async function POST(request: Request): Promise<Response> {
   if (process.env.OAUTH_DISABLED === 'true') return fail('temporarily_unavailable', 'OAuth is disabled', 503);
   const ip = getClientIp(request);
@@ -65,6 +75,7 @@ export async function POST(request: Request): Promise<Response> {
     void logAuditEvent(null, 'unknown', 'oauth:token:failure', { grantType: parsed.form.get('grant_type'), clientId, reason: result.description }, ip);
     return fail(result.error, result.description);
   }
+  maybeCleanup();
   return Response.json(
     { access_token: result.accessToken, token_type: 'Bearer', expires_in: result.expiresIn, refresh_token: result.refreshToken, scope: result.scope },
     { headers: NO_STORE_HEADERS },

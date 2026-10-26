@@ -77,6 +77,8 @@ export const LIMITS = {
   // than by request volume. Failures themselves are never throttled here.
   MCP_AUTH_FAIL_AUDIT: { windowMs: 60 * 1000, maxAttempts: 1 },
   MCP_AUTH_FAIL_AUDIT_GLOBAL: { windowMs: 60 * 1000, maxAttempts: 60 },
+  // Bearer-secret guarded cron endpoints: a handful of legitimate calls a day, so any burst is guessing.
+  CRON: { windowMs: 60 * 1000, maxAttempts: 10 },
   OAUTH_REGISTER: { windowMs: 60 * 60 * 1000, maxAttempts: 30 },
   OAUTH_TOKEN: { windowMs: 60 * 1000, maxAttempts: 120 },
   // AI chat sidebar sends: keyed per user. 20/min is generous for interactive

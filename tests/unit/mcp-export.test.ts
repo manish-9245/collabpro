@@ -1,5 +1,30 @@
 import { describe, it, expect } from 'vitest';
+import * as Y from 'yjs';
 import { documentToHtml, documentToMarkdown, documentToText, exportFile, MAX_EXPORT_CHARS } from '@/lib/mcp/export';
+
+// Reproduces the pre-#188 { yjs: true, data } envelope (same helper as legacy-crdt-decode.test.ts).
+function legacyEncode(state: Record<string, unknown>): string {
+  const ydoc = new Y.Doc();
+  const setDeep = (target: Y.Map<unknown>, obj: Record<string, unknown>) => {
+    for (const [key, value] of Object.entries(obj)) {
+      if (value === undefined || value === null) target.set(key, null);
+      else if (Array.isArray(value)) {
+        const arr = new Y.Array<unknown>();
+        target.set(key, arr);
+        arr.insert(0, value.map((item) => {
+          if (item && typeof item === 'object') { const m = new Y.Map<unknown>(); setDeep(m, item as Record<string, unknown>); return m; }
+          return item;
+        }));
+      } else if (typeof value === 'object') {
+        const m = new Y.Map<unknown>();
+        target.set(key, m);
+        setDeep(m, value as Record<string, unknown>);
+      } else target.set(key, value);
+    }
+  };
+  setDeep(ydoc.getMap('state'), state);
+  return JSON.stringify({ yjs: true, data: Buffer.from(Y.encodeStateAsUpdate(ydoc)).toString('base64') });
+}
 
 const doc = JSON.stringify({
   blocks: [
@@ -43,10 +68,19 @@ describe('document export', () => {
     expect(text).toContain('a | b');
     expect(text).toContain('Heads up');
   });
-  it('decodes legacy-encoded stored state instead of exporting an empty file', () => {
-    const legacy = JSON.stringify({ yjs: true, data: Buffer.from('garbage').toString('base64') });
-    expect(() => exportFile({ fileName: 'f', document: legacy, whiteboard: legacy }, 'markdown')).not.toThrow();
-    expect(() => exportFile({ fileName: 'f', document: legacy, whiteboard: legacy }, 'svg')).not.toThrow();
+  it('decodes REAL legacy Yjs-encoded state: the exported content is the original content, not an empty file', () => {
+    const legacyDoc = legacyEncode({ blocks: [{ type: 'paragraph', data: { text: 'Legacy hello' } }, { type: 'header', data: { text: 'Legacy title', level: 2 } }] });
+    const legacyBoard = legacyEncode({ elements: [{ id: 'r', type: 'rectangle', x: 0, y: 0, width: 30, height: 30, strokeColor: '#123456' }], files: {} });
+    const md = exportFile({ fileName: 'f', document: legacyDoc, whiteboard: legacyBoard }, 'markdown').content;
+    expect(md).toContain('Legacy hello');
+    expect(md).toContain('## Legacy title');
+    expect(exportFile({ fileName: 'f', document: legacyDoc, whiteboard: legacyBoard }, 'text').content).toContain('Legacy hello');
+    expect(exportFile({ fileName: 'f', document: legacyDoc, whiteboard: legacyBoard }, 'svg').content).toContain('#123456');
+  });
+  it('keeps text containing an unmatched "<" instead of truncating it', () => {
+    const d = JSON.stringify({ blocks: [{ type: 'paragraph', data: { text: 'if 2 < 3 then <b>ok</b> and a<b' } }] });
+    const md = documentToMarkdown(d, 't');
+    expect(md).toContain('if 2 < 3 then ok and a<b');
   });
   it('tag stripping is linear on hostile input (no regex backtracking)', () => {
     const hostile = JSON.stringify({ blocks: [{ type: 'paragraph', data: { text: '<'.repeat(200_000) } }] });

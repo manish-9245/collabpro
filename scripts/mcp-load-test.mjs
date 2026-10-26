@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Minimal load/soak probe for /api/mcp and the OAuth discovery/token paths.
 //   BASE_URL=https://app.example.com COLLABPRO_API_KEY=collabpro_pat_... \
-//   node scripts/mcp-load-test.mjs [--seconds 30] [--concurrency 10]
+//   node scripts/mcp-load-test.mjs [--seconds 30] [--concurrency 10] [--token-probe]
 // Reports p50/p95/p99 latency and error rate per endpoint. The OAuth discovery
 // and token endpoints must stay far below Claude's 10s timeout (30s for refresh).
 const args = process.argv.slice(2);
@@ -10,6 +10,9 @@ const base = (process.env.BASE_URL || 'http://localhost:3000').replace(/\/$/, ''
 const key = process.env.COLLABPRO_API_KEY;
 const seconds = flag('seconds', 30);
 const concurrency = flag('concurrency', 10);
+// The token endpoint is rate limited per IP (120/min) and every failed grant writes an audit row,
+// so probing it is opt-in (--token-probe) and a 429 there is an expected throttle, not an error.
+const tokenProbe = args.includes('--token-probe');
 // A typo'd flag must fail loudly, not produce an empty "green" run.
 if (!Number.isFinite(seconds) || seconds <= 0 || !Number.isInteger(concurrency) || concurrency <= 0) {
   console.error('Usage: --seconds <positive number> --concurrency <positive integer>');
@@ -19,10 +22,11 @@ if (!Number.isFinite(seconds) || seconds <= 0 || !Number.isInteger(concurrency) 
 const targets = [
   { name: 'well-known/oauth-protected-resource', run: () => fetch(`${base}/.well-known/oauth-protected-resource`) },
   { name: 'well-known/oauth-authorization-server', run: () => fetch(`${base}/.well-known/oauth-authorization-server`) },
-  // Token endpoint with a deliberately invalid grant: exercises the real hot path (rate limit, parsing, DB lookup) and must answer 400 invalid_grant quickly.
-  { name: 'oauth token (invalid grant)', run: () => fetch(`${base}/api/oauth/token`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'grant_type=refresh_token&client_id=loadtest&refresh_token=collabpro_ort_invalid' }), expect: 400 },
   { name: 'mcp 401 (unauthenticated)', run: () => fetch(`${base}/api/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: '{}' }), expect: 401 },
 ];
+if (tokenProbe) {
+  targets.push({ name: 'oauth token (invalid grant, opt-in)', expectAny: [400, 429], run: () => fetch(`${base}/api/oauth/token`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'grant_type=refresh_token&client_id=loadtest&refresh_token=collabpro_ort_invalid' }) });
+}
 if (key) {
   targets.push({
     name: 'mcp tools/list (authed)',
@@ -40,7 +44,8 @@ async function worker(n) {
     try {
       const res = await t.run();
       await res.arrayBuffer();
-      if (res.status !== (t.expect ?? 200)) s.errors++;
+      const accepted = t.expectAny ?? [t.expect ?? 200];
+      if (!accepted.includes(res.status)) s.errors++;
     } catch { s.errors++; }
     s.lat.push(performance.now() - t0);
   }

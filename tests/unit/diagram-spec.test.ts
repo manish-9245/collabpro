@@ -118,7 +118,8 @@ describe('label limits keep text inside its box and clear of arrows', () => {
   });
   it('the widest permitted label still fits its (capped) box', () => {
     const size = defaultSize('x'.repeat(MAX_NODE_LABEL));
-    expect(size.w).toBeGreaterThanOrEqual(MAX_NODE_LABEL * 9);
+    // node text is inset 8px each side inside the box, so that is the width it really has
+    expect(size.w - 16).toBeGreaterThanOrEqual(MAX_NODE_LABEL * 9);
   });
   it('left-to-right layers leave room for the longest edge label between boxes', () => {
     const s: DiagramSpec = { nodes: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }], edges: [{ from: 'a', to: 'b', label: 'x'.repeat(MAX_EDGE_LABEL) }] };

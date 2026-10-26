@@ -25,7 +25,7 @@ Signals already emitted: `mcp_request` structured log line (user, method, tool, 
 - `SESSION_SECRET` set; **`APP_URL` set to the public https origin** (pins OAuth issuer/metadata and enables caching of discovery documents).
 - `npm run verify-pipelines` green (CI + Railway).
 - Set `CRON_SECRET` and schedule a daily cron: `curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://<app>/api/internal/oauth-cleanup` (runs inside the app image; the `npm run oauth:cleanup` script needs a source checkout + `tsx`, which the production image does not ship).
-- Smoke: `BASE_URL=https://<app> COLLABPRO_API_KEY=<test-key> npm run mcp:loadtest -- --seconds 20` (without `BASE_URL` it targets localhost; without a key it skips the authenticated `tools/list` probe).
+- Smoke: `BASE_URL=https://<app> COLLABPRO_API_KEY=<test-key> npm run mcp:loadtest -- --seconds 20` (add `--token-probe` to also exercise `/api/oauth/token`: opt-in because that endpoint is rate limited per IP and each failed grant writes an audit row; without `BASE_URL` it targets localhost; without a key it skips the authenticated `tools/list` probe).
 
 ## Incidents
 | Symptom | Action |

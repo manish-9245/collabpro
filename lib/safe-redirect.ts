@@ -15,5 +15,9 @@ export function safeRedirectPath(requested: string | null | undefined, origin: s
     return fallback;
   }
   if (url.origin !== origin) return fallback;
+  // Path normalization can collapse dot-segments into a protocol-relative URL
+  // ("/.//evil.com" parses to pathname "//evil.com"); assigned to
+  // location.href that would leave the site, so refuse any such result.
+  if (url.pathname.startsWith('//') || url.pathname.startsWith('/\\')) return fallback;
   return `${url.pathname}${url.search}${url.hash}`;
 }

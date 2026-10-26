@@ -30,13 +30,24 @@ function str(value: unknown): string {
 
 // Editor.js stores inline HTML (<b>, <i>, <a>); keep the text, drop the tags.
 // Tags are removed with a linear scan (no regex backtracking on hostile input).
+// A "<" only opens a tag when followed by a letter, "/", "!" or "?" (as in HTML
+// parsing), so text like "2 < 3" survives; a tag that never closes is kept as text.
 function stripTags(html: string): string {
   let out = '';
-  let inTag = false;
-  for (const ch of html) {
-    if (ch === '<') inTag = true;
-    else if (ch === '>' && inTag) inTag = false;
-    else if (!inTag) out += ch;
+  let i = 0;
+  while (i < html.length) {
+    const ch = html[i];
+    if (ch === '<' && /[A-Za-z/!?]/.test(html[i + 1] ?? '')) {
+      const end = html.indexOf('>', i + 1);
+      if (end === -1) {
+        out += html.slice(i);
+        break;
+      }
+      i = end + 1;
+      continue;
+    }
+    out += ch;
+    i += 1;
   }
   return out;
 }
