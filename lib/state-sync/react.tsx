@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from "react";
+import { ACTIVE_POLL_MS, IDLE_AFTER_MS, pollIntervalFor } from './polling';
 // We will lazily import idb to avoid SSR module resolution errors
 let dbPromise: Promise<any> | null = null;
 if (typeof window !== 'undefined') {
@@ -453,74 +454,55 @@ export class StateSyncWSClient {
 
 export const wsClient = typeof window !== 'undefined' ? new StateSyncWSClient() : null;
 
-function useAdaptiveInterval(defaultInterval = 4000, backoffInterval = 60000, inactivityTimeout = 60000) {
-  const [intervalTime, setIntervalTime] = useState(defaultInterval);
+/**
+ * Poll interval for the HTTP fallback, always derived from the tab's real
+ * state (visibility + time since the last input) through pollIntervalFor, so
+ * the documented cadence and the runtime behavior cannot drift apart. A hidden
+ * tab stays on the slow cadence however long it idles, and a query mounted
+ * while the tab is hidden starts on it.
+ */
+export function useAdaptiveInterval(): number {
   const lastActivityRef = useRef(Date.now());
+  const read = () =>
+    pollIntervalFor({
+      visible: typeof document === "undefined" || document.visibilityState !== "hidden",
+      msSinceActivity: Date.now() - lastActivityRef.current,
+    });
+  const [intervalTime, setIntervalTime] = useState<number>(ACTIVE_POLL_MS);
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof document === "undefined") return;
 
-    let inactivityTimer: any = null;
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const refresh = () => {
+      setIntervalTime(read());
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = null;
+      // Only a visible, still-active tab can change state by itself (by going
+      // idle); everything else changes through activity or visibility events.
+      const idleIn = IDLE_AFTER_MS - (Date.now() - lastActivityRef.current);
+      if (document.visibilityState !== "hidden" && idleIn > 0) {
+        idleTimer = setTimeout(refresh, idleIn);
+      }
+    };
 
     const handleActivity = () => {
       lastActivityRef.current = Date.now();
-      // If we were backed off, restore immediately
-      setIntervalTime((prev) => {
-        if (prev !== defaultInterval && document.visibilityState === "visible") {
-          return defaultInterval;
-        }
-        return prev;
-      });
-
-      // Reset inactivity check timer
-      if (inactivityTimer) clearTimeout(inactivityTimer);
-      inactivityTimer = setTimeout(checkInactivity, inactivityTimeout);
+      refresh();
     };
 
-    const checkInactivity = () => {
-      const elapsed = Date.now() - lastActivityRef.current;
-      if (elapsed >= inactivityTimeout) {
-        setIntervalTime(backoffInterval);
-      } else {
-        // Schedule next check for remaining time
-        const remaining = inactivityTimeout - elapsed;
-        inactivityTimer = setTimeout(checkInactivity, remaining);
-      }
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "hidden") {
-        setIntervalTime(300000); // 5 minutes (practically paused) when tab is hidden
-      } else {
-        // Check if they are active before resetting to default
-        const elapsed = Date.now() - lastActivityRef.current;
-        if (elapsed < inactivityTimeout) {
-          setIntervalTime(defaultInterval);
-        } else {
-          setIntervalTime(backoffInterval);
-        }
-      }
-    };
-
-    // Listen to standard activity events
     const activityEvents = ["mousemove", "keydown", "mousedown", "scroll", "click", "touchstart"];
-    activityEvents.forEach((event) => {
-      window.addEventListener(event, handleActivity, { passive: true });
-    });
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    // Initial inactivity scheduling
-    inactivityTimer = setTimeout(checkInactivity, inactivityTimeout);
+    activityEvents.forEach((event) => window.addEventListener(event, handleActivity, { passive: true }));
+    document.addEventListener("visibilitychange", refresh);
+    refresh();
 
     return () => {
-      activityEvents.forEach((event) => {
-        window.removeEventListener(event, handleActivity);
-      });
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      if (inactivityTimer) clearTimeout(inactivityTimer);
+      activityEvents.forEach((event) => window.removeEventListener(event, handleActivity));
+      document.removeEventListener("visibilitychange", refresh);
+      if (idleTimer) clearTimeout(idleTimer);
     };
-  }, [defaultInterval, backoffInterval, inactivityTimeout]);
+  }, []);
 
   return intervalTime;
 }
@@ -536,7 +518,7 @@ export function useQuery(queryReference: any, args?: any) {
   // throw "Missing team context" trying to read .teamId off a string).
   const isSkipped = !queryPath || queryPath === 'skip' || args === 'skip';
   const argsString = JSON.stringify(args || {});
-  const intervalTime = useAdaptiveInterval(4000, 60000, 60000);
+  const intervalTime = useAdaptiveInterval();
 
   const [data, setData] = useState<any>(() => {
     if (isSkipped) return undefined;
