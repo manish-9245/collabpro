@@ -98,19 +98,19 @@ The standalone WebSocket system (`ws-server/server.ts`) runs independently of th
 When WebSockets are unavailable (firewalls, VPNs, restrictive proxies), the client's `StateSyncClient` falls back to HTTP polling against `/api/state-sync` with a backoff controller:
 
 ```
-[Active Tab / Interaction] ────────► 4s Polling Frequency
+[Active Tab / Interaction] ────────► 15s Polling Frequency
       │
-      ├─► Tab Blurs / Hidden ─────────► 15s Polling Frequency
+      ├─► Tab Blurs / Hidden ─────────► 5 min (practically paused)
       │
-      └─► User Inactive > 60s ────────► 15s Polling Frequency
+      └─► User Inactive > 60s ────────► 60s Polling Frequency
             │
-            └─► Real-Time Input ──────► Resumes Instantly to 4s
+            └─► Real-Time Input ──────► Resumes Instantly to 15s
 ```
 
-- **Active state**: polls every 4 seconds for near-real-time sync.
-- **Tab blur**: backs off to 15 seconds the moment the tab loses visibility.
-- **Inactivity**: backs off to 15 seconds after 60s with zero user input (mouse, scroll, keyboard, touch).
-- **Resumption**: any local interaction instantly cancels the 15s timer and forces an immediate sync, restoring the 4s cadence.
+- **Active state**: polls every 15 seconds (`lib/state-sync/polling.ts`). This path is only the fallback for when the WebSocket gateway is not connected; each mounted query polls on its own timer, so the cadence is deliberately conservative. Local edits refetch immediately via the `state-sync:refetch` event.
+- **Tab hidden**: backs off to 5 minutes (practically paused).
+- **Inactivity**: backs off to 60 seconds after 60s with zero user input (mouse, scroll, keyboard, touch).
+- **Resumption**: any local interaction instantly restarts polling with an immediate sync and the 15s cadence.
 
 ---
 

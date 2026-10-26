@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from "react";
+import { ACTIVE_POLL_MS, HIDDEN_POLL_MS, IDLE_AFTER_MS, IDLE_POLL_MS } from './polling';
 // We will lazily import idb to avoid SSR module resolution errors
 let dbPromise: Promise<any> | null = null;
 if (typeof window !== 'undefined') {
@@ -453,7 +454,7 @@ export class StateSyncWSClient {
 
 export const wsClient = typeof window !== 'undefined' ? new StateSyncWSClient() : null;
 
-function useAdaptiveInterval(defaultInterval = 4000, backoffInterval = 60000, inactivityTimeout = 60000) {
+function useAdaptiveInterval(defaultInterval = ACTIVE_POLL_MS, backoffInterval = IDLE_POLL_MS, inactivityTimeout = IDLE_AFTER_MS) {
   const [intervalTime, setIntervalTime] = useState(defaultInterval);
   const lastActivityRef = useRef(Date.now());
 
@@ -490,7 +491,7 @@ function useAdaptiveInterval(defaultInterval = 4000, backoffInterval = 60000, in
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
-        setIntervalTime(300000); // 5 minutes (practically paused) when tab is hidden
+        setIntervalTime(HIDDEN_POLL_MS); // practically paused when the tab is hidden
       } else {
         // Check if they are active before resetting to default
         const elapsed = Date.now() - lastActivityRef.current;
@@ -536,7 +537,7 @@ export function useQuery(queryReference: any, args?: any) {
   // throw "Missing team context" trying to read .teamId off a string).
   const isSkipped = !queryPath || queryPath === 'skip' || args === 'skip';
   const argsString = JSON.stringify(args || {});
-  const intervalTime = useAdaptiveInterval(4000, 60000, 60000);
+  const intervalTime = useAdaptiveInterval();
 
   const [data, setData] = useState<any>(() => {
     if (isSkipped) return undefined;

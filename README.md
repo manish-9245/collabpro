@@ -42,7 +42,7 @@ CollabPro is **self-contained with zero required third-party SaaS dependencies**
 
 ### ⚡ 5. State-Sync & Performance Foundation
 - **WebSocket-First, Poll-Fallback**: Real-time sync over WebSockets when available, with automatic HTTP polling fallback for restrictive networks.
-- **Smart Active-Backoff Polling**: Fallback polling scales from 4s to 15s during tab-blur or 60+ seconds of inactivity, and resumes instantly on interaction.
+- **Smart Active-Backoff Polling**: Fallback polling runs every 15s while you're active, backs off to 60s after a minute of inactivity, and nearly pauses (5 min) in a background tab; it resumes on interaction.
 - **Redis Cache-Aside Reads**: File reads are cached in Redis with write-path invalidation; falls through to Postgres transparently if Redis is unavailable.
 
 ### 🤖 6. MCP Automation Tools
